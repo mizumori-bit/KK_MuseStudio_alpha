@@ -1,0 +1,43 @@
+{
+ "_note": "MetaMuse Stage bridge settings (implementation-spec.md 4). Relative paths are relative to this file.",
+ "host": "127.0.0.1",
+ "port": 18765,
+ "web_root": "../web",
+ "static_root": "static",
+ "kkdata_root": "../kk_data",
+ "audio_cache_dir": "cache/audio",
+ "events_file": "cache/events.json",
+ "characters_dir": "../characters",
+ "_characters_note": "GET /api/characters: characters_source cards = MuseStudio's character cards (card_dirs, read on each request); saves = the Godot app's saved characters (characters_dir)",
+ "characters_source": "cards",
+ "card_dirs": [
+  "../MuseStudio/game/UserData/chara/female",
+  "../キャラカード"
+ ],
+ "_persona_note": "MuseStudio's registered personas (its menu writes the file): each card's persona in /api/characters",
+ "persona_file": "../MuseStudio/game/UserData/MuseStudio/personas.json",
+ "voice_catalog": "voice_catalog.json",
+ "web_data_list": "../tools/kk_web_list.txt",
+ "default_voice": "mms_v11",
+ "_auth_note": "Who may use the bridge (the security review of 2026-11-05, SEC-01/06; MUSE_GUIDE 7.1): auth \"required\" (the default) asks every request for a token - Muse's or the app's, made at the first start in tokens_file (this PC only: never in the repository, a chat or a log; python bridge.py --print-token muse shows Muse's, for the user to hand over) - while GET /health answers only that the bridge is alive; \"off\" serves everyone as before. allowed_hosts lists this PC's other names a request may come by (the tailnet name Tailscale's serve passes on, e.g. \"mypc.tailxxxx.ts.net\"): any other Host is refused (DNS rebinding), browser or not.",
+ "auth": "required",
+ "tokens_file": "cache/tokens.json",
+ "allowed_hosts": [],
+ "_cors_note": "false (the default): no web page of another site may use the bridge - Muse, the app and the tools send no browser headers and are not affected; the bridge's own pages on 127.0.0.1 / localhost are. A list of origins (\"http://host:port\") lets those sites in; true lets every site in (not recommended: the bridge has no authentication).",
+ "cors": false,
+ "_match_note": "The Muse-to-Muse match's relay: relay_url is the default one (the public ntfy); relay_allow lists the other relays this bridge may talk to (for example your own on the LAN: \"http://192.168.1.20:18793\") - a relay an invitation names is used only when it is one of these (the security review of 2026-11-05, SEC-05). A name listed here is trusted with its DNS too: the bridge does not check the address the name resolves to, so list only relays you or your opponent run and trust (an http:// one above all).",
+ "match": {"relay_url": "https://ntfy.sh", "relay_allow": []},
+ "irodori": {
+  "_enabled_note": "false: the voice is off - the bridge never calls Irodori, the launcher does not start it, blocks stay silent (Muse's voice labels still drive the faces). The user's decision 2026-11-03: Irodori running alongside is too heavy; set true to have the voice again.",
+  "enabled": false,
+  "url": "http://127.0.0.1:8088",
+  "model": "irodori-tts",
+  "timeout": 60,
+  "caption_mode": "irodori.caption",
+  "emoji_mode": "inline",
+  "response_format": "wav",
+  "api_key": "",
+  "irodori_options": {},
+  "fail_fast_seconds": 5
+ }
+}

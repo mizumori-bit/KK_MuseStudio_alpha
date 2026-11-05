@@ -1,0 +1,465 @@
+{
+ "_note": "Touch (stage 3, MUSE_GUIDE.md 3.6). areas: key = the abstract name Muse gets (touch events); name = Japanese; shapes = invisible hit shapes on bones (bone-local, Godot axes: x left/right, y up, z back (-z forward); sphere / capsule with axis 0 x, 1 y, 2 z). The sizes follow KoikatsuOfGodot's data (talk touch hits: head, cheek, hand; the body colliders of h-view-v2: chest, belly, hips, thigh, arm, leg); crotch is this app's own. reactions: the face shown at once during a play (before Muse answers), by the gauge value: [[from, face preset], ...], for reaction_seconds; outside a play the original talk's reaction (talk) gives the face and the pose. gesture: what counts as a stroke / hold; window: touches end up in one event when no touch came for this long. Provisional: replace freely. An area with priority (the anal: small, between the hips) wins a ray that hits it within priority_slack metres of the nearest hit. MuseStudio: the shapes' centres are in Unity's bone frame (the Godot app's with z flipped); talk.rows = personality -> stage -> touch point -> the rows by level (expression cells, the pose's Studio animation), from the original's talk data (tools/derive_data.py).",
+ "areas": {
+  "head": {
+   "name": "頭",
+   "shapes": [
+    {
+     "bone": "cf_j_head",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.11,
+      -0.0
+     ],
+     "radius": 0.09,
+     "height": 0.25,
+     "axis": 1
+    }
+   ]
+  },
+  "cheek": {
+   "name": "頬",
+   "shapes": [
+    {
+     "bone": "cf_j_head",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0221,
+      0.0564
+     ],
+     "radius": 0.035,
+     "height": 0.13,
+     "axis": 0
+    }
+   ]
+  },
+  "hand": {
+   "name": "手",
+   "shapes": [
+    {
+     "bone": "cf_j_hand_L",
+     "type": "sphere",
+     "center": [
+      -0.04,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.05
+    },
+    {
+     "bone": "cf_j_hand_R",
+     "type": "sphere",
+     "center": [
+      0.04,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.05
+    }
+   ]
+  },
+  "arm": {
+   "name": "腕",
+   "shapes": [
+    {
+     "bone": "cf_j_arm00_L",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0,
+      0.01
+     ],
+     "radius": 0.06,
+     "height": 0.22,
+     "axis": 0
+    },
+    {
+     "bone": "cf_j_arm00_R",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0,
+      0.01
+     ],
+     "radius": 0.06,
+     "height": 0.22,
+     "axis": 0
+    },
+    {
+     "bone": "cf_s_forearm02_L",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0,
+      0.01
+     ],
+     "radius": 0.05,
+     "height": 0.24,
+     "axis": 0
+    },
+    {
+     "bone": "cf_s_forearm02_R",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0,
+      0.01
+     ],
+     "radius": 0.05,
+     "height": 0.24,
+     "axis": 0
+    }
+   ]
+  },
+  "chest": {
+   "name": "胸",
+   "shapes": [
+    {
+     "bone": "cf_d_hit_bust_L",
+     "type": "sphere",
+     "center": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.085
+    },
+    {
+     "bone": "cf_d_hit_bust_R",
+     "type": "sphere",
+     "center": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.085
+    }
+   ]
+  },
+  "belly": {
+   "name": "お腹",
+   "shapes": [
+    {
+     "bone": "cf_j_waist01",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.1,
+     "height": 0.2,
+     "axis": 0
+    }
+   ]
+  },
+  "hips": {
+   "name": "お尻",
+   "shapes": [
+    {
+     "bone": "cf_s_siri_L",
+     "type": "sphere",
+     "center": [
+      0.0,
+      -0.004,
+      0.004
+     ],
+     "radius": 0.1
+    },
+    {
+     "bone": "cf_s_siri_R",
+     "type": "sphere",
+     "center": [
+      0.0,
+      -0.004,
+      0.004
+     ],
+     "radius": 0.1
+    }
+   ]
+  },
+  "crotch": {
+   "name": "股間",
+   "shapes": [
+    {
+     "bone": "cf_j_waist02",
+     "type": "sphere",
+     "center": [
+      0.0,
+      -0.09,
+      0.05
+     ],
+     "radius": 0.05
+    }
+   ]
+  },
+  "anal": {
+   "name": "アナル",
+   "priority": 1,
+   "shapes": [
+    {
+     "bone": "cf_d_ana",
+     "type": "sphere",
+     "center": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.03
+    }
+   ]
+  },
+  "thigh": {
+   "name": "太もも",
+   "shapes": [
+    {
+     "bone": "cf_s_thigh01_L",
+     "type": "sphere",
+     "center": [
+      0.0,
+      0.0,
+      -0.01
+     ],
+     "radius": 0.085
+    },
+    {
+     "bone": "cf_s_thigh01_R",
+     "type": "sphere",
+     "center": [
+      0.0,
+      0.0,
+      -0.01
+     ],
+     "radius": 0.085
+    },
+    {
+     "bone": "cf_s_thigh02_L",
+     "type": "capsule",
+     "center": [
+      0.0,
+      -0.04,
+      -0.005
+     ],
+     "radius": 0.08,
+     "height": 0.45,
+     "axis": 1
+    },
+    {
+     "bone": "cf_s_thigh02_R",
+     "type": "capsule",
+     "center": [
+      0.0,
+      -0.04,
+      -0.005
+     ],
+     "radius": 0.08,
+     "height": 0.45,
+     "axis": 1
+    }
+   ]
+  },
+  "leg": {
+   "name": "脚",
+   "shapes": [
+    {
+     "bone": "cf_s_leg01_L",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.07,
+     "height": 0.5,
+     "axis": 1
+    },
+    {
+     "bone": "cf_s_leg01_R",
+     "type": "capsule",
+     "center": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "radius": 0.07,
+     "height": 0.5,
+     "axis": 1
+    }
+   ]
+  }
+ },
+ "reactions": {
+  "head": [
+   [
+    0.0,
+    "gentle"
+   ],
+   [
+    0.5,
+    "flushed"
+   ]
+  ],
+  "cheek": [
+   [
+    0.0,
+    "flushed"
+   ],
+   [
+    0.6,
+    "desire"
+   ]
+  ],
+  "hand": [
+   [
+    0.0,
+    "gentle"
+   ],
+   [
+    0.5,
+    "flushed"
+   ]
+  ],
+  "arm": [
+   [
+    0.0,
+    "neutral"
+   ],
+   [
+    0.5,
+    "flushed"
+   ]
+  ],
+  "chest": [
+   [
+    0.0,
+    "flushed"
+   ],
+   [
+    0.4,
+    "aroused"
+   ],
+   [
+    0.85,
+    "ecstasy"
+   ]
+  ],
+  "belly": [
+   [
+    0.0,
+    "flushed"
+   ],
+   [
+    0.6,
+    "aroused"
+   ]
+  ],
+  "hips": [
+   [
+    0.0,
+    "flushed"
+   ],
+   [
+    0.4,
+    "aroused"
+   ],
+   [
+    0.85,
+    "ecstasy"
+   ]
+  ],
+  "crotch": [
+   [
+    0.0,
+    "aroused"
+   ],
+   [
+    0.7,
+    "ecstasy"
+   ]
+  ],
+  "anal": [
+   [
+    0.0,
+    "aroused"
+   ],
+   [
+    0.7,
+    "ecstasy"
+   ]
+  ],
+  "thigh": [
+   [
+    0.0,
+    "flushed"
+   ],
+   [
+    0.5,
+    "aroused"
+   ]
+  ],
+  "leg": [
+   [
+    0.0,
+    "neutral"
+   ],
+   [
+    0.6,
+    "flushed"
+   ]
+  ]
+ },
+ "reaction_seconds": 2.0,
+ "priority_slack": 0.15,
+ "aibu_hands": {
+  "_note": "The user's items during an aibu play (aibu_hands.gd): each touch area has its chosen item (the wheel over it or the play bar: hand, finger, tongue, massager, vibe as the original's area lists allow); a press puts it there and it stays until a right click / 外す. kiss_area: a press there with the mouth free is the kiss. click_seconds: the click's length when her click layer is missing; drag_seconds: a press held this long after the click goes on to the drag; drag_pixels: the mouse movement over the whole 0..1 of the area's X / Y; speedHand = 1 + the item speed: +speed_per_press each press, at most speed_max, falling speed_fall per second. gain: the gauge's touch gain by the item (the app's balance). Provisional: replace freely.",
+  "kiss_area": "cheek",
+  "click_seconds": 0.8,
+  "drag_seconds": 0.5,
+  "drag_pixels": 240.0,
+  "speed_per_press": 0.25,
+  "speed_max": 1.5,
+  "speed_fall": 0.5,
+  "gain": {
+   "hand": 1.0,
+   "finger": 1.15,
+   "tongue": 1.25,
+   "massager": 1.5,
+   "vibe": 1.7,
+   "kiss": 1.0
+  }
+ },
+ "talk": {
+  "_note": "The original talk's touch reactions outside a play (the original's talk sheet as the game reads it - ActionGame.Communication.Info - in the user's install: tools/derive_data.py): parts = this app's area -> the original's touch point (0 hands, 1 bust, 2 head, 3 cheek; the other areas take the nearest kind: the arms and legs the hands', the body's the bust's); stage = the relation the original tracks (0 first met, 1 friends, 2 girlfriend) - not tracked here, a setting; fallback_personality for personalities without rows (the original's data has 0..38); the counts start again after reset_seconds without a touch; a reaction pose plays pose_seconds at most (the original cuts it when her voice ends; the clips run 9-11 s). 'reactions' above stay the faces during a play. Provisional: replace freely.",
+  "parts": {
+   "hand": 0,
+   "arm": 0,
+   "leg": 0,
+   "chest": 1,
+   "belly": 1,
+   "hips": 1,
+   "thigh": 1,
+   "crotch": 1,
+   "head": 2,
+   "cheek": 3
+  },
+  "stage": 2,
+  "fallback_personality": 0,
+  "reset_seconds": 60.0,
+  "pose_seconds": 3.0
+ },
+ "gesture": {
+  "stroke_pixels": 14,
+  "hold_seconds": 0.6,
+  "stroke_speed": [
+   250,
+   700
+  ],
+  "hold_strength_seconds": [
+   2.0,
+   4.0
+  ]
+ },
+ "window_seconds": 2.5
+}

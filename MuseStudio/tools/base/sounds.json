@@ -1,0 +1,216 @@
+{
+ "effects": {
+  "knock": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_knock",
+   "name": "ノック"
+  },
+  "door_open": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_door1_open",
+   "name": "ドアを開ける"
+  },
+  "door_close": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_door1_close",
+   "name": "ドアを閉める"
+  },
+  "locker_open": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_locker_open",
+   "name": "ロッカーを開ける"
+  },
+  "locker_close": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_locker_close",
+   "name": "ロッカーを閉める"
+  },
+  "doorbell": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_home_chime",
+   "name": "玄関のチャイム"
+  },
+  "school_chime": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_school_chime",
+   "name": "学校のチャイム"
+  },
+  "park_chime": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_park_chime",
+   "name": "夕方の町内チャイム"
+  },
+  "phone_ring": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_tel",
+   "name": "電話の着信"
+  },
+  "alarm": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_alarm",
+   "name": "目覚まし時計"
+  },
+  "clothes_rustle": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_kinuzure1",
+   "name": "衣擦れ（短い）"
+  },
+  "clothes_rustle_long": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_kinuzure2",
+   "name": "衣擦れ（長い）"
+  },
+  "hug": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_dakishimeru1",
+   "name": "抱きしめる"
+  },
+  "hug_long": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_dakishimeru2",
+   "name": "ぎゅっと抱きしめる（長い）"
+  },
+  "heartbeat": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_dokidoki",
+   "name": "胸の鼓動（ドキドキ）"
+  },
+  "fall": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_taore",
+   "name": "倒れ込む"
+  },
+  "thud": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_dosun",
+   "name": "どすん"
+  },
+  "plop": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_dosa1",
+   "name": "どさっ"
+  },
+  "slap": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_pachin",
+   "name": "ぱちん（平手）"
+  },
+  "bonk": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_poka",
+   "name": "ぽかっ（軽く叩く）"
+  },
+  "boing": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_poyon",
+   "name": "ぽよん"
+  },
+  "bang": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_don",
+   "name": "どん"
+  },
+  "shock": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_shock",
+   "name": "ガーン（ショック）"
+  },
+  "surprise": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_surprise",
+   "name": "驚きの効果音"
+  },
+  "stomach_growl": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_haraheri",
+   "name": "お腹が鳴る"
+  },
+  "footsteps_run": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_run_rouka",
+   "name": "廊下を走る足音"
+  },
+  "applause": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_hakushu",
+   "name": "拍手"
+  },
+  "cheer": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_kansei1",
+   "name": "歓声"
+  },
+  "crowd": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_gaya3",
+   "name": "ざわめき"
+  },
+  "splash": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_splash",
+   "name": "水しぶき"
+  },
+  "water_drip": {
+   "bundle": "sound/data/se/map/env/00.unity3d",
+   "asset": "env_007_Dwater01",
+   "name": "水のしずく"
+  },
+  "whistle": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_whistle",
+   "name": "ホイッスル"
+  },
+  "camera_shutter": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_shutter",
+   "name": "カメラのシャッター"
+  },
+  "page_turn": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_page",
+   "name": "ページをめくる"
+  },
+  "glass": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_glass",
+   "name": "グラスの音"
+  },
+  "cat": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_cat",
+   "name": "猫の鳴き声"
+  },
+  "dog": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_dog_01",
+   "name": "犬の鳴き声"
+  },
+  "car_start": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_car_starting",
+   "name": "車のエンジン始動"
+  },
+  "train": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_train",
+   "name": "電車"
+  },
+  "wedding_bell": {
+   "bundle": "sound/data/se/20.unity3d",
+   "asset": "se_weddingbell",
+   "name": "教会の鐘"
+  }
+ },
+ "location_change": "door_open",
+ "ambience": [
+  "health_room",
+  "shower_room",
+  "toilet_female",
+  "toilet_male"
+ ],
+ "footsteps": {
+  "cycle": 2.0667,
+  "min_distance": 1.0,
+  "max_distance": 7.5
+ }
+}

@@ -1,0 +1,63 @@
+{
+ "_note": "MetaMuse Stage launcher + panel manager settings (implementation-spec.md 6). Relative paths are relative to this file. game_mode: musestudio (MuseStudio on the original Studio, 2026-11-03) / native (the Godot app) / web.",
+ "browser": "",
+ "game_mode": "musestudio",
+ "musestudio_exe": "../MuseStudio/game/CharaStudio.exe",
+ "musestudio_args": [],
+ "game_url": "http://localhost:18765/",
+ "game_title": "MetaMuse Stage",
+ "godot_exe": "",
+ "godot_project": "../godot",
+ "muse_url": "https://muse.ai/",
+ "profiles_dir": "profiles",
+ "panel": {
+  "width": 400,
+  "height": 560,
+  "side": "right",
+  "margin": 0,
+  "bottom_edge": "workarea"
+ },
+ "base_opacity": 200,
+ "hover_poll_ms": 100,
+ "controls_attach": "bottom_outside",
+ "hotkey_quit": "ctrl+alt+q",
+ "irodori": {
+  "health_url": "http://127.0.0.1:8088/health",
+  "dir": "",
+  "command": [
+   "uv",
+   "run",
+   "--no-sync",
+   "python",
+   "-m",
+   "irodori_openai_tts",
+   "--host",
+   "127.0.0.1",
+   "--port",
+   "8088"
+  ],
+  "env": {
+   "HF_HOME": ""
+  },
+  "wait_seconds": 120
+ },
+ "bridge": {
+  "health_url": "http://127.0.0.1:18765/health",
+  "script": "../bridge/bridge.py",
+  "wait_seconds": 15
+ },
+ "stop_on_exit": {
+  "irodori": false,
+  "bridge": false,
+  "game": false,
+  "panel": false
+ },
+ "hover_opaque": false,
+ "quit_all": {
+  "game": true,
+  "bridge": true,
+  "irodori": false,
+  "panel": false
+ },
+ "_note_example": "Copy to panel_config.json and fill in this machine's paths (irodori.dir, irodori.env.HF_HOME; godot_exe only for game_mode native)."
+}

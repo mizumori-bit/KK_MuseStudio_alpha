@@ -1,0 +1,12 @@
+{
+ "_note": "The state's beat (MUSE_GUIDE.md 3.10; option B of the consultation with Muse 2026-11-03: no beat_request / choice_request). choice: when the state's question_due says a question would fit, in a play: near - her gauge at the near milestone or more since her last climax (once per climax); every_beats - so many packages presented since a question was last posed; mood - the mood at level_min for after_beats packages (once a play). A package with choices poses the question. Provisional: replace freely.",
+ "choice": {
+  "near": true,
+  "every_beats": 5,
+  "mood": {
+   "key": "arousal",
+   "level_min": 0.7,
+   "after_beats": 2
+  }
+ }
+}

@@ -1,0 +1,131 @@
+{
+ "_note": "The character's moods (mood_controller.gd), apart from the climax gauge: more moods (a wish to drink and the like) are more entries. Each 0..1: start (a new character), per_minute (builds up by itself; also while the app is closed, at most away_minutes_max minutes), touch (per touch area), play_per_second (x the pace's factor). satisfied: what a block's mood {key: \"satisfied\"} adds - Muse decides by her character whether her climax satisfied her (2026-11-02, the user's decision); it is taken only within satisfy_window_seconds after a climax of hers. levels: [from, name] - the level is in the state for Muse and a change of level is the event mood_changed. trigger: at this value, when she is left alone idle_seconds (no play, no package, no creation, no input) and cooldown_seconds have passed since her last own play, the action: masturbation starts the first of plays that can start here at the spot nearest her, at pace, raised by her climax gauge per pace_by_gauge unless Muse set a pace in the last muse_hold_seconds; it ends after her climax. muse: the other values a block's mood may send (Muse's calls by her character), each {set or add, min: the least value it needs (else refused too_low), effect: leak = her stream (pee_stream.gd), seconds}. bladder (尿意, the user's wish 2026-11-02): builds up by itself; relieved = she went to the toilet, leaked = she wet herself (from the level トイレに行きたい). Provisional: replace freely.",
+ "moods": {
+  "arousal": {
+   "name": "発情",
+   "start": 0.2,
+   "per_minute": 0.004,
+   "away_minutes_max": 240,
+   "touch": {
+    "chest": 0.01,
+    "crotch": 0.015,
+    "anal": 0.012,
+    "hips": 0.008,
+    "thigh": 0.006,
+    "belly": 0.004,
+    "cheek": 0.003,
+    "hand": 0.002,
+    "leg": 0.002,
+    "head": 0.0,
+    "arm": 0.0
+   },
+   "play_per_second": 0.0015,
+   "satisfied": -0.6,
+   "satisfy_window_seconds": 600.0,
+   "levels": [
+    [
+     0.0,
+     "落ち着いている"
+    ],
+    [
+     0.35,
+     "むらむら"
+    ],
+    [
+     0.7,
+     "発情している"
+    ]
+   ],
+   "trigger": {
+    "at": 0.85,
+    "idle_seconds": 180.0,
+    "action": "masturbation",
+    "plays": [
+     "masturbation_01",
+     "masturbation_02",
+     "masturbation_00",
+     "masturbation_05"
+    ],
+    "pace": 1,
+    "pace_by_gauge": [
+     [
+      0.0,
+      1
+     ],
+     [
+      0.4,
+      2
+     ],
+     [
+      0.75,
+      3
+     ]
+    ],
+    "muse_hold_seconds": 30.0,
+    "cooldown_seconds": 1800.0
+   }
+  },
+  "bladder": {
+   "name": "尿意",
+   "start": 0.1,
+   "per_minute": 0.0035,
+   "away_minutes_max": 240,
+   "levels": [
+    [
+     0.0,
+     "平気"
+    ],
+    [
+     0.5,
+     "トイレに行きたい"
+    ],
+    [
+     0.8,
+     "もれそう"
+    ]
+   ],
+   "muse": {
+    "relieved": {
+     "set": 0.0
+    },
+    "leaked": {
+     "set": 0.0,
+     "min": 0.5,
+     "effect": "leak",
+     "seconds": 6.0
+    }
+   }
+  },
+  "shower": {
+   "name": "シャワーの気持ち",
+   "start": 0.0,
+   "per_minute": 0.0,
+   "away_minutes_max": 0,
+   "after_play_per_second": 0.0012,
+   "reset_by": [
+    "shower",
+    "shower_together"
+   ],
+   "levels": [
+    [
+     0.0,
+     "平気"
+    ],
+    [
+     0.4,
+     "汗が気になる"
+    ],
+    [
+     0.7,
+     "シャワーを浴びたい"
+    ]
+   ],
+   "muse": {
+    "worked": {
+     "add": 0.35
+    }
+   }
+  }
+ },
+ "_note_musestudio": "MuseStudio's own moods (tools/derive_data.py MOODS_EXTRA): shower - after_play_per_second: added when a play ends, x its seconds at each pace's factor (not when it was a shower together); reset_by: the actions that set it to 0 (she showered); muse worked: after work like cleaning (Muse's call). No build-up by time."
+}

@@ -1,0 +1,5 @@
+name: "muse_session_base"
+title: "セッション共通土台"
+description: "シチュエーション・アドベンチャー形式のセッション（アプリ形・テキスト形）を運転するときの共通土台。義務、進行の骨格、入力の読み方、出力の作法と、性格カセットの差し込み口を定める。"
+category: "Work and knowledge"
+include_in_prompt: false

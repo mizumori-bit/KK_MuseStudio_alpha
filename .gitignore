@@ -1,0 +1,53 @@
+# Only MuseStudio's own files are tracked (2026-11-04: the repository holds MuseStudio, not the Godot app).
+# (this machine's own project notes: README.local.md, DECISIONS.md - not tracked)
+# Everything else stays on this machine:
+#  - the Godot app, its tools and the copied KoikatsuOfGodot data (original-derived)
+#  - MuseStudio/game (the original's Studio, linked) and the original-derived data
+#    (MuseStudio/data: plays, talk, locations, sounds, touch - remade from the original by MuseStudio/tools)
+#  - personal state: the persona ledger, relationship and moods, replays (all under MuseStudio/game/UserData),
+#    session records (bridge/cache), browser profiles (launcher/profiles), Muse's notes (from_muse, for_muse)
+#  - this machine's settings (bridge_config.json, panel_config.json: tracked as *.example.json)
+/*
+!/.gitignore
+!/.gitattributes
+!/MUSE_GUIDE.md
+# Muse's trees (the notice of 2026-11-04: Muse adds them by pull requests; this side never edits them)
+!/README.md
+!/BOOTSTRAP.md
+!/claude-setup/
+!/skills/
+!/docs/
+
+!/MuseStudio/
+/MuseStudio/*
+!/MuseStudio/README.md
+!/MuseStudio/src/
+!/MuseStudio/tools/
+/MuseStudio/tools/original_path.txt
+!/MuseStudio/data/
+/MuseStudio/data/plays.json
+/MuseStudio/data/talk.json
+/MuseStudio/data/locations.json
+/MuseStudio/data/sounds.json
+/MuseStudio/data/touch.json
+
+!/bridge/
+/bridge/*
+!/bridge/bridge.py
+!/bridge/irodori_client.py
+!/bridge/kk_card.py
+!/bridge/muse_match.py
+!/bridge/static/
+!/bridge/tests/
+!/bridge/bridge_config.example.json
+
+!/launcher/
+/launcher/*
+!/launcher/panel_manager.py
+!/launcher/start.cmd
+!/launcher/panel_config.example.json
+!/launcher/make_shortcut.py
+!/launcher/icons/
+
+__pycache__/
+*.pyc

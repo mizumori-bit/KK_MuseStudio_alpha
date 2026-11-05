@@ -1,0 +1,68 @@
+{
+ "_note": "Her urges (DECISIONS 'Muse 側の資料との読み合わせ', the user's decisions 2026-11-03): the app does nothing by itself any more - an urge is told to Muse (the event urge) and listed in the state (urges) until a block answers it (its action is one of the urge's actions, or the mood falls below the mark: Muse's satisfied / relieved / leaked). Unanswered, it is told again every renotify_minutes. A mood urge: the mood at 'at' or more (moods.json values 0..1). A time urge: from 'from' to 'until' (local hours 'HH:MM', may wrap midnight) unless taken since 'from' today. The shower has both: its time of day, and its wish (the mood shower: after plays and Muse's worked; moods.json) at 'at' - either holds it; a shower, alone or together, meets both. actions: what meets it (a block's action). outings: where she goes on her own for an action and for how long (seconds; the original's peeping motions, Outing.cs); at: where she stands there [x, y, z, yaw] in the room's own coordinates (else the room's landmark H point: the toilet seat) - the shower: the middle of the washing place, under the shower on the wall, facing it (not in the bath: the Japanese way). shower_together: she and the user move to the shower room, both nude, and the first of plays that can start there begins (or the block's action.play). Provisional: replace freely.",
+ "renotify_minutes": 10.0,
+ "urges": {
+  "arousal": {
+   "name": "自分でしたい",
+   "mood": "arousal",
+   "at": 0.85,
+   "actions": [
+    "masturbation"
+   ]
+  },
+  "bladder": {
+   "name": "トイレに行きたい",
+   "mood": "bladder",
+   "at": 0.5,
+   "actions": [
+    "toilet"
+   ]
+  },
+  "shower": {
+   "name": "シャワーを浴びたい",
+   "mood": "shower",
+   "at": 0.7,
+   "from": "21:30",
+   "until": "03:00",
+   "actions": [
+    "shower",
+    "shower_together"
+   ]
+  }
+ },
+ "outings": {
+  "toilet": {
+   "room": "home_toilet",
+   "seconds": 45.0,
+   "dress_seconds": 12.0
+  },
+  "shower": {
+   "room": "bathroom",
+   "seconds": 180.0,
+   "at": [
+    -1.9,
+    0.0,
+    0.45,
+    270.0
+   ]
+  },
+  "alone": {
+   "room": "girls_room",
+   "seconds": 150.0
+  },
+  "change": {
+   "room": "girls_room",
+   "seconds": 60.0
+  }
+ },
+ "shower_together": {
+  "room": "bathroom",
+  "plays": [
+   "sonyu_18",
+   "sonyu_07",
+   "aibu_00",
+   "houshi_40"
+  ]
+ },
+ "outing_return_seconds": 4.0
+}

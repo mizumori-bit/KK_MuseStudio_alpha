@@ -1,0 +1,1117 @@
+{
+ "_note": "Locations (MUSE_GUIDE.md 3.4) -> Studio's map number (tools/derive_data.py from tools/base/locations.json: the number by the map's name in the user's Studio; a mod map's number changes per run, the app looks it up by name again). name, summary, tags, spots (the original's H points by their object names, with our names and tags): ours. stand: where she stands [x, y, z, yaw] in Studio's coordinates.",
+ "locations": {
+  "myroom": {
+   "name": "主人公の部屋",
+   "map_name": "自室",
+   "summary": "ベッドと机、本棚のある自室の洋室。二人きりで落ち着ける私的な場所",
+   "tags": [
+    "indoor",
+    "private",
+    "bedroom"
+   ],
+   "h_map": 0,
+   "spots": {
+    "base/tukue_00": {
+     "name": "机"
+    },
+    "base/chair00": {
+     "name": "机の椅子"
+    },
+    "base/isu_00": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/isu_00 (1)": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/isu_00 (4)": {
+     "name": "ローテーブルの縁"
+    },
+    "base/yuka00 (4)": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/yuka00 (5)": {
+     "name": "ローテーブル"
+    },
+    "add/isu_00": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/isu_00 (1)": {
+     "name": "ローテーブルの縁"
+    },
+    "add/isu_00 (2)": {
+     "name": "ローテーブルの縁"
+    },
+    "add/isu_00 (3)": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/tatine_00": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/tatine_00 (2)": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/desk00_ona": {
+     "name": "机の角"
+    }
+   },
+   "stand": [
+    1.7,
+    0.0,
+    -0.9,
+    -90.0
+   ]
+  },
+  "toilet_female": {
+   "name": "女子トイレ",
+   "map_name": "1F女子トイレ",
+   "summary": "白いタイル張りの女子トイレ。洗面台が3つ、個室が5つ並ぶ",
+   "tags": [
+    "indoor",
+    "public",
+    "toilet"
+   ],
+   "h_map": 14,
+   "spots": {
+    "add/isu_00": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    },
+    "add/isu_00 (1)": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    },
+    "add/isu_00 (2)": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    },
+    "add/isu_00 (3)": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    }
+   },
+   "stand": [
+    0.0,
+    0.23,
+    0.6,
+    -0.0
+   ]
+  },
+  "toilet_male": {
+   "name": "男子トイレ",
+   "map_name": "職員トイレ(男)",
+   "summary": "タイル張りの男子トイレ。小便器が4つ、洗面台が3つ、個室が3つ並ぶ",
+   "tags": [
+    "indoor",
+    "public",
+    "toilet"
+   ],
+   "h_map": 18,
+   "spots": {
+    "add/isu_00": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    },
+    "add/isu_00 (1)": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    },
+    "add/isu_00 (2)": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    }
+   },
+   "stand": [
+    0.0,
+    0.23,
+    0.6,
+    -0.0
+   ]
+  },
+  "love_hotel": {
+   "name": "ラブホテル",
+   "map_name": "ラブホテル",
+   "summary": "丸いベッドと赤いソファ、ガラス張りの浴室のあるラブホテルの一室。ピンクの照明で、ふたりきりになれる場所",
+   "tags": [
+    "indoor",
+    "private",
+    "bedroom",
+    "love_hotel"
+   ],
+   "h_map": 60,
+   "spots": {
+    "base/yuka00 (3)": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/isu01": {
+     "name": "ソファ"
+    },
+    "base/desk00": {
+     "name": "丸テーブル"
+    },
+    "base/isu00": {
+     "name": "浴室の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/yuka00": {
+     "name": "浴室の床",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/yuka00 (2)": {
+     "name": "ソファの前の床"
+    },
+    "base/kabe00": {
+     "name": "部屋の壁"
+    },
+    "base/kabe00 (1)": {
+     "name": "浴室の壁",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/kabe00 (2)": {
+     "name": "入口の壁"
+    },
+    "base/kabe00 (3)": {
+     "name": "浴室の仕切りの壁"
+    },
+    "add/isu00": {
+     "name": "浴室の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    },
+    "add/isu01": {
+     "name": "ソファ"
+    },
+    "add/yuka00": {
+     "name": "浴室の床",
+     "tags": [
+      "bath"
+     ]
+    },
+    "add/yuka00 (1)": {
+     "name": "ベッドの横の床"
+    },
+    "add/yuka00 (2)": {
+     "name": "ソファの前の床"
+    },
+    "add/yuka00 (3)": {
+     "name": "ベッドの前",
+     "tags": [
+      "bed"
+     ]
+    }
+   },
+   "stand": [
+    0.22,
+    0.0,
+    1.14,
+    -90.0
+   ]
+  },
+  "park": {
+   "name": "公園",
+   "map_name": "公園",
+   "summary": "夜の公園。芝生と遊歩道、噴水、ベンチやテーブルがあり、人目を気にしながら過ごす屋外の場所",
+   "tags": [
+    "outdoor",
+    "public",
+    "park",
+    "night"
+   ],
+   "h_map": 65,
+   "spots": {
+    "base/isu_00": {
+     "name": "ベンチ1"
+    },
+    "add/isu_00": {
+     "name": "ベンチ1"
+    },
+    "base/isu_01": {
+     "name": "ベンチ2"
+    },
+    "add/isu_01": {
+     "name": "ベンチ2"
+    },
+    "base/isu_02": {
+     "name": "ベンチ3"
+    },
+    "add/isu_02": {
+     "name": "ベンチ3"
+    },
+    "base/isu_03": {
+     "name": "ベンチ4"
+    },
+    "add/isu_03": {
+     "name": "ベンチ4"
+    },
+    "base/isu_04": {
+     "name": "ベンチ5"
+    },
+    "add/isu_04": {
+     "name": "ベンチ5"
+    },
+    "base/tukue_00": {
+     "name": "テーブル1"
+    },
+    "base/tukue_01": {
+     "name": "テーブル2"
+    },
+    "base/kabe_00": {
+     "name": "壁1"
+    },
+    "base/kabe_01": {
+     "name": "壁2"
+    },
+    "base/kabe_02": {
+     "name": "壁3"
+    },
+    "base/kabe_03": {
+     "name": "壁4"
+    },
+    "base/kabe_04": {
+     "name": "壁5"
+    },
+    "base/yuka_00": {
+     "name": "芝生・地面1"
+    },
+    "add/yuka_00": {
+     "name": "芝生・地面1"
+    },
+    "base/yuka_01": {
+     "name": "芝生・地面2"
+    },
+    "add/yuka_01": {
+     "name": "芝生・地面2"
+    },
+    "base/yuka_02": {
+     "name": "芝生・地面3"
+    },
+    "add/yuka_02": {
+     "name": "芝生・地面3"
+    },
+    "base/yuka_03": {
+     "name": "芝生・地面4"
+    },
+    "add/yuka_03": {
+     "name": "芝生・地面4"
+    },
+    "base/yuka_04": {
+     "name": "芝生・地面5"
+    },
+    "add/yuka_04": {
+     "name": "芝生・地面5"
+    },
+    "base/yuka_05": {
+     "name": "芝生・地面6"
+    },
+    "add/yuka_05": {
+     "name": "芝生・地面6"
+    }
+   },
+   "stand": [
+    -4.6,
+    0.0,
+    2.7,
+    -0.0
+   ]
+  },
+  "shower_room": {
+   "name": "シャワー室",
+   "map_name": "シャワールーム",
+   "summary": "タイル張りの学校のシャワー室。仕切りのあるシャワーブースが並び、脱衣側に青いベンチとすのこがある",
+   "tags": [
+    "indoor",
+    "public",
+    "shower"
+   ],
+   "h_map": 45,
+   "spots": {
+    "base/isu_00": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (1)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (2)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (3)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (4)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (5)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (6)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (7)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (8)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (9)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (10)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (11)": {
+     "name": "ベンチ"
+    },
+    "base/kabe_00 (2)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (3)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (4)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (5)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (6)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (7)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (8)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (9)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (15)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (16)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (17)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (18)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (27)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (28)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (29)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/kabe_00 (30)": {
+     "name": "シャワーブースの壁",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/yuka00": {
+     "name": "シャワーブース",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/yuka00 (1)": {
+     "name": "シャワーブース",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/yuka00 (2)": {
+     "name": "シャワーブース",
+     "tags": [
+      "shower"
+     ]
+    },
+    "base/yuka00 (3)": {
+     "name": "シャワーブース",
+     "tags": [
+      "shower"
+     ]
+    },
+    "add/isu_00": {
+     "name": "ベンチ"
+    },
+    "add/isu_00 (1)": {
+     "name": "ベンチ"
+    },
+    "add/isu_00 (2)": {
+     "name": "ベンチ"
+    },
+    "add/isu_00 (3)": {
+     "name": "ベンチ"
+    }
+   },
+   "stand": [
+    0.5,
+    0.0,
+    -2.6,
+    -0.0
+   ]
+  },
+  "health_room": {
+   "name": "保健室",
+   "map_name": "保健室",
+   "summary": "学校の保健室。カーテンで仕切られたベッドが2つ、机と長椅子がある",
+   "tags": [
+    "indoor",
+    "public",
+    "bedroom"
+   ],
+   "h_map": 20,
+   "spots": {
+    "base/yuka00 (4)": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/isu_00 (2)": {
+     "name": "長椅子"
+    },
+    "base/isu_00 (3)": {
+     "name": "長椅子"
+    },
+    "add/isu_00 (1)": {
+     "name": "長椅子"
+    },
+    "add/isu_00 (2)": {
+     "name": "長椅子"
+    },
+    "base/isu_00 (4)": {
+     "name": "ベンチ"
+    },
+    "base/isu_00 (5)": {
+     "name": "ベンチ"
+    },
+    "add/isu_00": {
+     "name": "ベンチ"
+    },
+    "base/isu03": {
+     "name": "机の椅子"
+    },
+    "base/isu04": {
+     "name": "机の椅子"
+    }
+   },
+   "stand": [
+    -1.0,
+    0.0,
+    -0.5,
+    -0.0
+   ]
+  },
+  "girls_room": {
+   "name": "女の子の部屋",
+   "map_name": "[COM3D] Heroine Bedroom 01",
+   "summary": "チェックのベッドと丸テーブル、たんすのある明るい洋室（Mod のマップ）",
+   "tags": [
+    "indoor",
+    "private",
+    "bedroom",
+    "home",
+    "mod"
+   ],
+   "h_map": 7401,
+   "spots": {
+    "base/stand_bed_00": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/stand_bed_01": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_bed_00": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_bed_01": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_bed_02": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_bed_03": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_bed_04": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_bed_05": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/desk_00": {
+     "name": "丸テーブル"
+    },
+    "base/desk_01": {
+     "name": "丸テーブル"
+    },
+    "base/desk_02": {
+     "name": "丸テーブル"
+    },
+    "base/desk_03": {
+     "name": "たんすの上"
+    },
+    "base/seat_chair_00": {
+     "name": "丸テーブルの椅子"
+    },
+    "base/seat_chair_01": {
+     "name": "丸テーブルの椅子"
+    },
+    "base/seat_chair_02": {
+     "name": "丸テーブルの椅子"
+    },
+    "add/lesbstand_07": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbstand_08": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_00": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_01": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_02": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_03": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_04": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_05": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_06": {
+     "name": "丸テーブルの椅子"
+    },
+    "add/lesbseat_07": {
+     "name": "丸テーブルの椅子"
+    },
+    "add/lesbseat_08": {
+     "name": "丸テーブルの椅子"
+    }
+   },
+   "stand": [
+    0.0,
+    5.0,
+    -0.0,
+    -0.0
+   ]
+  },
+  "sm_room": {
+   "name": "SM ルーム",
+   "map_name": "[COM3D] SM Room",
+   "summary": "レンガの壁に鎖が下がり、鉄格子の牢がある赤い照明の薄暗い部屋。奥に大きなベッドがある（Mod のマップ、COM3D2 の SM ルーム）",
+   "tags": [
+    "indoor",
+    "private",
+    "sm",
+    "bedroom",
+    "mod"
+   ],
+   "h_map": 7417,
+   "spots": {
+    "base/seat_00": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_01": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_02": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/stand_06": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_00": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_01": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_02": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbstand_08": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    }
+   },
+   "stand": [
+    0.0,
+    5.0,
+    -0.0,
+    -0.0
+   ]
+  },
+  "bedroom": {
+   "name": "ベッドルーム",
+   "map_name": "[COM3D] Bedroom 1",
+   "summary": "赤い絨毯に白いシングルベッド、窓際の机と観葉植物のある寝室（Mod のマップ）",
+   "tags": [
+    "indoor",
+    "private",
+    "bedroom",
+    "mod"
+   ],
+   "h_map": 7419,
+   "spots": {
+    "base/seat_01": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_02": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_03": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_04": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_05": {
+     "name": "ベッドの縁",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/stand_05": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/stand_06": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/desk_00": {
+     "name": "ベッドの上",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/desk_01": {
+     "name": "ベッドの上",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/desk_02": {
+     "name": "ベッドの上",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/desk_03": {
+     "name": "ベッドの上",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/desk_04": {
+     "name": "ベッドの上",
+     "tags": [
+      "bed"
+     ]
+    },
+    "base/seat_00": {
+     "name": "机の椅子"
+    },
+    "add/lesbstand_05": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/lesbseat_00": {
+     "name": "机の椅子"
+    }
+   },
+   "stand": [
+    -2.5,
+    5.0,
+    -1.0,
+    -0.0
+   ]
+  },
+  "bathroom": {
+   "name": "浴室",
+   "map_name": "[COM3D] Bathroom",
+   "summary": "白いタイルの広い浴室。丸い大きな湯船がある（Mod のマップ）",
+   "tags": [
+    "indoor",
+    "private",
+    "bath",
+    "mod"
+   ],
+   "h_map": 7428,
+   "spots": {
+    "base/seat_00": {
+     "name": "湯船の中の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/seat_01": {
+     "name": "湯船の中の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/seat_02": {
+     "name": "湯船の中の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/stand_04": {
+     "name": "湯船の中",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/desk_c_00": {
+     "name": "湯船の縁",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/desk_c_01": {
+     "name": "湯船の縁",
+     "tags": [
+      "bath"
+     ]
+    },
+    "base/desk_c_02": {
+     "name": "湯船の縁",
+     "tags": [
+      "bath"
+     ]
+    },
+    "add/lesbSeat_00": {
+     "name": "湯船の中の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    },
+    "add/lesbSeat_01": {
+     "name": "湯船の中の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    },
+    "add/lesbSeat_02": {
+     "name": "湯船の中の腰掛け",
+     "tags": [
+      "bath"
+     ]
+    }
+   },
+   "stand": [
+    0.0,
+    0.0,
+    -0.0,
+    -180.0
+   ]
+  },
+  "home_toilet": {
+   "name": "家のトイレ",
+   "map_name": "[COM3D] Toilet",
+   "summary": "細い廊下の奥に洋式の便器、手前に手洗いのある家のトイレ（Mod のマップ）",
+   "tags": [
+    "indoor",
+    "private",
+    "toilet",
+    "mod"
+   ],
+   "h_map": 7437,
+   "spots": {
+    "base/seat_00": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    },
+    "add/lesbSeat_00": {
+     "name": "便座",
+     "tags": [
+      "toilet"
+     ]
+    }
+   },
+   "stand": [
+    0.0,
+    0.0,
+    0.35,
+    0.0
+   ]
+  },
+  "hotel_suite": {
+   "name": "ホテルのスイート",
+   "map_name": "[DeathWeasel]HS2 Suite",
+   "summary": "ソファと椅子の居間の奥、一段上がった所に寝室のあるホテルのスイート（Mod のマップ）",
+   "tags": [
+    "indoor",
+    "private",
+    "hotel",
+    "bedroom",
+    "mod"
+   ],
+   "h_map": 7530,
+   "spots": {
+    "base/desk_00": {
+     "name": "寝室の机"
+    },
+    "base/desk_00 (1)": {
+     "name": "寝室の机"
+    },
+    "base/couch_00 (2)": {
+     "name": "寝室のソファ"
+    },
+    "base/floor_00 (5)": {
+     "name": "寝室の床"
+    },
+    "base/floor_00 (6)": {
+     "name": "寝室の床"
+    },
+    "base/floor_00 (7)": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    },
+    "add/chair_00 (4)": {
+     "name": "寝室のソファ"
+    },
+    "add/touching_00 (3)": {
+     "name": "寝室の床"
+    },
+    "add/touching_00 (4)": {
+     "name": "寝室の床"
+    },
+    "add/touching_00 (5)": {
+     "name": "寝室の床"
+    },
+    "add/touching_00 (6)": {
+     "name": "ベッド",
+     "tags": [
+      "bed"
+     ]
+    }
+   },
+   "stand": [
+    1.25,
+    0.0,
+    0.7,
+    -0.0
+   ]
+  },
+  "match_room": {
+   "name": "通信の部屋",
+   "map_name": "[PDHM] Shut in Room",
+   "summary": "出口の無い、閉じた部屋（Mod のマップ）。Muse 同士の通信対戦の間だけ使う",
+   "tags": [
+    "indoor",
+    "private",
+    "match",
+    "mod"
+   ],
+   "stand": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "opponent_distance": 1.1,
+   "here_places": [
+    "floor",
+    "stand",
+    "pair_floor"
+   ]
+  }
+ }
+}

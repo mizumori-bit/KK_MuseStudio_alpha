@@ -1,0 +1,339 @@
+{
+ "_note": "Emotion label (MUSE_GUIDE.md 3.1) -> the original's face parameters (ChaControl): eyebrow / eyes / mouth pattern, their open max, eyes_look (-1 keeps it), cheek, highlight, tears, blink. From the Godot app's emotion_map.json + face_presets.json (tools/derive_data.py).",
+ "columns": [
+  "eyebrow",
+  "eyes",
+  "mouth",
+  "eyebrow_open",
+  "eyes_open",
+  "mouth_open",
+  "eyes_look",
+  "cheek",
+  "highlight",
+  "tears",
+  "blink"
+ ],
+ "labels": {
+  "neutral": {
+   "preset": "neutral",
+   "cells": [
+    "0",
+    "0",
+    "0",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "0",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "service_smile": {
+   "preset": "service_smile",
+   "cells": [
+    "0",
+    "2",
+    "1",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "0",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "gentle": {
+   "preset": "gentle",
+   "cells": [
+    "0",
+    "4",
+    "3",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "0",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "maternal_soft": {
+   "preset": "maternal_soft",
+   "cells": [
+    "0",
+    "3",
+    "3",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "0",
+    "TRUE",
+    "0",
+    "FALSE"
+   ]
+  },
+  "teasing": {
+   "preset": "teasing",
+   "cells": [
+    "14",
+    "20",
+    "19",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "0",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "stern": {
+   "preset": "stern",
+   "cells": [
+    "14",
+    "10",
+    "2",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "0",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "flushed": {
+   "preset": "flushed",
+   "cells": [
+    "2",
+    "8",
+    "1",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "1",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "desire": {
+   "preset": "desire",
+   "cells": [
+    "0",
+    "0",
+    "7",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "1",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "aroused": {
+   "preset": "aroused",
+   "cells": [
+    "11",
+    "7",
+    "5",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "1",
+    "TRUE",
+    "0",
+    "TRUE"
+   ]
+  },
+  "ecstasy": {
+   "preset": "ecstasy",
+   "cells": [
+    "0",
+    "1",
+    "2",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "1",
+    "TRUE",
+    "0",
+    "FALSE"
+   ]
+  },
+  "afterglow": {
+   "preset": "afterglow",
+   "cells": [
+    "0",
+    "4",
+    "4",
+    "1",
+    "1",
+    "1",
+    "-1",
+    "1",
+    "TRUE",
+    "1",
+    "TRUE"
+   ]
+  }
+ },
+ "presets": {
+  "neutral": [
+   "0",
+   "0",
+   "0",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "0",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "service_smile": [
+   "0",
+   "2",
+   "1",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "0",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "gentle": [
+   "0",
+   "4",
+   "3",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "0",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "maternal_soft": [
+   "0",
+   "3",
+   "3",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "0",
+   "TRUE",
+   "0",
+   "FALSE"
+  ],
+  "teasing": [
+   "14",
+   "20",
+   "19",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "0",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "stern": [
+   "14",
+   "10",
+   "2",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "0",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "flushed": [
+   "2",
+   "8",
+   "1",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "1",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "desire": [
+   "0",
+   "0",
+   "7",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "1",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "aroused": [
+   "11",
+   "7",
+   "5",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "1",
+   "TRUE",
+   "0",
+   "TRUE"
+  ],
+  "ecstasy": [
+   "0",
+   "1",
+   "2",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "1",
+   "TRUE",
+   "0",
+   "FALSE"
+  ],
+  "afterglow": [
+   "0",
+   "4",
+   "4",
+   "1",
+   "1",
+   "1",
+   "-1",
+   "1",
+   "TRUE",
+   "1",
+   "TRUE"
+  ]
+ }
+}

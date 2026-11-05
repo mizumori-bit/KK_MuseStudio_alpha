@@ -1,0 +1,19 @@
+{
+ "_note": "MuseStudio's stage (placeholders: replace freely). character.card: relative to the MuseStudio folder (or absolute; the plugin's config 'Character card' wins when set). location: a key of locations.json. spots: where the characters stand per location [x, y, z, yaw] (none: the map's origin). advance: auto false = click / Enter / Space for the next block; auto true = characters x per_char + base (the voice is off). monologue: a monologue package's block shows min_seconds + characters x per_char, at most max_seconds, then the next (by itself). relationship.stages: [affection from, the original's relation stage of her touch reactions (0 first met, 1 friends, 2 girlfriend)] - the app's own provisional marks for Muse's affection (Muse writes from its numbers, not these); before Muse sends one, touch.json talk.stage. touch.pose_max_seconds: a touch's reaction pose plays out (the original's talk waits for its voice), at most this. grope: outside a play, holding or rubbing one of these areas starts this play (the standing aibu) where she is (play_started source touch). blush: her cheeks (the original's 頬赤) by her arousal - from, to max at 1.0, rising / falling in seconds; the expression's cheek wins when larger. look: her face to the user outside a play while they are together (src/Look.cs, the original's free roam) - from this relation stage (min_stage, the stages above; 1 friends), within max_distance metres of her head. talk_climax: a block's anim climax in the talk (Muse's request of 2026-11-05; the user's decision: the standing caress's climax motion whatever she was doing) - play's female motion, its states in order (once: played through, at most once_max_seconds; a number: seconds), blend_seconds between them, the face preset (none when the block has its own emotion), then her scene again. Faces, scenes, cameras, plays and locations: tools/derive_data.py.",
+ "character": {"card": "../キャラカード/衣装2種/2.png", "name": "メイド"},
+ "location": "myroom",
+ "spots": {},
+ "idle_scene": "idle",
+ "start_face": "service_smile",
+ "package_end_face": "service_smile",
+ "advance": {"auto": true, "per_char": 0.06, "base": 1.0, "reveal_cps": 45.0}, "ui": {"panel_side": "auto", "reserve_px": 420},
+ "monologue": {"min_seconds": 10.0, "max_seconds": 20.0, "per_char": 0.15},
+ "relationship": {"stages": [[0, 0], [35, 1], [70, 2]]},
+ "touch": {"pose_max_seconds": 12.0},
+ "look": {"min_stage": 1, "max_distance": 5.0},
+ "talk_climax": {"play": "aibu_00", "steps": [["Orgasm_Start", "once"], ["Orgasm_Loop", 3.0], ["Orgasm_A", 4.0]], "once_max_seconds": 8.0, "blend_seconds": 0.3, "face": "ecstasy"},
+ "blush": {"from": 0.3, "max": 0.85, "rise_seconds": 30.0, "fall_seconds": 60.0},
+ "grope": {"areas": ["chest", "crotch", "hips"], "play": "aibu_00"},
+ "poll_interval": 1.0,
+ "state_interval": 2.0
+}

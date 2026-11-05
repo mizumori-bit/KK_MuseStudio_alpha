@@ -1,0 +1,2415 @@
+{
+ "_note": "Plays (MUSE_GUIDE.md 3.7) -> Studio's H animations: female / male = [group, category] (the role's states by clip name: Idle, Insert, WLoop, ...). pace: per mode, pace 0..3 -> [state, speed] . mode / motion_id: the original's H list row (h/list AnimationInfo_<mode>, id). places: the spot kinds a play uses; places (top): kind -> the original's H point categories (toggles); here: the kinds the spot where she stands takes. pace_info (names, gauge factor), rate, groups (roles, targets), climax (finishes, sequences), idle_pause_seconds: this project's settings. tools/derive_data.py makes this file from tools/base/plays.json (our rows: who does what, the places) on the user's Studio lists, tied by the original's H name.",
+ "pace": {
+  "0": [
+   [
+    "Idle",
+    1.0
+   ],
+   [
+    "M_Idle",
+    1.0
+   ],
+   [
+    "M_Idle",
+    1.75
+   ],
+   [
+    "M_Idle",
+    2.5
+   ]
+  ],
+  "1": [
+   [
+    "Idle",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.75
+   ],
+   [
+    "SLoop",
+    2.5
+   ]
+  ],
+  "2": [
+   [
+    "InsertIdle",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "WLoop",
+    2.0
+   ],
+   [
+    "SLoop",
+    3.0
+   ]
+  ],
+  "3": [
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "MLoop",
+    1.0
+   ],
+   [
+    "SLoop",
+    1.0
+   ]
+  ],
+  "5": [
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "MLoop",
+    1.2
+   ],
+   [
+    "SLoop",
+    1.4
+   ]
+  ]
+ },
+ "pace_male": {
+  "1": [
+   [
+    "Idle",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.75
+   ],
+   [
+    "SLoop",
+    2.5
+   ]
+  ],
+  "2": [
+   [
+    "InsertIdle",
+    1.0
+   ],
+   [
+    "WLoop",
+    1.0
+   ],
+   [
+    "WLoop",
+    2.0
+   ],
+   [
+    "SLoop",
+    3.0
+   ]
+  ]
+ },
+ "places": {
+  "floor": {
+   "name": "床・ベッド",
+   "toggles": [
+    0
+   ]
+  },
+  "stand": {
+   "name": "立てる所",
+   "toggles": [
+    1
+   ]
+  },
+  "chair": {
+   "name": "椅子",
+   "toggles": [
+    2
+   ]
+  },
+  "stool": {
+   "name": "背もたれの無い椅子",
+   "toggles": [
+    3
+   ]
+  },
+  "sofa": {
+   "name": "長椅子",
+   "toggles": [
+    4
+   ]
+  },
+  "bench": {
+   "name": "背もたれの無い長椅子",
+   "toggles": [
+    5
+   ]
+  },
+  "school_desk": {
+   "name": "教室の机",
+   "toggles": [
+    6
+   ]
+  },
+  "desk": {
+   "name": "机",
+   "toggles": [
+    7
+   ]
+  },
+  "wall": {
+   "name": "壁",
+   "toggles": [
+    8
+   ]
+  },
+  "pool": {
+   "name": "プールの中",
+   "toggles": [
+    9
+   ]
+  },
+  "bookshelf": {
+   "name": "本棚",
+   "toggles": [
+    1002
+   ]
+  },
+  "under_desk": {
+   "name": "机の下",
+   "toggles": [
+    1003
+   ]
+  },
+  "pool_edge": {
+   "name": "プールの縁",
+   "toggles": [
+    1004,
+    1005
+   ]
+  },
+  "fence": {
+   "name": "フェンス",
+   "toggles": [
+    1006,
+    1007
+   ]
+  },
+  "toilet_seat": {
+   "name": "便座",
+   "toggles": [
+    1008
+   ]
+  },
+  "vault_box": {
+   "name": "跳び箱",
+   "toggles": [
+    1009
+   ]
+  },
+  "corner": {
+   "name": "机の角",
+   "toggles": [
+    1010
+   ]
+  },
+  "solo_seat": {
+   "name": "ひとりで座れる所",
+   "toggles": [
+    1011
+   ]
+  },
+  "solo_stand": {
+   "name": "ひとりで立てる所",
+   "toggles": [
+    1012
+   ]
+  },
+  "hurdle": {
+   "name": "ハードル",
+   "toggles": [
+    1013
+   ]
+  },
+  "pair_floor": {
+   "name": "ふたりで寝られる所",
+   "toggles": [
+    1100,
+    1102
+   ]
+  },
+  "pair_seat": {
+   "name": "ふたりで使える椅子",
+   "toggles": [
+    1101
+   ]
+  },
+  "straddle": {
+   "name": "またがれる椅子",
+   "toggles": [
+    1200
+   ]
+  },
+  "bench_low": {
+   "name": "ベンチ",
+   "toggles": [
+    12
+   ]
+  },
+  "sofa_wide": {
+   "name": "ソファ",
+   "toggles": [
+    1201
+   ]
+  },
+  "close_seat": {
+   "name": "寄り添える所",
+   "toggles": [
+    1202
+   ]
+  },
+  "press_wall": {
+   "name": "押し付けられる所",
+   "toggles": [
+    1205
+   ]
+  }
+ },
+ "here": {
+  "name": "その場",
+  "places": [
+   "floor",
+   "stand"
+  ],
+  "_note": "the spot where the character stands in every location (the original's HPointBase)"
+ },
+ "spot_names": {
+  "stand_bed": "ベッド",
+  "seat_bed": "ベッドの縁",
+  "lesbstand": "床",
+  "lesbseat": "椅子",
+  "stand": "床",
+  "seat": "椅子",
+  "floor": "床",
+  "couch": "ソファ",
+  "touching": "床",
+  "desk_c": "浴槽の縁",
+  "yuka": "床",
+  "kabe": "壁",
+  "wall": "壁",
+  "isu": "椅子",
+  "chair": "椅子",
+  "tukue": "机",
+  "desk": "机",
+  "toilet": "便座",
+  "tatine": "床"
+ },
+ "spot_tags": {
+  "toilet": [
+   "toilet"
+  ]
+ },
+ "pace_info": {
+  "names": [
+   "止める",
+   "ゆっくり",
+   "ふつう",
+   "はげしく"
+  ],
+  "factor": [
+   0.0,
+   0.5,
+   1.0,
+   1.8
+  ],
+  "start": 0
+ },
+ "rate": 0.008,
+ "groups": {
+  "aibu": {
+   "name": "愛撫",
+   "giver": "player",
+   "targets": {
+    "giver": 0.1,
+    "receiver": 1.0
+   },
+   "reversible": true,
+   "scene": "tease",
+   "mode": 0
+  },
+  "houshi": {
+   "name": "奉仕",
+   "giver": "character",
+   "targets": {
+    "giver": 0.2,
+    "receiver": 1.0
+   },
+   "reversible": true,
+   "scene": "service_main",
+   "mode": 1
+  },
+  "sonyu": {
+   "name": "挿入",
+   "giver": "player",
+   "targets": {
+    "giver": 1.0,
+    "receiver": 1.0
+   },
+   "reversible": true,
+   "strapon": true,
+   "scene": "intensify",
+   "mode": 2
+  },
+  "masturbation": {
+   "name": "自慰",
+   "giver": "character",
+   "self": true,
+   "targets": {
+    "giver": 1.0,
+    "receiver": 1.0
+   },
+   "reversible": false,
+   "scene": "tease",
+   "mode": 3
+  },
+  "lesbian": {
+   "name": "女性同士",
+   "giver": "player",
+   "targets": {
+    "giver": 0.6,
+    "receiver": 1.0
+   },
+   "reversible": false,
+   "scene": "tease",
+   "mode": 5
+  }
+ },
+ "climax": {
+  "_note": "The play's climaxes and finishes (play_climax.gd; the pace is Muse's: a block's play.pace / speed). The female part's gauge at 1 plays her climax (the app's). The ejaculation is declared (2026-11-02, the user's decision): the user tells Muse, Muse sends play.finish \"soon\" (hold the OLoop) and/or a place of places (per AnimationInfo mode); from the hold the place's leading OLoop is skipped. A hold with no place for hold_wait_seconds (no package showing, no play block) ends in finish_default. male_gauge: what the male part's gauge at 1 does - none (nothing: the user's), hold (the OLoop for Muse's place: the character's), finish (the default finish at once). together: both come when, at the declaration, the female part's gauge is at threshold in a play of groups (one that stimulates her) - a place of sequences plays its [W, S] sequence by the loop playing then, another its own with her climax. The user's gauge rises as the character's: rate x the pace's factor x the user's role rate x player_rate_factor; decay after decay_after s; after a climax after_value and after_seconds without a rise. sequences: per mode, per name, the original's states with 'once' (one play) or seconds (the original waits for the voice; these lengths are provisional). after: the state after a sequence (else the pace 0's). clear_siru_at_end: the liquid is cleaned when the play ends. Provisional: replace freely.",
+  "player_rate_factor": 1.0,
+  "decay_after": 8.0,
+  "decay": 0.01,
+  "after_value": 0.0,
+  "after_seconds": 20.0,
+  "male_gauge": {
+   "player": "none",
+   "character": "hold"
+  },
+  "places": {
+   "1": [
+    "drink",
+    "vomit",
+    "outside"
+   ],
+   "2": [
+    "inside",
+    "outside"
+   ]
+  },
+  "hold_wait_seconds": 120.0,
+  "together": {
+   "threshold": 0.7,
+   "groups": [
+    "sonyu"
+   ],
+   "sequences": {
+    "2": {
+     "inside": [
+      "same_w",
+      "same_s"
+     ]
+    }
+   }
+  },
+  "finish_default": {
+   "1": "drink",
+   "2": "inside"
+  },
+  "clear_siru_at_end": true,
+  "after": {
+   "2": {
+    "outside": "Idle"
+   },
+   "1": {}
+  },
+  "sequences": {
+   "2": {
+    "inside": [
+     [
+      "OLoop",
+      3.0
+     ],
+     [
+      "M_IN_Start",
+      "once"
+     ],
+     [
+      "M_IN_Loop",
+      3.0
+     ],
+     [
+      "IN_A",
+      4.0
+     ]
+    ],
+    "outside": [
+     [
+      "OLoop",
+      3.0
+     ],
+     [
+      "M_OUT_Start",
+      "once"
+     ],
+     [
+      "M_OUT_Loop",
+      4.0
+     ],
+     [
+      "OUT_A",
+      4.0
+     ]
+    ],
+    "female_w": [
+     [
+      "OLoop",
+      2.0
+     ],
+     [
+      "WF_IN_Start",
+      "once"
+     ],
+     [
+      "WF_IN_Loop",
+      3.0
+     ],
+     [
+      "WS_IN_A",
+      4.0
+     ]
+    ],
+    "female_s": [
+     [
+      "OLoop",
+      2.0
+     ],
+     [
+      "SF_IN_Start",
+      "once"
+     ],
+     [
+      "SF_IN_Loop",
+      3.0
+     ],
+     [
+      "SS_IN_A",
+      4.0
+     ]
+    ],
+    "same_w": [
+     [
+      "OLoop",
+      2.5
+     ],
+     [
+      "WS_IN_Start",
+      "once"
+     ],
+     [
+      "WS_IN_Loop",
+      3.0
+     ],
+     [
+      "WS_IN_A",
+      4.0
+     ]
+    ],
+    "same_s": [
+     [
+      "OLoop",
+      2.5
+     ],
+     [
+      "SS_IN_Start",
+      "once"
+     ],
+     [
+      "SS_IN_Loop",
+      3.0
+     ],
+     [
+      "SS_IN_A",
+      4.0
+     ]
+    ],
+    "pull_drip": [
+     [
+      "Pull",
+      "once"
+     ],
+     [
+      "Drop",
+      5.0
+     ],
+     [
+      "OUT_A",
+      4.0
+     ]
+    ],
+    "insert": [
+     [
+      "Insert",
+      "once"
+     ]
+    ]
+   },
+   "1": {
+    "drink": [
+     [
+      "OLoop",
+      3.0
+     ],
+     [
+      "IN_Start",
+      "once"
+     ],
+     [
+      "IN_Loop",
+      2.0
+     ],
+     [
+      "Oral_Idle_IN",
+      "once"
+     ],
+     [
+      "Oral_Idle",
+      2.0
+     ],
+     [
+      "Drink_IN",
+      "once"
+     ],
+     [
+      "Drink",
+      "once"
+     ],
+     [
+      "Drink_A",
+      4.0
+     ]
+    ],
+    "vomit": [
+     [
+      "OLoop",
+      3.0
+     ],
+     [
+      "IN_Start",
+      "once"
+     ],
+     [
+      "IN_Loop",
+      2.0
+     ],
+     [
+      "Oral_Idle_IN",
+      "once"
+     ],
+     [
+      "Oral_Idle",
+      2.0
+     ],
+     [
+      "Vomit_IN",
+      "once"
+     ],
+     [
+      "Vomit",
+      "once"
+     ],
+     [
+      "Vomit_A",
+      4.0
+     ]
+    ],
+    "outside": [
+     [
+      "OLoop",
+      3.0
+     ],
+     [
+      "M_OUT_Start",
+      "once"
+     ],
+     [
+      "M_OUT_Loop",
+      3.0
+     ],
+     [
+      "OUT_A",
+      4.0
+     ]
+    ]
+   },
+   "0": {
+    "female": [
+     [
+      "Orgasm_Start",
+      "once"
+     ],
+     [
+      "Orgasm_Loop",
+      3.0
+     ],
+     [
+      "Orgasm_A",
+      4.0
+     ]
+    ]
+   },
+   "3": {
+    "female": [
+     [
+      "OLoop",
+      2.0
+     ],
+     [
+      "Orgasm",
+      "once"
+     ],
+     [
+      "Orgasm_A",
+      4.0
+     ]
+    ]
+   },
+   "5": {
+    "female": [
+     [
+      "OLoop",
+      2.0
+     ],
+     [
+      "Orgasm",
+      "once"
+     ],
+     [
+      "Orgasm_A",
+      4.0
+     ]
+    ]
+   }
+  }
+ },
+ "idle_pause_seconds": 45.0,
+ "parts": {
+  "hands": {
+   "name": "手"
+  },
+  "mouth": {
+   "name": "口"
+  },
+  "body": {
+   "name": "体"
+  },
+  "breasts": {
+   "name": "胸",
+   "needs": "breasts"
+  },
+  "penis": {
+   "name": "ペニス",
+   "needs": "penis"
+  },
+  "vagina": {
+   "name": "女性器",
+   "needs": "vagina"
+  },
+  "receptive": {
+   "name": "受け入れる所",
+   "resolve": {
+    "female": "vagina",
+    "male": "anus"
+   }
+  },
+  "anus": {
+   "name": "アナル"
+  }
+ },
+ "needs": {
+  "breasts": {
+   "name": "胸",
+   "bodies": [
+    "female"
+   ]
+  },
+  "vagina": {
+   "name": "女性器",
+   "bodies": [
+    "female"
+   ]
+  },
+  "penis": {
+   "name": "ペニス",
+   "bodies": [
+    "male"
+   ],
+   "attributes": [
+    "futanari"
+   ],
+   "strapon": true,
+   "strapon_feel": 0.0,
+   "_note": "a male body or the futanari attribute; where the group allows it (strapon: true, the insertion) the one without a penis gets a strapon by itself (the user's decision 2026-11-02), and the wearer then feels strapon_feel of the role's rate (0: a strapon brings no gauge)"
+  }
+ },
+ "eye_neck": {
+  "_note": "h_eye_neck.gd: the column of the female eyes and neck lists (the original's HExperience: 0 the first time, 1 unused to it, 2 used to it, 3 lewd); the app has no experience, so one column for all. Provisional.",
+  "experience": 2
+ },
+ "partner": {
+  "_note": "The user's own body in a play (partner.gd): the original's default male (the play menu's body male) or default female, playing the other part of the row (the male part; in a reversed play the female part; in a lesbian play the second female); none where the row has no such part (aibu, masturbation). show: false hides it (the user stays only the camera). clothes_state: 0 dressed, 1 underwear, 2 nude (its default coordinate). pov: 相手の目線 - the camera at its head (cf_j_head, final pose), up metres higher and forward metres towards her look_bone (in front of its face), looking at that bone, with fov degrees; the user may turn the head from there (a turning drag / the turn keys: at most turn_yaw degrees either side, turn_up up, turn_down down; the eyes stay where they are). Provisional: replace freely.",
+  "show": true,
+  "clothes_state": 2,
+  "pov": {
+   "up": 0.04,
+   "forward": 0.12,
+   "look_bone": "cf_j_spine02",
+   "fov": 50.0,
+   "turn_yaw": 60.0,
+   "turn_up": 35.0,
+   "turn_down": 45.0
+  }
+ },
+ "camera_frame": {
+  "_note": "The play's fixed camera (PlayCtl.Frame; the user's request of 2026-11-04): the original's angle for the position, its target and distance from her body as it is (head, hands, hips, knees, the chest) so she is seen whichever part she plays and whatever her size; both women in a lesbian play (a woman's body of yours) and both Muses in a match. Read at the frame's end (earlier in a frame the bones stand in a rest pose). The look: the original's angle turned to the side her face is on (within face_side degrees of where her face looks; two women: within pair_side of across the line between their heads), looking down between pitch_min and pitch_max degrees, a field of fov degrees (the original's 23 needs 3 m and more: the room's walls); the bodies fitted (margin: the share of the view they fill), the middle to_face of the way towards her face and lift metres up; a wall in the way - the turn tried 20 / 40 / 60 degrees either side for a clear line before coming in. body_share: at least this share of her size (her bones' lengths, whatever the pose - a curled pose's bones lie close; a smaller or taller woman alike) fills the view's height; walled in on every side, the field widens up to fov_max so the bodies still fit. Two women: the other side of them is tried too. min / max: the distance's bounds in metres. on: false - the original's camera as it is.",
+  "on": true,
+  "fov": 36.0,
+  "focus": 0.5,
+  "focus_weight": 0.35,
+  "lift": 0.03,
+  "upright_from": 0.6,
+  "upright_turn": 40.0,
+  "lying_turn": 35.0,
+  "pair_turn": 20.0,
+  "face_side": 70.0,
+  "pair_side": 40.0,
+  "pitch_lying": 32.0,
+  "pitch_upright": 12.0,
+  "margin": 0.95,
+  "body_share": 0.18,
+  "pitch_service": 16.0,
+  "fov_max": 62.0,
+  "pitch_up_try": 18.0,
+  "min": 0.8,
+  "max": 4.0
+ },
+ "speed_max": {
+  "0": 1.5,
+  "1": 2.5,
+  "2": 3.0,
+  "3": 1.0,
+  "5": 1.4
+ },
+ "plays": [
+  {
+   "id": "aibu_00",
+   "name": "立ち愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 0,
+   "places": [
+    "floor",
+    "stand",
+    "wall",
+    "pool"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_01",
+   "name": "仰向け愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 1,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_02",
+   "name": "四つん這い愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 2,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_03",
+   "name": "椅子座り愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 3,
+   "places": [
+    "chair",
+    "sofa"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_04",
+   "name": "椅子バック愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 4,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_05",
+   "name": "机バック愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 5,
+   "places": [
+    "school_desk",
+    "desk"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_06",
+   "name": "壁バック愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 6,
+   "places": [
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_07",
+   "name": "机座り愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 7,
+   "places": [
+    "school_desk"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_08",
+   "name": "机しゃがみ愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 8,
+   "places": [
+    "school_desk"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_09",
+   "name": "本棚愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 9,
+   "places": [
+    "bookshelf"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "aibu_10",
+   "name": "いたずら愛撫",
+   "group": "aibu",
+   "mode": 0,
+   "motion_id": 10,
+   "places": [
+    "under_desk"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "body"
+    ]
+   }
+  },
+  {
+   "id": "houshi_00",
+   "name": "亀頭いじり",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 0,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_01",
+   "name": "片手コキ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 1,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_02",
+   "name": "両手コキ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 2,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_05",
+   "name": "先舐め＋竿舐め",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 5,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_07",
+   "name": "片手フェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 7,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_08",
+   "name": "両手フェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 8,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_11",
+   "name": "パイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 11,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_12",
+   "name": "腕はさみパイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 12,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_13",
+   "name": "押し付けパイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 13,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_15",
+   "name": "パイズリ+咥え",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 15,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "breasts",
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_16",
+   "name": "椅子亀頭いじり",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 16,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_17",
+   "name": "椅子片手コキ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 17,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_21",
+   "name": "椅子先舐め＋竿舐め",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 21,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_22",
+   "name": "椅子ノーハンド先舐め",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 22,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_24",
+   "name": "椅子両手フェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 24,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_27",
+   "name": "椅子パイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 27,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_28",
+   "name": "椅子腕はさみパイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 28,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_30",
+   "name": "椅子パイズリ+舐め",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 30,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "breasts",
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_31",
+   "name": "椅子パイズリ+咥え",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 31,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "breasts",
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_32",
+   "name": "立ち亀頭いじり",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 32,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_33",
+   "name": "立ち片手コキ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 33,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_35",
+   "name": "立ち玉舐め手コキ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 35,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_36",
+   "name": "立ち手コキ玉いじり",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 36,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_39",
+   "name": "立ち片手フェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 39,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_40",
+   "name": "立ち両手フェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 40,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_42",
+   "name": "立ちノーハンドフェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 42,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_43",
+   "name": "立ちパイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 43,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_44",
+   "name": "立ち腕はさみパイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 44,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_47",
+   "name": "立ちパイズリ+咥え",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 47,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "breasts",
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_48",
+   "name": "プールパイズリ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 48,
+   "places": [
+    "pool_edge"
+   ],
+   "parts": {
+    "giver": [
+     "breasts"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_49",
+   "name": "立ちオナホ手コキ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 49,
+   "places": [
+    "floor",
+    "stand",
+    "school_desk",
+    "desk",
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_50",
+   "name": "椅子またがりフェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 50,
+   "places": [
+    "straddle"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_51",
+   "name": "ベンチフェラ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 51,
+   "places": [
+    "bench_low"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "houshi_52",
+   "name": "密着手コキ",
+   "group": "houshi",
+   "mode": 1,
+   "motion_id": 52,
+   "places": [
+    "close_seat"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": [
+     "penis"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_00",
+   "name": "正常位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 0,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_01",
+   "name": "開脚正常位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 1,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_02",
+   "name": "後背位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 2,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_03",
+   "name": "腕引っ張り後背位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 3,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_04",
+   "name": "騎乗位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 4,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   },
+   "lead": "receiver"
+  },
+  {
+   "id": "sonyu_06",
+   "name": "側位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 6,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_07",
+   "name": "立位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 7,
+   "places": [
+    "floor",
+    "stand",
+    "pool"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_08",
+   "name": "駅弁",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 8,
+   "places": [
+    "floor",
+    "stand",
+    "pool"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_09",
+   "name": "椅子対面",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 9,
+   "places": [
+    "chair",
+    "stool"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_10",
+   "name": "椅子背面",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 10,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_11",
+   "name": "椅子バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 11,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_12",
+   "name": "腕引っ張り椅子バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 12,
+   "places": [
+    "chair",
+    "stool",
+    "sofa",
+    "bench"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_13",
+   "name": "机寝位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 13,
+   "places": [
+    "school_desk",
+    "desk"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_14",
+   "name": "机バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 14,
+   "places": [
+    "school_desk",
+    "desk"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_15",
+   "name": "腕引っ張り机バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 15,
+   "places": [
+    "school_desk",
+    "desk"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_16",
+   "name": "机側位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 16,
+   "places": [
+    "school_desk",
+    "desk"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_17",
+   "name": "壁対面片足上げ",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 17,
+   "places": [
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_18",
+   "name": "壁バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 18,
+   "places": [
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_19",
+   "name": "片足上げ壁バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 19,
+   "places": [
+    "wall"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_20",
+   "name": "プールバック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 20,
+   "places": [
+    "pool_edge"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_21",
+   "name": "フェンス後背位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 21,
+   "places": [
+    "fence"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_22",
+   "name": "フェンス掴まり駅弁",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 22,
+   "places": [
+    "fence"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_23",
+   "name": "種付けプレス",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 23,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_24",
+   "name": "マングリ正常位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 24,
+   "places": [
+    "toilet_seat"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_25",
+   "name": "跳び箱バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 25,
+   "places": [
+    "vault_box"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_26",
+   "name": "寝バック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 26,
+   "places": [
+    "floor",
+    "stand"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "sonyu_27",
+   "name": "ソファ騎乗位",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 27,
+   "places": [
+    "sofa_wide"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   },
+   "lead": "receiver"
+  },
+  {
+   "id": "sonyu_28",
+   "name": "押し付けバック",
+   "group": "sonyu",
+   "mode": 2,
+   "motion_id": 28,
+   "places": [
+    "press_wall"
+   ],
+   "parts": {
+    "giver": [
+     "penis"
+    ],
+    "receiver": [
+     "receptive"
+    ]
+   }
+  },
+  {
+   "id": "masturbation_00",
+   "name": "角オナニー",
+   "group": "masturbation",
+   "mode": 3,
+   "motion_id": 0,
+   "places": [
+    "corner"
+   ],
+   "parts": {
+    "giver": [
+     "body"
+    ],
+    "receiver": []
+   }
+  },
+  {
+   "id": "masturbation_01",
+   "name": "椅子オナニー",
+   "group": "masturbation",
+   "mode": 3,
+   "motion_id": 1,
+   "places": [
+    "solo_seat"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": []
+   }
+  },
+  {
+   "id": "masturbation_02",
+   "name": "立ちオナニー",
+   "group": "masturbation",
+   "mode": 3,
+   "motion_id": 2,
+   "places": [
+    "solo_stand"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": []
+   }
+  },
+  {
+   "id": "masturbation_05",
+   "name": "ハードルオナニー",
+   "group": "masturbation",
+   "mode": 3,
+   "motion_id": 5,
+   "places": [
+    "hurdle"
+   ],
+   "parts": {
+    "giver": [
+     "hands"
+    ],
+    "receiver": []
+   }
+  },
+  {
+   "id": "lesbian_00",
+   "name": "具合わせ",
+   "group": "lesbian",
+   "mode": 5,
+   "motion_id": 0,
+   "places": [
+    "pair_floor"
+   ],
+   "parts": {
+    "giver": [
+     "vagina"
+    ],
+    "receiver": [
+     "vagina"
+    ]
+   },
+   "mutual": true,
+   "targets": {
+    "giver": 1.0,
+    "receiver": 1.0
+   }
+  },
+  {
+   "id": "lesbian_01",
+   "name": "椅子クンニ",
+   "group": "lesbian",
+   "mode": 5,
+   "motion_id": 1,
+   "places": [
+    "pair_seat"
+   ],
+   "parts": {
+    "giver": [
+     "mouth"
+    ],
+    "receiver": [
+     "vagina"
+    ]
+   }
+  },
+  {
+   "id": "lesbian_02",
+   "name": "互い弄り",
+   "group": "lesbian",
+   "mode": 5,
+   "motion_id": 2,
+   "places": [
+    "pair_floor"
+   ],
+   "parts": {
+    "giver": [
+     "hands",
+     "vagina"
+    ],
+    "receiver": [
+     "hands",
+     "vagina"
+    ]
+   },
+   "mutual": true,
+   "targets": {
+    "giver": 1.0,
+    "receiver": 1.0
+   }
+  }
+ ]
+}

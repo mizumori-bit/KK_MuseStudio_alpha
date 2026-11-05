@@ -1,0 +1,132 @@
+{
+ "_note": "Scene key (MUSE_GUIDE.md 3.2; '{key}#{intensity}' entries win) -> a Studio animation [group, category, no]. intensity_speed: the speed of intensity 1..3 (x the block's speed). From the Godot app's scene_map.json + animations.json, tied by clip name (tools/derive_data.py).",
+ "intensity_speed": {
+  "1": 0.85,
+  "2": 1.0,
+  "3": 1.2
+ },
+ "scenes": {
+  "idle": {
+   "anime": [
+    0,
+    0,
+    7
+   ],
+   "name": "基本:立ち7"
+  },
+  "approach": {
+   "anime": [
+    0,
+    0,
+    9
+   ],
+   "name": "基本:立ち9",
+   "move": "approach"
+  },
+  "lean_in": {
+   "anime": [
+    0,
+    0,
+    16
+   ],
+   "name": "基本:立ち16",
+   "lean": [
+    7.0,
+    12.0,
+    17.0
+   ]
+  },
+  "hold": {
+   "anime": [
+    0,
+    0,
+    4
+   ],
+   "name": "基本:立ち4"
+  },
+  "care": {
+   "anime": [
+    0,
+    0,
+    21
+   ],
+   "name": "基本:立ち21"
+  },
+  "service_start": {
+   "anime": [
+    0,
+    0,
+    13
+   ],
+   "name": "基本:立ち13"
+  },
+  "service_main": {
+   "anime": [
+    0,
+    0,
+    20
+   ],
+   "name": "基本:立ち20"
+  },
+  "service_main#1": {
+   "anime": [
+    0,
+    0,
+    18
+   ],
+   "name": "基本:立ち18"
+  },
+  "service_main#3": {
+   "anime": [
+    0,
+    0,
+    19
+   ],
+   "name": "基本:立ち19"
+  },
+  "tease": {
+   "anime": [
+    0,
+    0,
+    8
+   ],
+   "name": "基本:立ち8"
+  },
+  "intensify": {
+   "anime": [
+    0,
+    0,
+    23
+   ],
+   "name": "基本:立ち23"
+  },
+  "finish": {
+   "anime": [
+    0,
+    2,
+    0
+   ],
+   "name": "感情:喜1"
+  },
+  "aftercare": {
+   "anime": [
+    0,
+    2,
+    21
+   ],
+   "name": "感情:哀2"
+  }
+ },
+ "walk": [
+  0,
+  3,
+  0
+ ],
+ "walking": {
+  "speed": 1.2,
+  "turn_deg_per_s": 500.0,
+  "stop_distance": 1.0,
+  "max_distance": 3.5,
+  "min_walk": 0.15
+ }
+}

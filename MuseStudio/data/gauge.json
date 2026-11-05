@@ -1,0 +1,55 @@
+{
+ "_note": "The female pleasure gauge (stage 3, MUSE_GUIDE.md 3.6), 0..1. touch: gain per touch = area x kind x strength (a hold also x its seconds / 1.5, at most x3). scene: gain per second while that scene key plays, x the intensity factor. Without any gain for decay_after seconds the gauge falls by decay per second. milestones: an event the first time the gauge passes each (again only after it fell rearm below the mark). climax at 1.0: the climax event, then afterglow_seconds in which the gauge does not rise, starting from after_value. multiplier: the overall rate; personality: per personality number (the creation's list), a rate factor - game balance stays data (the user's direction: the current settings are not a premise of the structure). Provisional: replace freely. A scene raises the gauge only while its block is being presented (text out, voice over, then scene_grace_seconds; at most scene_block_max_seconds per block), never while the block waits for a tap.",
+ "touch": {
+  "area": {
+   "head": 0.004,
+   "cheek": 0.006,
+   "hand": 0.003,
+   "arm": 0.003,
+   "leg": 0.004,
+   "belly": 0.008,
+   "thigh": 0.012,
+   "hips": 0.02,
+   "chest": 0.03,
+   "crotch": 0.045,
+   "anal": 0.035
+  },
+  "kind": {
+   "tap": 1.0,
+   "stroke": 1.6,
+   "hold": 1.3
+  },
+  "strength": [
+   1.0,
+   1.5,
+   2.0
+  ]
+ },
+ "scene": {
+  "rate": {
+   "service_start": 0.003,
+   "service_main": 0.008,
+   "tease": 0.004,
+   "intensify": 0.02,
+   "finish": 0.03
+  },
+  "intensity": [
+   0.7,
+   1.0,
+   1.6
+  ]
+ },
+ "scene_grace_seconds": 2.0,
+ "scene_block_max_seconds": 30.0,
+ "decay_after": 8.0,
+ "decay": 0.01,
+ "milestones": {
+  "half": 0.5,
+  "near": 0.85
+ },
+ "rearm": 0.1,
+ "afterglow_seconds": 25.0,
+ "after_value": 0.2,
+ "multiplier": 1.0,
+ "personality": {}
+}

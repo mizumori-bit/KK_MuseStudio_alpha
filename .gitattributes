@@ -1,0 +1,4 @@
+# This machine's tailnet name and address leave MUSE_GUIDE.md as placeholders when committed (the "scrub" filter is set in
+# this clone's .git/config; the working copy keeps the real ones for Muse). Without the filter a commit of it is refused.
+MUSE_GUIDE.md filter=scrub
+* text=auto
