@@ -50,24 +50,54 @@ namespace MuseStudio
             catch (Exception) { return new Dictionary<string, object>(); }
         }
 
-        // the character's moods, with what built up while the app was closed
+        // The character's moods as saved. While the app was closed she lived her day (PR #25, the owner's decision of
+        // 2026-11-06): a mood with "away" settles towards its everyday value (a value drawn once in "toward" - the bladder low,
+        // the arousal 0.2-0.4, all below their urges' marks), the further the longer it was closed (all of it after
+        // settle_minutes); nothing builds up from the closed time alone. Only for time the app was closed: a character saved
+        // under this launch (switched away and back) comes back as she was - no settling, nothing drawn again. A mood without
+        // "away": as before (per_minute x the closed minutes, at most away_minutes_max).
         public void LoadFor(string id)
         {
             if (charId.Length > 0) Save();
+            Apply(id, Json.Obj(ReadAll(), id));
+        }
+
+        public string ResumedForCheck = "";       // (checks) how the last load came back: "new" / "same_launch" / "after_closed <minutes>"
+
+        void Apply(string id, Dictionary<string, object> mine)
+        {
             charId = id;
             Values.Clear(); levels.Clear(); satisfiable.Clear(); done.Clear();
-            var mine = Json.Obj(ReadAll(), id);
             foreach (var kv in Json.Obj(mine, "done") ?? new Dictionary<string, object>()) if (kv.Value is double) done[kv.Key] = (double)kv.Value;
-            double away = Json.Has(mine, "saved") ? Math.Max(0.0, (Unix - Json.Num(mine, "saved")) / 60.0) : 0.0;
+            bool saved = Json.Has(mine, "saved");
+            bool sameLaunch = saved && Json.Str(mine, "launch") == Launch.Id;
+            double away = saved && !sameLaunch ? Math.Max(0.0, (Unix - Json.Num(mine, "saved")) / 60.0) : 0.0;
+            ResumedForCheck = !saved ? "new" : sameLaunch ? "same_launch" : "after_closed " + away.ToString("F0");
             foreach (var kv in Moods)
             {
                 var vals = Json.Obj(mine, "values");
                 double v = Json.Has(vals, kv.Key) ? Json.Num(vals, kv.Key) : Json.Num(kv.Value, "start", 0);
-                v += Json.Num(kv.Value, "per_minute", 0) * Math.Min(away, Json.Num(kv.Value, "away_minutes_max", 0));
+                var aw = Json.Obj(kv.Value, "away");
+                if (saved && !sameLaunch && aw != null)
+                {
+                    var tw = Json.Arr(aw, "toward");
+                    double lo = tw != null && tw.Count > 1 ? Convert.ToDouble(tw[0]) : 0.0, hi = tw != null && tw.Count > 1 ? Convert.ToDouble(tw[1]) : lo;
+                    double target = lo + rng.NextDouble() * (hi - lo);
+                    double t = Math.Min(1.0, away / Math.Max(1.0, Json.Num(aw, "settle_minutes", 120)));
+                    v += (target - v) * t;
+                }
+                else if (saved && !sameLaunch)
+                    v += Json.Num(kv.Value, "per_minute", 0) * Math.Min(away, Json.Num(kv.Value, "away_minutes_max", 0));
                 Values[kv.Key] = Mathf.Clamp01((float)v);
                 levels[kv.Key] = LevelOf(kv.Key);
             }
         }
+
+        readonly System.Random rng = new System.Random();
+
+        // (checks) a saved record given as it would be read: a long / short closed time, the same launch, an old record
+        public void ResumeForCheck(string id, Dictionary<string, object> mine) { Apply(id, mine); }
+        public static double UnixNowForCheck { get { return Unix; } }
 
         public void Save()
         {
@@ -79,7 +109,7 @@ namespace MuseStudio
                 foreach (var kv in Values) vals[kv.Key] = Math.Round(kv.Value, 4);
                 var dn = new Dictionary<string, object>();
                 foreach (var kv in done) dn[kv.Key] = kv.Value;
-                all[charId] = new Dictionary<string, object> { { "values", vals }, { "saved", Unix }, { "done", dn } };
+                all[charId] = new Dictionary<string, object> { { "values", vals }, { "saved", Unix }, { "launch", Launch.Id }, { "done", dn } };
                 Directory.CreateDirectory(Path.GetDirectoryName(savePath));
                 File.WriteAllText(savePath, Json.Write(all));
             }

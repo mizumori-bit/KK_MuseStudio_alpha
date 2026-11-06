@@ -2343,6 +2343,39 @@ namespace MuseStudio
             }
             Check("delivery: a bridge that lost this launch gets it again from the app (its next /health look: the launch and its phase reported again)",
                   Json.Str(hl, "id") == Launch.Id && Json.Str(hl, "phase") == "character_selected", Json.Write(hl));
+
+            // ---- PR #25: the moods while the app was closed settle, they do not build up ----
+            // a long closed time: the bladder low, the arousal everyday (below their urges' marks: no urge from the closed
+            // time alone); a short one: hardly moved; the same launch (switched away and back): as she was; an old record
+            // (no launch): settled as after a closed time
+            var rsCid = h.CharacterId();
+            var moodsWas = new Dictionary<string, float>(h.Mood.Values);
+            double rsNow = Mood.UnixNowForCheck;
+            Func<double, double, double, string, Dictionary<string, object>> rsRec = (ar, bl, minutesAgo, launch) =>
+            {
+                var r = D("values", D("arousal", ar, "bladder", bl), "saved", rsNow - minutesAgo * 60.0);
+                if (launch != null) r["launch"] = launch;
+                return r;
+            };
+            int rsUrgeA0 = EventCount("urge", "urge", "arousal"), rsUrgeB0 = EventCount("urge", "urge", "bladder");
+            h.Mood.ResumeForCheck(rsCid, rsRec(0.95, 0.95, 360, "an-old-launch"));
+            float rsLA = h.Mood.Values["arousal"], rsLB = h.Mood.Values["bladder"];
+            string rsHow = h.Mood.ResumedForCheck;
+            h.Urges.Start("check_resume");
+            yield return Wait(0.6f);
+            bool rsLong = rsLA >= 0.2f && rsLA <= 0.4f && rsLB >= 0.05f && rsLB <= 0.2f && EventCount("urge", "urge", "arousal") == rsUrgeA0 && EventCount("urge", "urge", "bladder") == rsUrgeB0;
+            h.Mood.ResumeForCheck(rsCid, rsRec(0.6, 0.6, 5, "an-old-launch"));
+            float rsSA = h.Mood.Values["arousal"], rsSB = h.Mood.Values["bladder"];
+            bool rsShort = rsSA > 0.55f && rsSA <= 0.6f && rsSB > 0.53f && rsSB <= 0.6f;
+            h.Mood.ResumeForCheck(rsCid, rsRec(0.62, 0.58, 360, Launch.Id));
+            bool rsSame = Mathf.Abs(h.Mood.Values["arousal"] - 0.62f) < 0.001f && Mathf.Abs(h.Mood.Values["bladder"] - 0.58f) < 0.001f && h.Mood.ResumedForCheck == "same_launch";
+            h.Mood.ResumeForCheck(rsCid, rsRec(0.9, 0.9, 360, null));
+            bool rsOld = h.Mood.Values["arousal"] <= 0.4f && h.Mood.Values["bladder"] <= 0.2f;
+            foreach (var kv in moodsWas) h.Mood.Values[kv.Key] = kv.Value;
+            h.Urges.Start("check_resume_back");
+            Check("moods after the app was closed: a long time settles them (bladder low, arousal everyday, no urge from it); a short time hardly moves them; the same launch keeps them; an old record settles",
+                  rsLong && rsShort && rsSame && rsOld,
+                  string.Format("long {0:F2}/{1:F2} ({2}) short {3:F2}/{4:F2} same {5} old {6}", rsLA, rsLB, rsHow, rsSA, rsSB, rsSame, rsOld));
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));
             Check("Muse's play start: aimed, a new request, the serial Muse saw, the room and the spot - it starts (play_started source muse with the request and the serial), the block's pace on it",
                   msStarted, msStartedWhy);
