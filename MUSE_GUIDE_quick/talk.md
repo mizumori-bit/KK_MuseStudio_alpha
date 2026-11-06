@@ -1,6 +1,6 @@
 # 早見表：会話（プレイの外・彼女と一緒）
 
-契約の版：1.16（`MUSE_GUIDE.md`。この表は見る状態・使える操作・結果の確認先だけ。型・上限・断る理由は示した節で）
+契約の版：1.17（`MUSE_GUIDE.md`。この表は見る状態・使える操作・結果の確認先だけ。型・上限・断る理由は示した節で）
 
 ## 見る状態（`GET /api/state`、第 7.4 節）
 
@@ -22,6 +22,7 @@
 ## 結果の確認先（出来事、第 7.3 節）
 
 - `package_shown`（出た時刻）・`block_refused`（効かなかった項目と理由）・`package_dropped`
+- 届いたか・実行されたか分からないとき：`GET /api/packages/status?id=<送った id>`（`started` なら実行済み。送り直す前に。第 7.1 節。版 1.17）
 - `touch`（`reaction` の `level` は反応の段階。触った回数でも関係の段階でもない。第 3.6 節）
 - `clothes_changed`・`location_changed`・`together_changed`・`presence_changed`
 - `urge`・`urge_cleared`・`mood_changed`・`mood_applied`

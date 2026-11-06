@@ -78,6 +78,7 @@ namespace MuseStudio
             string lid = Json.Str(pkg, "launch"), cid = Json.Str(pkg, "character");
             string reason = lid != null && lid != Id ? "old_launch" : cid != null && cid != h.CharacterId() ? "other_character" : "";
             if (reason.Length == 0) return true;
+            h.Bridge.Ack(Json.Str(pkg, "_pid"), "dropped", reason);
             h.Bridge.Event("package_dropped", new Dictionary<string, object> { { "session", Json.Str(pkg, "session") }, { "turn", (int)Json.Num(pkg, "turn") },
                 { "beat", Json.Has(pkg, "beat") ? (object)(int)Json.Num(pkg, "beat") : null }, { "reason", reason }, { "launch", lid }, { "character", cid },
                 { "choices", Json.Has(pkg, "choices") }, { "by", "app" } });

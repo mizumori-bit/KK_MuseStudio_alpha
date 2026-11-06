@@ -8,10 +8,19 @@
                               stage_ready (waiting for the character to be chosen) / character_selected; MUSE_GUIDE.md 7)
   POST /api/launch            the app's start-up phase {"launch": id, "phase", "character"}; a new launch id drops the packages
                               waiting from before it (package_dropped, reason "before_launch")
-  POST /api/packages          a turn package -> FIFO queue  -> {"accepted": true, "queue": n}; malformed -> 400
-  GET  /api/packages/next     the next package (removed from the queue); 204 when empty. One tagged with another launch or
-                              another character than the app's now is dropped instead (package_dropped). ?hold=1: the app is
-                              not ready to present (before the character is chosen) - 204, the queue kept (the response pool)
+  POST /api/packages          a turn package -> FIFO queue, saved first (cache/packages.json) -> {"accepted": true, "queue": n,
+                              "id"}; malformed -> 400; not saved -> 503 (not taken: send it again). A package sent again (its
+                              "id", else the same content) is not queued twice: {"accepted": true, "duplicate": true, "stage"}
+  GET  /api/packages/next     the next package; 204 when empty. One tagged with another launch or another character than the
+                              app's now is dropped instead (package_dropped) - an untagged one is for the launch and character
+                              of when it came. ?hold=1: the app is not ready to present (before the character is chosen) - 204,
+                              the queue kept (the response pool). ?ack=1 (MuseStudio): the package stays until the app's
+                              POST /api/packages/ack (received) - an answer lost on the way is given again; without it, taken
+                              out as before
+  POST /api/packages/ack      (the app) {"ids": [...], "stage": "received" / "started" / "dropped", "reason"} -> the packages'
+                              delivery stages; received / dropped take the body out of the queue (the record stays, no text)
+  GET  /api/packages/status   (Muse) ?id=<id> (or ?session=&turn=) -> a package's delivery stage: queued / delivered /
+                              received / started / dropped (with the reason); without them the last 50
   POST /api/tts               {"text", "voice", "caption", "emoji", "seed"} -> {"audio_url": "/audio/<hash>.wav"} (cached); 502 on failure,
                               503 {"voice": false} while the voice is off
   GET  /audio/<hash>.wav      generated audio
@@ -79,6 +88,11 @@ MAX_EVENTS = 1000              # unacknowledged events kept; past this the oldes
 # Totals a sender gone wrong cannot push past (the security review of 2026-11-05, SEC-07): far above everyday use.
 MAX_EVENTS_BYTES = 16 * 1024 * 1024    # the unacknowledged events altogether; past it the oldest are dropped (logged)
 MAX_PACKAGES = 200                     # packages waiting for the app; past it 429
+MAX_PACKAGE_LOG = 500                  # the packages' delivery records kept (no text: id, session, turn, stage, times)
+PACKAGE_LOG_DAYS = 7                   # a finished record older than this goes
+PACKAGE_STAGES = ("queued", "delivered", "received", "started", "dropped")
+ACK_STAGES = ("received", "started", "dropped")
+CONTENT_DUP_SECONDS = 600              # a package without an id: the same content within this is the same package sent again
 MAX_PACKAGES_BYTES = 16 * 1024 * 1024  # those packages altogether; past it 429
 MAX_EVENT_BYTES = 4 * 1024 * 1024      # one event (an app's is under MAX_BODY; a match's package can be more): past it refused
 MAX_EVENTS_FILE_BYTES = 64 * 1024 * 1024    # a saved feed bigger than this (one from before the limits) is not read: kept aside
@@ -114,6 +128,7 @@ def load_config(path: Path) -> dict:
     cfg["_audio_dir"] = resolve(cfg.get("audio_cache_dir", "cache/audio"))
     cfg["_kkdata_root"] = resolve(cfg.get("kkdata_root", "../kk_data"))
     cfg["_events_file"] = resolve(cfg.get("events_file", "cache/events.json"))
+    cfg["_packages_file"] = resolve(cfg["packages_file"]) if cfg.get("packages_file") else cfg["_events_file"].parent / "packages.json"
     cfg["_characters_dir"] = resolve(cfg.get("characters_dir", "../characters"))
     cfg["_card_dirs"] = [resolve(d) for d in cfg.get("card_dirs", [])]
     cfg["_persona_file"] = resolve(cfg["persona_file"]) if cfg.get("persona_file") else None
@@ -133,11 +148,11 @@ def load_config(path: Path) -> dict:
 # serve passes on): a foreign name pointed here (DNS rebinding) is refused whether or not the request looks like a browser's.
 
 ROLES = ("muse", "app")
-_MUSE = {("GET", "/api/events"), ("POST", "/api/events/ack"), ("POST", "/api/packages"), ("GET", "/api/state"),
+_MUSE = {("GET", "/api/events"), ("POST", "/api/events/ack"), ("POST", "/api/packages"), ("GET", "/api/packages/status"), ("GET", "/api/state"),
          ("GET", "/api/catalog"), ("GET", "/api/characters"), ("GET", "/api/voices"), ("GET", "/api/choices"),
          ("POST", "/api/test/faults")}
 _APP = {("POST", "/api/events"), ("POST", "/api/state"), ("POST", "/api/catalog"), ("POST", "/api/launch"),
-        ("GET", "/api/packages/next"), ("POST", "/api/choices")}
+        ("GET", "/api/packages/next"), ("POST", "/api/packages/ack"), ("POST", "/api/choices")}
 
 
 def roles_for(method: str, path: str) -> set:
@@ -214,6 +229,15 @@ def _opt_str(d: dict, key: str, name: str, errors: list) -> None:
         errors.append(f"{name}.{key} must be a string or null")
 
 
+def package_key(pkg: dict) -> str:
+    """the package's identity: its own id, else its content (a resend after a lost answer is the same content)"""
+    pid = pkg.get("id")
+    if isinstance(pid, str) and pid:
+        return pid
+    plain = {k: v for k, v in pkg.items() if not k.startswith("_")}
+    return "h:" + hashlib.sha256(json.dumps(plain, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:32]
+
+
 def validate_package(pkg) -> list[str]:
     """Structural checks only. Unknown labels / keys / camera names pass: the app falls back (spec 7)."""
     errors: list[str] = []
@@ -232,6 +256,9 @@ def validate_package(pkg) -> list[str]:
     for key in ("launch", "character"):
         if pkg.get(key) is not None and not isinstance(pkg[key], str):
             errors.append(f"{key} must be a string or null")
+    pid = pkg.get("id")
+    if pid is not None and (not isinstance(pid, str) or not 1 <= len(pid) <= 200):
+        errors.append("id must be a string of 1-200 characters or null")
     if pkg.get("monologue") is not None and not isinstance(pkg["monologue"], bool):
         errors.append("monologue must be true / false or null")
     if pkg.get("speaker") is not None and pkg["speaker"] not in SPEAKERS:
@@ -663,7 +690,7 @@ class State:
         self.events_frozen = ""                    # (why the feed's file is not written: an oversized old one not kept aside, one not readable)
         self.events_unread = False                 # (the file there but not readable at the start: read again before each use)
         self.duplicates = 0
-        self.faults = {"fail_500": 0, "drop_after_save": 0, "slow_state": 0}      # (--test only: POST /api/test/faults)
+        self.faults = {"fail_500": 0, "drop_after_save": 0, "slow_state": 0, "fail_package_save": 0}      # (--test only: POST /api/test/faults)
         self.auth = str(cfg.get("auth", "required")) != "off"
         self.rates = {**RATE_LIMITS, **{k: v for k, v in (cfg.get("rate_limits") or {}).items()
                                         if isinstance(v, list) and len(v) == 2 and all(isinstance(x, (int, float)) and x > 0 for x in v)}}
@@ -676,6 +703,11 @@ class State:
         self.log_window: dict[str, list] = {}       # refusal code -> [window start, lines, suppressed]
         self.log_lock = threading.Lock()            # (its own: a refusal may be answered while the state's lock is held)
         self._load_events()
+        # The packages (Muse -> app, PR #24): the queue, its delivery records and the launch they are for, kept on disk so a
+        # bridge restart loses none (its own file next to the feed's; bridge/cache is this PC's, never the repository)
+        self.packages_file: Path = cfg.get("_packages_file") or Path(cfg["_events_file"]).parent / "packages.json"
+        self.package_log: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
+        self._launch_loaded: dict | None = None
         self.app_state: dict | None = None
         self.app_state_time: str | None = None
         self.catalog: dict | None = None          # the app's play catalog (POST /api/catalog)
@@ -684,9 +716,92 @@ class State:
         self.instances: dict[str, dict] = {}     # app window id -> {"started": ms, "seen": time}
         # the app's start-up (POST /api/launch): the launch id, its phase and the chosen character; bridge_started until then
         self.launch: dict = {"id": None, "phase": "bridge_started", "started": _now(), "updated": _now(), "character": None}
+        self._load_packages()
         # the Muse-to-Muse match (muse_match.py): None without the 'cryptography' package
         self.match = (muse_match.Match(self.add_event, cfg.get("match", {}), conditions=self.match_conditions, clothes=self.app_clothes)
                       if muse_match is not None and muse_match.AVAILABLE else None)
+
+    # ---- the packages' queue on disk (PR #24) ----
+
+    def _load_packages(self) -> None:
+        f = self.packages_file
+        if not f.is_file():
+            return
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+            queue = [p for p in doc.get("queue", []) if isinstance(p, dict) and isinstance(p.get("_pid"), str)]
+            log = [r for r in doc.get("log", []) if isinstance(r, dict) and isinstance(r.get("id"), str)]
+            launch = doc.get("launch")
+        except (OSError, ValueError, AttributeError) as e:
+            aside = f.with_name(f.name + ".unreadable-" + time.strftime("%Y%m%d-%H%M%S"))
+            try:
+                os.replace(f, aside)
+            except OSError:
+                pass
+            sys.stderr.write(f"[bridge] the package queue's file could not be read ({e}): started empty, the file kept as {aside.name}\n")
+            return
+        for pkg in queue:
+            self.packages.append(pkg)
+            sz = _size(pkg)
+            self.package_sizes.append(sz)
+            self.packages_bytes += sz
+        for r in log:
+            self.package_log[r["id"]] = r
+        if isinstance(launch, dict) and launch.get("id"):
+            # (the same launch goes on after a bridge restart: its packages are delivered, not dropped as old. Its phase waits
+            # for the app's next report - the app reports again when /health shows another launch or phase)
+            self.launch = {k: launch.get(k) for k in ("id", "phase", "started", "updated", "character")}
+            self.launch["phase"] = "bridge_started"
+            self.launch["updated"] = _now()
+        sys.stderr.write(f"[bridge] package queue restored: {len(self.packages)} waiting, {len(self.package_log)} records\n")
+
+    def _save_packages(self) -> None:
+        # Called with the lock held; raises when the file cannot be written (the caller then takes nothing)
+        if self.faults.get("fail_package_save", 0) > 0:
+            self.faults["fail_package_save"] -= 1
+            raise OSError("(test) the package queue's file not written")
+        self._prune_log()
+        self.packages_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.packages_file.with_suffix(".part")
+        doc = {"version": 1, "launch": self.launch, "queue": list(self.packages), "log": list(self.package_log.values())}
+        tmp.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self.packages_file)
+
+    def _prune_log(self) -> None:
+        waiting = {p.get("_pid") for p in self.packages}
+        cutoff = time.time() - PACKAGE_LOG_DAYS * 86400
+        for k in [k for k, r in self.package_log.items() if k not in waiting and r.get("updated_ts", 0) < cutoff]:
+            del self.package_log[k]
+        while len(self.package_log) > MAX_PACKAGE_LOG:
+            old = next((k for k in self.package_log if k not in waiting), None)
+            if old is None:
+                break
+            del self.package_log[old]
+
+    def _mark(self, pid: str, stage: str, reason: str | None = None) -> dict | None:
+        # a package's record to a later stage (never back; dropped is the end)
+        r = self.package_log.get(pid)
+        if r is None:
+            return None
+        cur = r.get("stage", "queued")
+        if cur == "dropped" or (stage != "dropped" and PACKAGE_STAGES.index(stage) <= PACKAGE_STAGES.index(cur)):
+            return r
+        r["stage"] = stage
+        r[stage] = _now()
+        r["updated_ts"] = time.time()
+        if reason:
+            r["reason"] = reason
+        return r
+
+    def _take_out(self, pid: str) -> bool:
+        # the package's body out of the queue (its record stays)
+        for i, p in enumerate(self.packages):
+            if p.get("_pid") == pid:
+                del self.packages[i]
+                self.packages_bytes -= self.package_sizes[i]
+                del self.package_sizes[i]
+                return True
+        return False
 
     def app_clothes(self) -> dict | None:
         # this side's character's clothes as the app last told them (its state's clothes), for the match's packages
@@ -981,12 +1096,22 @@ class State:
             out["events_pending"] = len(self.events)
             return out
 
-    def set_launch(self, lid: str, phase: str, character) -> list[dict]:
-        # A new launch id: the packages waiting now belong to no live launch (an older one's, or sent before it) - dropped.
+    def set_launch(self, lid: str, phase: str, character) -> list[tuple[dict, str]]:
+        # A new launch id: the packages waiting now belong to no live launch (an older one's, or sent before it) - dropped
+        # (before_launch); the ones the old app had taken but never began (delivered / received) went with it (app_restarted).
+        # The same id again (a phase, the character chosen, a bridge restarted under a running app): nothing dropped.
         with self.lock:
-            dropped = []
+            dropped: list[tuple[dict, str]] = []
             if lid != self.launch.get("id"):
-                dropped = list(self.packages)
+                for pkg in self.packages:
+                    r = self.package_log.get(pkg.get("_pid"))
+                    gone = "app_restarted" if r is not None and r.get("stage") == "delivered" else "before_launch"
+                    self._mark(pkg.get("_pid"), "dropped", gone)
+                    dropped.append((pkg, gone))
+                for r in self.package_log.values():
+                    if r.get("stage") == "received":
+                        self._mark(r["id"], "dropped", "app_restarted")
+                        dropped.append(({k: r.get(k) for k in ("session", "turn", "beat", "launch", "character")}, "app_restarted"))
                 self.packages.clear()
                 self.package_sizes.clear()              # (and their total: else the empty queue still looked full - GPT's re-review of #26)
                 self.packages_bytes = 0
@@ -995,6 +1120,10 @@ class State:
             self.launch["updated"] = _now()
             if isinstance(character, dict):
                 self.launch["character"] = {k: character.get(k) for k in ("id", "name", "persona")}
+            try:
+                self._save_packages()
+            except OSError as e:
+                sys.stderr.write(f"[bridge] package queue not saved at the launch: {e}\n")
             return dropped
 
     def character_now(self) -> str | None:
@@ -1004,10 +1133,11 @@ class State:
             return ch.get("id") if isinstance(ch, dict) else None
 
     def drop_reason(self, pkg: dict) -> str:
-        lid = pkg.get("launch")
+        # (an untagged package: for the launch and the character of when the bridge took it - PR #24, GPT's point 3)
+        lid = pkg.get("launch") if pkg.get("launch") is not None else pkg.get("_launch_at")
         if lid is not None and lid != self.launch.get("id"):
             return "old_launch"
-        cid = pkg.get("character")
+        cid = pkg.get("character") if pkg.get("character") is not None else pkg.get("_character_at")
         now = self.character_now()
         if cid is not None and now is not None and cid != now:
             return "other_character"
@@ -1284,18 +1414,51 @@ def make_handler(state: State):
                 if not self._active_window():
                     return self._json(409, {"error": "another app window is active"})
                 hold = query.get("hold", ["0"])[0] not in ("0", "")
+                acked = query.get("ack", ["0"])[0] not in ("0", "")
                 while True:
                     with state.lock:
                         state.app_seen = time.time()
-                        pkg = state.packages.popleft() if state.packages and not hold else None
-                        if pkg is not None:
+                        pkg = state.packages[0] if state.packages and not hold else None
+                        if pkg is not None and not acked:
+                            # (a caller without acks: taken out as before - received when taken)
+                            state.packages.popleft()
                             state.packages_bytes -= state.package_sizes.popleft()
                     if pkg is None:
                         return self._send(204)
                     reason = state.drop_reason(pkg)
+                    with state.lock:
+                        pid = pkg.get("_pid")
+                        if reason:
+                            if acked:
+                                state._take_out(pid)
+                            state._mark(pid, "dropped", reason)
+                        elif acked:
+                            r = state._mark(pid, "delivered")
+                            if r is not None:
+                                r["deliveries"] = r.get("deliveries", 0) + 1
+                        else:
+                            state._mark(pid, "received")
+                        if reason or not acked:
+                            try:
+                                state._save_packages()
+                            except OSError as e:
+                                sys.stderr.write(f"[bridge] package queue not saved: {e}\n")
                     if not reason:
                         return self._json(200, pkg)
                     state.note_dropped(pkg, reason)
+            if path == "/api/packages/status":
+                pid = query.get("id", [None])[0]
+                ses, trn = query.get("session", [None])[0], query.get("turn", [None])[0]
+                with state.lock:
+                    recs = list(state.package_log.values())
+                shown = lambda r: {k: v for k, v in r.items() if k not in ("updated_ts", "queued_ts")}
+                if pid is not None:
+                    r = next((r for r in recs if r["id"] == pid), None)
+                    return self._json(200, shown(r)) if r else self._json(404, {"error": "no package with this id (never taken, or its record is gone)"})
+                if ses is not None and trn is not None:
+                    hits = [shown(r) for r in recs if r.get("session") == ses and str(r.get("turn")) == trn]
+                    return self._json(200, {"packages": hits}) if hits else self._json(404, {"error": "no package with this session and turn"})
+                return self._json(200, {"packages": [shown(r) for r in recs[-50:]]})
             if path == "/api/packages":
                 with state.lock:
                     return self._json(200, {"queue": len(state.packages)})
@@ -1363,25 +1526,85 @@ def make_handler(state: State):
                 errors = validate_package(body)
                 if errors:
                     return self._json(400, {"accepted": False, "errors": errors})
+                key = package_key(body)
                 # (when it came - the app's package_shown tells how long it waited to be shown: PR #12 adopted, the measuring)
                 received = time.time()
                 body["_received_ms"] = int(received * 1000)
-                size = _size(body)
+                body["_pid"] = key
+                body.pop("_launch_at", None)
+                body.pop("_character_at", None)
+                char_now = state.character_now()
+                stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(received)) + ".%03d" % (int(received * 1000) % 1000)
                 with state.lock:
-                    if len(state.packages) >= MAX_PACKAGES or state.packages_bytes + size > MAX_PACKAGES_BYTES:
-                        full = len(state.packages)
-                    else:
-                        full = None
-                        state.packages.append(body)
-                        state.package_sizes.append(size)
-                        state.packages_bytes += size
+                    seen = state.package_log.get(key)
+                    if seen is not None and key.startswith("h:") and received - seen.get("queued_ts", 0) > CONTENT_DUP_SECONDS \
+                            and not any(q.get("_pid") == key for q in state.packages):
+                        del state.package_log[key]          # (the same words long after: a new package)
+                        seen = None
+                    if seen is not None:
+                        # sent again (the answer lost): not queued twice - where the first one is now
                         n = len(state.packages)
+                        dup = {"accepted": True, "duplicate": True, "id": key, "queue": n, "stage": seen.get("stage"), "reason": seen.get("reason")}
+                    else:
+                        dup = None
+                        # an untagged package is for the launch and the character of now (PR #24, GPT's point 3)
+                        if body.get("launch") is None:
+                            body["_launch_at"] = state.launch.get("id")
+                        if body.get("character") is None:
+                            body["_character_at"] = char_now
+                        size = _size(body)
+                        if len(state.packages) >= MAX_PACKAGES or state.packages_bytes + size > MAX_PACKAGES_BYTES:
+                            full = len(state.packages)
+                        else:
+                            full = None
+                            state.packages.append(body)
+                            state.package_sizes.append(size)
+                            state.packages_bytes += size
+                            state.package_log[key] = {"id": key, "session": body["session"], "turn": body["turn"], "beat": body.get("beat"),
+                                                      "launch": body.get("launch") if body.get("launch") is not None else body.get("_launch_at"),
+                                                      "character": body.get("character") if body.get("character") is not None else body.get("_character_at"),
+                                                      "monologue": bool(body.get("monologue")), "stage": "queued", "queued": stamp, "queued_ts": received,
+                                                      "updated_ts": received}
+                            try:
+                                state._save_packages()
+                                saved = True
+                            except OSError as e:
+                                # not kept: taken back, answered as not taken (Muse sends it again)
+                                state.packages.pop()
+                                state.packages_bytes -= state.package_sizes.pop()
+                                del state.package_log[key]
+                                saved = False
+                                sys.stderr.write(f"[bridge] package not saved, not taken: {e}\n")
+                            n = len(state.packages)
+                if dup is not None:
+                    return self._json(200, dup)
                 if full is not None:
                     return self._json(429, {"accepted": False, "queue": full,
                                             "errors": [f"the queue is full ({MAX_PACKAGES} packages / {MAX_PACKAGES_BYTES} bytes): send again after the app has taken some"]})
+                if not saved:
+                    return self._json(503, {"accepted": False, "errors": ["the bridge could not keep the package (its file not written): not taken - send it again"]})
                 sys.stderr.write(f"[bridge] package accepted: session={body['session']} turn={body['turn']} queue={n}\n")
-                stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(received)) + ".%03d" % (int(received * 1000) % 1000)
-                return self._json(200, {"accepted": True, "queue": n, "received_ms": body["_received_ms"], "received": stamp})
+                return self._json(200, {"accepted": True, "id": key, "queue": n, "received_ms": body["_received_ms"], "received": stamp})
+            if path == "/api/packages/ack":
+                if not self._active_window():
+                    return self._json(409, {"error": "another app window is active"})
+                ids = body.get("ids") if isinstance(body, dict) else None
+                stage = body.get("stage") if isinstance(body, dict) else None
+                reason = body.get("reason") if isinstance(body, dict) else None
+                if (not isinstance(ids, list) or not ids or len(ids) > 200 or not all(isinstance(i, str) and i for i in ids)
+                        or stage not in ACK_STAGES or (reason is not None and not isinstance(reason, str))):
+                    return self._json(400, {"error": "ack takes {\"ids\": [ids], \"stage\": received / started / dropped, \"reason\": string or null}"})
+                unknown = []
+                with state.lock:
+                    for pid in ids:
+                        if state._mark(pid, stage, reason if stage == "dropped" else None) is None:
+                            unknown.append(pid)
+                        state._take_out(pid)               # (received, begun or dropped by the app: no body kept)
+                    try:
+                        state._save_packages()
+                    except OSError as e:
+                        return self._json(503, {"ok": False, "error": f"not saved: {e}"})
+                return self._json(200, {"ok": True, "unknown": unknown})
             if path == "/api/choices":
                 errors = validate_choice(body)
                 if errors:
@@ -1429,7 +1652,7 @@ def make_handler(state: State):
             if path == "/api/test/faults" and cfg.get("_test"):
                 # (--test only: the checks' failures - the next N events answered 500 before saving / saved and the answer lost)
                 with state.lock:
-                    for k in ("fail_500", "drop_after_save", "slow_state"):
+                    for k in ("fail_500", "drop_after_save", "slow_state", "fail_package_save"):
                         if isinstance(body.get(k), int) and not isinstance(body.get(k), bool):
                             state.faults[k] = max(0, body[k])
                     return self._json(200, {**state.faults, "duplicates": state.duplicates})
@@ -1441,8 +1664,8 @@ def make_handler(state: State):
                                                      + ", \"character\": object or null}"})
                 if not self._active_window():
                     return self._json(409, {"error": "another app window is active"})
-                for pkg in state.set_launch(body["launch"], body["phase"], body.get("character")):
-                    state.note_dropped(pkg, "before_launch")
+                for pkg, why in state.set_launch(body["launch"], body["phase"], body.get("character")):
+                    state.note_dropped(pkg, why)
                 if self.headers.get("X-MMS-Instance"):
                     state.app_seen = time.time()
                 sys.stderr.write(f"[bridge] launch {body['launch']}: {body['phase']}\n")

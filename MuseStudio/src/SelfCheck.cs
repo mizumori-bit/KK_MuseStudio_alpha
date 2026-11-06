@@ -69,13 +69,13 @@ namespace MuseStudio
         }
 
         // a request standing in for Muse (Muse's token: MUSE_GUIDE 7.1)
-        string Http(string method, string p, object body)
+        string Http(string method, string p, object body, string role = "muse")
         {
             var req = (HttpWebRequest)WebRequest.Create(MuseStudioPlugin.BridgeBase() + p);
             req.Method = method;
             req.Proxy = null;
             req.Timeout = 5000;
-            string token = MuseStudioPlugin.BridgeToken("muse");
+            string token = MuseStudioPlugin.BridgeToken(role);
             if (token.Length > 0) req.Headers["Authorization"] = "Bearer " + token;
             if (body != null)
             {
@@ -2297,6 +2297,52 @@ namespace MuseStudio
             h.GaugeSpeed.Value = msWasG;
             Check("Muse's speeds: a change the user asked for is set and told (settings_changed by muse, the request); out of range, unknown, the same request again and untargeted refused",
                   setOk && setRefused, "set " + setOk + " refused " + setRefused + " " + Json.Write(setEv));
+
+            // ---- PR #24: the packages' delivery ----
+            // a package taken: received and begun at the bridge (its stage, asked by its id); sent again by Muse: one package,
+            // its stage told; given again to the app (its received lost on the way): known by its id, not played twice
+            yield return Until(() => !bp.Busy, 10f);
+            var dlvPkg = D("launch", Launch.Id, "character", h.CharacterId(), "id", "chk-dlv-1");
+            SendPkg(dlvPkg, Line("届いたか確かめます。"));
+            yield return Until(() => bp.Busy && bp.Text == "届いたか確かめます。", 10f);
+            yield return Wait(1.2f);
+            var dlvSt = Json.Parse(Http("GET", "/api/packages/status?id=chk-dlv-1", null)) as Dictionary<string, object>;
+            bp.Advance(true);
+            yield return Until(() => !bp.Busy, 10f);
+            var dlvDup = Json.Parse(Http("POST", "/api/packages", dlvPkg)) as Dictionary<string, object>;
+            int againBefore = h.Bridge.AgainForCheck;
+            var dlvAgain = new Dictionary<string, object>(dlvPkg);
+            dlvAgain["_pid"] = "chk-dlv-1";
+            h.Bridge.ReceiveForCheck(dlvAgain);
+            yield return Wait(1.5f);
+            bool notTwice = !(bp.Busy && bp.Text == "届いたか確かめます。") && h.Bridge.AgainForCheck == againBefore + 1;
+            Check("delivery: a package taken is received and begun at the bridge (its stage by its id); sent again it is one package (duplicate, started); given again it is not played twice",
+                  Json.Str(dlvSt, "stage") == "started" && Json.Num(dlvSt, "deliveries") >= 1 && Json.Has(dlvDup, "duplicate") && Json.Str(dlvDup, "stage") == "started" && notTwice,
+                  Json.Write(dlvSt) + " / " + Json.Write(dlvDup) + " / not twice " + notTwice);
+            // the character switched: what waits here was for the one before - dropped (other_character); the new one's tagged stays
+            yield return Until(() => !bp.Busy, 10f);
+            int dpd0 = EventCount("package_dropped", "reason", "other_character");
+            bp.EnqueueForCheck(D("session", "check", "turn", 9001, "blocks", new List<object> { Line("前のキャラへ。") }));
+            bp.EnqueueForCheck(D("session", "check", "turn", 9002, "character", h.CharacterId(), "blocks", new List<object> { Line("今のキャラへ。") }));
+            int dlvDropped = bp.DropPendingFor(h.CharacterId());
+            yield return Until(() => bp.Busy && bp.Text == "今のキャラへ。", 10f);
+            bool keptNew = bp.Busy && bp.Text == "今のキャラへ。";
+            bp.Advance(true);
+            yield return Wait(0.8f);
+            Check("delivery: at a character switch, what waits for the one before is dropped (package_dropped other_character, by the app); the new one's tagged package plays",
+                  dlvDropped == 1 && keptNew && EventCount("package_dropped", "reason", "other_character") == dpd0 + 1, "dropped " + dlvDropped + " kept " + keptNew);
+            // a bridge that lost this launch (restarted on an old file): the app's next look at /health reports it again
+            Http("POST", "/api/launch", D("launch", "chk-lost-launch", "phase", "app_starting"), "app");
+            float lr0 = Time.realtimeSinceStartup;
+            Dictionary<string, object> hl = null;
+            while (Time.realtimeSinceStartup - lr0 < 15f)
+            {
+                yield return Wait(1f);
+                hl = Json.Obj(Json.Parse(Http("GET", "/health", null)), "launch");
+                if (Json.Str(hl, "id") == Launch.Id && Json.Str(hl, "phase") == "character_selected") break;
+            }
+            Check("delivery: a bridge that lost this launch gets it again from the app (its next /health look: the launch and its phase reported again)",
+                  Json.Str(hl, "id") == Launch.Id && Json.Str(hl, "phase") == "character_selected", Json.Write(hl));
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));
             Check("Muse's play start: aimed, a new request, the serial Muse saw, the room and the spot - it starts (play_started source muse with the request and the serial), the block's pace on it",
                   msStarted, msStartedWhy);
