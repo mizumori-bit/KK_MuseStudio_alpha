@@ -194,6 +194,9 @@ namespace MuseStudio
         {
             var rel = Json.Obj(pkg, "relationship");
             if (rel != null && !h.Match.Replaying) h.Relationship.Apply(rel);       // Muse's values for the person (the state shows the last taken)
+            var sets = Json.Obj(pkg, "settings");
+            if (sets != null && !h.Match.Replaying) h.MuseSettings(sets, pkg);      // the speeds the user asked Muse to change (PR #12 adopted)
+            shownTold = false;
             // the match (MUSE_GUIDE 8): the package's match (export / start / end), its speaker, its turn
             var mt = Json.Obj(pkg, "match");
             if (mt != null) h.Match.FromPackage(mt);
@@ -334,6 +337,14 @@ namespace MuseStudio
             if (!string.IsNullOrEmpty(cam) && !play.Active) stage.ApplyCamera(cam, false);      // (an unknown camera: it stays)
             var pl = Json.Obj(b, "play");
             // Muse's start or change of a normal play (outside a match): refused, none of this block's play fields take effect
+            // Muse's end of a normal play (outside a match; PR #12 adopted): checked as the start is; refused, none of the block's
+            // play fields take effect (the play goes on)
+            if (pl != null && !h.Match.Active && Json.Str(pl, "start", null) == null && IsTrue(pl, "end"))
+            {
+                bool endedNow = false;
+                Own(() => endedNow = MuseEnd(pl));
+                if (!endedNow) pl = null;
+            }
             if (pl != null && !h.Match.Active && Json.Str(pl, "start", null) != null)
             {
                 bool started = false;
@@ -362,9 +373,28 @@ namespace MuseStudio
             Present(b);
         }
 
+        // the package's first block on the screen: package_shown - when the bridge took it and when it showed (PR #12 adopted:
+        // Muse measures "from its making to its showing" without guessing; the bridge's clock and the app's are this PC's)
+        bool shownTold;
+        public int ShownToldForCheck;     // (checks)
+
+        void TellShown()
+        {
+            if (shownTold || Pkg == null) return;
+            shownTold = true;
+            ShownToldForCheck++;
+            long shown = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+            object rv;
+            long received = Pkg.TryGetValue("_received_ms", out rv) && rv != null ? Convert.ToInt64(rv) : 0L;
+            h.Bridge.Event("package_shown", new Dictionary<string, object> { { "session", Json.Str(Pkg, "session") }, { "turn", (int)Json.Num(Pkg, "turn") },
+                { "received_ms", received > 0 ? (object)received : null }, { "shown_ms", shown }, { "waited_ms", received > 0 ? (object)(shown - received) : null },
+                { "monologue", Monologue }, { "speaker", Speaker } });
+        }
+
         // the block's words on the screen (hers or the opponent's)
         void Present(Dictionary<string, object> b)
         {
+            TellShown();
             IsSound = Json.Str(b, "type", "dialogue") == "sound";
             Text = IsSound ? Json.Str(b, "text", "") : Shown(Json.Str(b, "text", ""));     // (a sound block's （） are its own: shown)
             skipEmpty = Text.Length == 0;          // (all of it her inner thought: its effects, no box)
@@ -414,7 +444,7 @@ namespace MuseStudio
                 }
             }
             object e;
-            if (pl.TryGetValue("end", out e) && e is bool && (bool)e && play.Active) play.End("muse");
+            if (h.Match.Active && pl.TryGetValue("end", out e) && e is bool && (bool)e && play.Active) play.End("muse");     // (a match's; outside it MuseEnd, before this)
             if (Speaker == "opponent" && play.Active)
                 foreach (var f in play.Apply(pl))
                 {
@@ -489,6 +519,39 @@ namespace MuseStudio
             }
             string err = play.Begin(id, "muse", spot, rev, anal, req);
             if (err.Length > 0) return no("not_started", err, null);
+            return true;
+        }
+
+        static bool IsTrue(Dictionary<string, object> d, string k) { object v; return d != null && d.TryGetValue(k, out v) && v is bool && (bool)v; }
+
+        // Muse's end of a normal play (PR #12 adopted; before, play.end outside a match ended whatever play was on, unchecked - a
+        // late one could stop a play the user had started since): only on the user's wish in the chat (Muse's rule); checked as
+        // the block shows, as a start is - aimed at this launch and character, its request not seen before, the play_serial
+        // Muse saw (the package's own changes counted in), a play on. Ended: play_ended (reason "muse", the request); refused:
+        // block_refused (field play.end) and none of the block's play fields.
+        bool MuseEnd(Dictionary<string, object> pl)
+        {
+            var play = h.Play;
+            string req = Json.Str(pl, "request", null);
+            Func<string, string, bool> no = (reason, detail) =>
+            {
+                h.Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "play.end" }, { "value", "true" }, { "reason", reason },
+                    { "available", new List<object>() }, { "request", req }, { "detail", detail } });
+                return false;
+            };
+            if (string.IsNullOrEmpty(req)) return no("no_request", "");
+            if (startRequests.Contains(req)) return no("duplicate_request", "");
+            startRequests.Add(req);
+            startOrder.Enqueue(req);
+            while (startOrder.Count > 500) startRequests.Remove(startOrder.Dequeue());
+            string lid = Json.Str(Pkg, "launch", null), cid = Json.Str(Pkg, "character", null);
+            if (lid == null || cid == null) return no("untargeted", "");
+            if (lid != Launch.Id) return no("old_launch", Launch.Id);
+            if (cid != h.CharacterId()) return no("other_character", h.CharacterId());
+            if (!Json.Has(pl, "basis")) return no("no_basis", "");
+            if ((int)Json.Num(pl, "basis") + ownSerial != play.Serial) return no("stale_basis", Convert.ToString(play.Serial));
+            if (!play.Active) return no("no_play", "");
+            play.End("muse", true, true, req);
             return true;
         }
 

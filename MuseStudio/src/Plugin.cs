@@ -520,7 +520,13 @@ namespace MuseStudio
             if (shown == settingsWereShown) return;
             settingsWereShown = shown;
             if (shown) { settingsAtOpen = SettingsInfo(); return; }
-            SettingsClosed();
+            var userChanged = SettingsClosed();
+            if (museSettingsWaiting != null)
+            {
+                var w = museSettingsWaiting;
+                museSettingsWaiting = null;
+                ApplyMuseSettings(w, museSettingsRequest, userChanged);
+            }
         }
 
         internal Dictionary<string, object> SettingsClosed()            // (checks call it as the window closing)
@@ -540,6 +546,65 @@ namespace MuseStudio
         }
 
         internal void SettingsOpenedForCheck() { settingsAtOpen = SettingsInfo(); }
+
+        // Muse's change of the speeds (a package's settings, PR #12 adopted - only when the user asked for it in the chat, Muse's
+        // rule): checked - the package aimed at this launch and character, its request not seen before, known names, 0.25..4.0
+        // (rounded to 2 places) - then set and saved as the screen's settings are (the next launch keeps them); told as
+        // settings_changed (by "muse", its request; changed: what really changed - empty when the values were so already).
+        // While the settings window is open it waits till it closes, and what the user changed there meanwhile wins.
+        readonly HashSet<string> settingsRequests = new HashSet<string>();
+        Dictionary<string, float> museSettingsWaiting;
+        string museSettingsRequest;
+
+        void RefuseSetting(string field, string value, string reason, string req, string detail)
+        {
+            Bridge.Event("block_refused", new Dictionary<string, object> { { "field", field }, { "value", value }, { "reason", reason },
+                { "available", new List<object> { "gauge_speed", "arousal_speed" } }, { "request", req }, { "detail", detail } });
+        }
+
+        internal void MuseSettings(Dictionary<string, object> st, Dictionary<string, object> pkg)
+        {
+            string req = Json.Str(st, "request", null);
+            if (string.IsNullOrEmpty(req)) { RefuseSetting("settings", "", "no_request", req, ""); return; }
+            if (!settingsRequests.Add(req)) { RefuseSetting("settings", "", "duplicate_request", req, ""); return; }
+            string lid = Json.Str(pkg, "launch", null), cid = Json.Str(pkg, "character", null);
+            if (lid == null || cid == null) { RefuseSetting("settings", "", "untargeted", req, ""); return; }
+            if (lid != Launch.Id) { RefuseSetting("settings", "", "old_launch", req, Launch.Id); return; }
+            if (cid != CharacterId()) { RefuseSetting("settings", "", "other_character", req, CharacterId()); return; }
+            var want = new Dictionary<string, float>();
+            foreach (var kv in st)
+            {
+                if (kv.Key == "request") continue;
+                string val = Convert.ToString(kv.Value, System.Globalization.CultureInfo.InvariantCulture);
+                if (kv.Key != "gauge_speed" && kv.Key != "arousal_speed") { RefuseSetting("settings." + kv.Key, val, "unknown_setting", req, ""); continue; }
+                double v = Convert.ToDouble(kv.Value, System.Globalization.CultureInfo.InvariantCulture);
+                if (v < 0.25 || v > 4.0) { RefuseSetting("settings." + kv.Key, val, "out_of_range", req, "0.25..4.0"); continue; }
+                want[kv.Key] = (float)Math.Round(v, 2);
+            }
+            if (want.Count == 0) return;
+            if (SettingsShown) { museSettingsWaiting = want; museSettingsRequest = req; return; }      // (after the window closes)
+            ApplyMuseSettings(want, req, null);
+        }
+
+        void ApplyMuseSettings(Dictionary<string, float> want, string req, Dictionary<string, object> userChanged)
+        {
+            var before = SettingsInfo();
+            foreach (var kv in want)
+            {
+                if (userChanged != null && userChanged.ContainsKey(kv.Key))
+                {
+                    RefuseSetting("settings." + kv.Key, Convert.ToString(kv.Value, System.Globalization.CultureInfo.InvariantCulture), "user_changed", req, "");
+                    continue;
+                }
+                var entry = kv.Key == "gauge_speed" ? GaugeSpeed : ArousalSpeed;
+                if (Math.Abs(entry.Value - kv.Value) > 0.0001f) entry.Value = kv.Value;
+            }
+            var now = SettingsInfo();
+            var changed = new Dictionary<string, object>();
+            foreach (var kv in now)
+                if (Convert.ToDouble(before[kv.Key]) != Convert.ToDouble(kv.Value)) changed[kv.Key] = new Dictionary<string, object> { { "from", before[kv.Key] }, { "to", kv.Value } };
+            Bridge.Event("settings_changed", new Dictionary<string, object> { { "changed", changed }, { "settings", now }, { "by", "muse" }, { "request", req } });
+        }
 
         // the panel's 設定 opens it on MuseStudio's own settings (its search box; cleared there, all the plugins show)
         internal static void OpenSettings()
