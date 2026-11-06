@@ -53,7 +53,7 @@
   "panel": false
  },
  "hover_opaque": false,
- "hover_focus": false,
+ "hover_focus": true,
  "hover_focus_enter_ms": 150,
  "hover_focus_leave_ms": 300,
  "hover_focus_cooldown_ms": 400,
