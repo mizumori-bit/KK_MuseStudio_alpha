@@ -1,11 +1,11 @@
 {
- "_note": "The character's moods (mood_controller.gd), apart from the climax gauge: more moods (a wish to drink and the like) are more entries. Each 0..1: start (a new character), per_minute (builds up by itself; also while the app is closed, at most away_minutes_max minutes), touch (per touch area), play_per_second (x the pace's factor). satisfied: what a block's mood {key: \"satisfied\"} adds - Muse decides by her character whether her climax satisfied her (2026-11-02, the user's decision); it is taken only within satisfy_window_seconds after a climax of hers. levels: [from, name] - the level is in the state for Muse and a change of level is the event mood_changed. trigger: at this value, when she is left alone idle_seconds (no play, no package, no creation, no input) and cooldown_seconds have passed since her last own play, the action: masturbation starts the first of plays that can start here at the spot nearest her, at pace, raised by her climax gauge per pace_by_gauge unless Muse set a pace in the last muse_hold_seconds; it ends after her climax. muse: the other values a block's mood may send (Muse's calls by her character), each {set or add, min: the least value it needs (else refused too_low), effect: leak = her stream (pee_stream.gd), seconds}. bladder (尿意, the user's wish 2026-11-02): builds up by itself; relieved = she went to the toilet, leaked = she wet herself (from the level トイレに行きたい). Provisional: replace freely.",
+ "_note": "The character's moods (mood_controller.gd), apart from the climax gauge: more moods (a wish to drink and the like) are more entries. Each 0..1: start (a new character), per_minute (builds up by itself while the app runs, in a play or not), away (while the app was closed: settles towards a value drawn in toward, all of the way after settle_minutes - PR #25; a mood without it builds per_minute x the closed minutes up to away_minutes_max), touch (per touch area), play_per_second (x the pace's factor). satisfied: what a block's mood {key: \"satisfied\"} adds - Muse decides by her character whether her climax satisfied her (2026-11-02, the user's decision); it is taken only within satisfy_window_seconds after a climax of hers. levels: [from, name] - the level is in the state for Muse and a change of level is the event mood_changed. trigger: at this value, when she is left alone idle_seconds (no play, no package, no creation, no input) and cooldown_seconds have passed since her last own play, the action: masturbation starts the first of plays that can start here at the spot nearest her, at pace, raised by her climax gauge per pace_by_gauge unless Muse set a pace in the last muse_hold_seconds; it ends after her climax. muse: the other values a block's mood may send (Muse's calls by her character), each {set or add, min: the least value it needs (else refused too_low), effect: leak = her stream (pee_stream.gd), seconds}. bladder (尿意, the user's wish 2026-11-02): builds up by itself; relieved = she went to the toilet, leaked = she wet herself (from the level トイレに行きたい). Provisional: replace freely.",
  "moods": {
   "arousal": {
    "name": "発情",
    "start": 0.2,
    "per_minute": 0.004,
-   "away_minutes_max": 240,
+   "away_minutes_max": 0,
    "touch": {
     "chest": 0.01,
     "crotch": 0.015,
@@ -63,13 +63,20 @@
     ],
     "muse_hold_seconds": 30.0,
     "cooldown_seconds": 1800.0
+   },
+   "away": {
+    "settle_minutes": 120,
+    "toward": [
+     0.2,
+     0.4
+    ]
    }
   },
   "bladder": {
    "name": "尿意",
    "start": 0.1,
    "per_minute": 0.0035,
-   "away_minutes_max": 240,
+   "away_minutes_max": 0,
    "levels": [
     [
      0.0,
@@ -94,6 +101,13 @@
      "effect": "leak",
      "seconds": 6.0
     }
+   },
+   "away": {
+    "settle_minutes": 120,
+    "toward": [
+     0.05,
+     0.2
+    ]
    }
   },
   "shower": {
