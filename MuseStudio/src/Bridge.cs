@@ -10,6 +10,10 @@ namespace MuseStudio
     // The bridge (bridge/bridge.py, MUSE_GUIDE.md 7): a background thread takes turn packages (GET /api/packages/next) and
     // sends what the stage queues (POST /api/state, /api/events, /api/catalog). Like the Godot app it names its window
     // (X-MMS-Instance / X-MMS-Started): the bridge serves only the newest polling window.
+    // The packages' delivery (PR #24): taken with ?ack=1, a package stays at the bridge until this side says received (POST
+    // /api/packages/ack) - an answer lost on the way brings it again, known by its _pid and not queued twice; the stage tells
+    // the bridge when one begins (started) or is dropped here. A bridge restarted under this launch: its /health shows
+    // another launch or phase, so the last launch report goes again.
     public class Bridge
     {
         public readonly string Base;
@@ -25,6 +29,10 @@ namespace MuseStudio
         readonly string instance;
         readonly long started = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds;
         readonly Queue<Dictionary<string, object>> packages = new Queue<Dictionary<string, object>>();
+        readonly HashSet<string> receivedIds = new HashSet<string>();       // (this launch's packages taken: one given again is known)
+        readonly Queue<string> receivedOrder = new Queue<string>();
+        Dictionary<string, object> lastLaunch;                               // (the last launch report: sent again to a restarted bridge)
+        public int AgainForCheck;                                            // (checks) packages given again and not queued twice
         // what goes to the bridge, in order. An event carries its own id (X-MMS-Event-Id) so that one sent again after a lost
         // answer is kept once by the bridge (the review of 2026-11-05, point 3); a 5xx is tried again after a while (the
         // order kept), a 4xx is a refusal (dropped, logged), a bridge not reached keeps it (no event lost), and so does a
@@ -70,6 +78,7 @@ namespace MuseStudio
         {
             lock (gate)
             {
+                if (path == "/api/launch" && body is Dictionary<string, object>) lastLaunch = new Dictionary<string, object>((Dictionary<string, object>)body);
                 // a newer state replaces one not sent yet
                 if (path == "/api/state")
                 {
@@ -81,6 +90,42 @@ namespace MuseStudio
                 outbox.Enqueue(new Out { Path = path, Body = Json.Write(body), Id = id });
             }
             wake.Set();
+        }
+
+        // a package taken from the bridge: queued here once (one given again - its received lost on the way - is known by its
+        // _pid), and said received either way
+        void Received(Dictionary<string, object> pkg)
+        {
+            if (pkg == null) return;
+            string pid = Json.Str(pkg, "_pid");
+            bool again = false;
+            lock (gate)
+            {
+                if (pid != null && receivedIds.Contains(pid)) again = true;
+                else
+                {
+                    if (pid != null)
+                    {
+                        receivedIds.Add(pid);
+                        receivedOrder.Enqueue(pid);
+                        if (receivedOrder.Count > 2000) receivedIds.Remove(receivedOrder.Dequeue());
+                    }
+                    packages.Enqueue(pkg);
+                }
+            }
+            if (again) AgainForCheck++;
+            Ack(pid, "received");
+        }
+
+        public void ReceiveForCheck(Dictionary<string, object> pkg) { Received(pkg); }
+
+        // a package's delivery stage for the bridge: received (taken here), started (it began), dropped (with the reason)
+        public void Ack(string pid, string stage, string reason = null)
+        {
+            if (string.IsNullOrEmpty(pid)) return;          // (a replay's, a test's own: not the bridge's)
+            var body = new Dictionary<string, object> { { "ids", new List<object> { pid } }, { "stage", stage } };
+            if (reason != null) body["reason"] = reason;
+            Post("/api/packages/ack", body);
         }
 
         public void Event(string type, Dictionary<string, object> fields)
@@ -107,6 +152,12 @@ namespace MuseStudio
                         {
                             var doc = Json.Parse(h);
                             VoiceOff = !(Json.Has(doc, "voice") && ((Dictionary<string, object>)doc)["voice"] is bool && (bool)((Dictionary<string, object>)doc)["voice"]);
+                            // a bridge restarted under this launch shows another launch or phase: the last report again
+                            var la = Json.Obj(doc, "launch");
+                            Dictionary<string, object> mine;
+                            lock (gate) mine = lastLaunch;
+                            if (mine != null && la != null && (Json.Str(la, "id") != Json.Str(mine, "launch") || Json.Str(la, "phase") != Json.Str(mine, "phase")))
+                                Post("/api/launch", mine);
                         }
                     }
                     while (true)
@@ -160,13 +211,12 @@ namespace MuseStudio
                     {
                         nextPoll = DateTime.UtcNow.AddSeconds(pollSeconds);
                         int code;
-                        string body = Call("GET", Hold ? "/api/packages/next?hold=1" : "/api/packages/next", null, out code);
+                        string body = Call("GET", Hold ? "/api/packages/next?hold=1&ack=1" : "/api/packages/next?ack=1", null, out code);
                         Connected = code > 0;
                         Superseded = code == 409;
                         if (code == 200 && !string.IsNullOrEmpty(body))
                         {
-                            var pkg = Json.Parse(body) as Dictionary<string, object>;
-                            if (pkg != null) lock (gate) packages.Enqueue(pkg);
+                            Received(Json.Parse(body) as Dictionary<string, object>);
                             nextPoll = DateTime.UtcNow;       // the next one may be waiting too
                         }
                     }

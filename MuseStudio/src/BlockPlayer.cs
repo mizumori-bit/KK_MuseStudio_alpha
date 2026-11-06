@@ -106,6 +106,7 @@ namespace MuseStudio
 
         void MonologueDropped(Dictionary<string, object> p, int blocks, string cause)
         {
+            if (p != Pkg) h.Bridge.Ack(Json.Str(p, "_pid"), "dropped", "monologue");     // (one waiting here: never begun)
             h.Bridge.Event("package_dropped", new Dictionary<string, object> { { "session", Json.Str(p, "session") }, { "turn", (int)Json.Num(p, "turn") },
                 { "beat", null }, { "reason", "monologue" }, { "cause", cause }, { "blocks_dropped", blocks }, { "choices", Json.Has(p, "choices") }, { "by", "app" } });
         }
@@ -190,8 +191,32 @@ namespace MuseStudio
             }
         }
 
+        // the user switched the character: what waits here was for the one before (the new one's tagged packages stay) -
+        // dropped (package_dropped other_character), never shown to the new character (PR #24, GPT's point 3)
+        public int DropPendingFor(string character)
+        {
+            int n = 0;
+            var keep = new Queue<Dictionary<string, object>>();
+            foreach (var p in pending)
+            {
+                string cid = Json.Str(p, "character");
+                if (cid != null && cid == character) { keep.Enqueue(p); continue; }
+                n++;
+                h.Bridge.Event("package_dropped", new Dictionary<string, object> { { "session", Json.Str(p, "session") }, { "turn", (int)Json.Num(p, "turn") },
+                    { "beat", Json.Has(p, "beat") ? (object)(int)Json.Num(p, "beat") : null }, { "reason", "other_character" }, { "launch", Json.Str(p, "launch") },
+                    { "character", cid }, { "choices", Json.Has(p, "choices") }, { "by", "app" } });
+                h.Bridge.Ack(Json.Str(p, "_pid"), "dropped", "other_character");
+            }
+            pending.Clear();
+            foreach (var p in keep) pending.Enqueue(p);
+            return n;
+        }
+
+        public void EnqueueForCheck(Dictionary<string, object> pkg) { pending.Enqueue(pkg); }
+
         void Begin(Dictionary<string, object> pkg)
         {
+            if (!h.Replay.Playing && !h.Match.Replaying) h.Bridge.Ack(Json.Str(pkg, "_pid"), "started");     // (from here its operations may apply: never again)
             var rel = Json.Obj(pkg, "relationship");
             if (rel != null && !h.Match.Replaying) h.Relationship.Apply(rel);       // Muse's values for the person (the state shows the last taken)
             var sets = Json.Obj(pkg, "settings");

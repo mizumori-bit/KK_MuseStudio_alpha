@@ -28,14 +28,24 @@ class Bridge:
         cfg.update(extra or {})
         (self.tmp / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
         args = [sys.executable, "-B", str(ROOT / "bridge/bridge.py"), "--config", str(self.tmp / "config.json"), "--port", str(port)]
-        self.proc = subprocess.Popen(args + (["--test"] if test else []), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.args = args + (["--test"] if test else [])
+        self._start()
+
+    def _start(self):
+        self.proc = subprocess.Popen(self.args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(100):
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
+                urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=1)
                 return
             except OSError:
                 time.sleep(0.1)
         raise RuntimeError("the bridge did not start")
+
+    def restart(self):
+        """the same bridge (its files kept) stopped and started again"""
+        self.proc.terminate()
+        self.proc.wait()
+        self._start()
 
     def token(self, role: str) -> str:
         return json.loads((self.tmp / "cache" / "tokens.json").read_text(encoding="utf-8"))[role]

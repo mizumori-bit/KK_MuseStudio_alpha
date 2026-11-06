@@ -49,18 +49,20 @@ class QueueAndHttp(unittest.TestCase):
         cls.b.close()
 
     def test_a_new_launch_frees_the_queue_bytes(self):          # #26 P1: the empty queue still looked full
-        big = json.dumps(package("あ" * (512 * 1024)), ensure_ascii=False).encode("utf-8")
+        bigs = (json.dumps(package("あ" * (512 * 1024), turn), ensure_ascii=False).encode("utf-8") for turn in range(1, 100))
+        big = next(bigs)
         n = 0
-        while self.b.call("POST", "/api/packages", raw=big)[0] == 200:
+        while self.b.call("POST", "/api/packages", raw=big)[0] == 200:      # (a new turn each time: the same content is one package)
             n += 1
             self.assertLess(n, 20)
+            big = next(bigs)
         self.assertEqual(self.b.call("POST", "/api/packages", raw=big)[0], 429)
         self.assertEqual(self.b.call("POST", "/api/launch", {"launch": "fresh-1", "phase": "app_starting"}, role="app")[0], 200)
         self.assertEqual(self.b.call("GET", "/api/packages/next", role="app")[0], 204)
         self.assertEqual(self.b.call("POST", "/api/packages", package("small"))[0], 200)       # (room again)
         code, pkg = self.b.call("GET", "/api/packages/next", role="app")
         self.assertEqual((code, pkg["blocks"][0]["text"]), (200, "small"))
-        self.assertEqual(self.b.call("POST", "/api/packages", raw=big)[0], 200)
+        self.assertEqual(self.b.call("POST", "/api/packages", raw=next(bigs))[0], 200)
         while self.b.call("GET", "/api/packages/next", role="app")[0] == 200:
             pass
 

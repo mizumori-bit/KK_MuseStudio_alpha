@@ -149,6 +149,7 @@ namespace MuseStudio
             if (h.Match.Active || h.Match.Loading) return "in a match";
             var prev = Info();
             if (h.Play.Active) h.Play.End("character");
+            h.Blocks.DropPendingFor("card:" + Path.GetFileName(path));           // (what waits was for the one before - PR #24)
             h.Stage.StopWalk(false);
             h.Presence.HerAt = "";                 // (the new character is with him)
             h.Stage.Heroine.ChangeChara(path);

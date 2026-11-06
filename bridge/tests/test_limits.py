@@ -128,6 +128,7 @@ class HttpLimits(unittest.TestCase):
         big = package("x" * (1536 * 1024))
         n = 0
         while True:
+            big = package("x" * (1536 * 1024), n + 1)      # (a new turn each time: the same content is one package - PR #24)
             code, _doc = self.b.call("POST", "/api/packages", big)
             if code != 200:
                 break
@@ -147,8 +148,8 @@ class HttpLimits(unittest.TestCase):
         self.assertEqual(doc["choices"][-1]["turn"], bridge.MAX_CHOICES + 19)
 
     def test_5_japanese_packages_counted_in_bytes(self):    # GPT's review of PR #19: 11 of about 1.5 MiB all taken
-        big = package("あ" * (512 * 1024))
-        raw = json.dumps(big, ensure_ascii=False).encode("utf-8")
+        raws = (json.dumps(package("あ" * (512 * 1024), turn), ensure_ascii=False).encode("utf-8") for turn in range(1, 100))
+        raw = next(raws)
         n = 0
         while True:
             code, _doc = self.b.call("POST", "/api/packages", raw=raw)
@@ -156,6 +157,7 @@ class HttpLimits(unittest.TestCase):
                 break
             n += 1
             self.assertLess(n, 20)
+            raw = next(raws)              # (a new turn each time: the same content is one package - PR #24)
         self.assertEqual(code, 429)
         self.assertLessEqual(n * len(raw), bridge.MAX_PACKAGES_BYTES)
         self.assertEqual(self.b.call("GET", "/api/packages/next")[0], 200)          # (one taken: its bytes free again)
