@@ -12,6 +12,7 @@
 !/.gitattributes
 !/MUSE_GUIDE.md
 !/MUSE_GUIDE_quick/
+!/MUSE_GUIDE_plays.md
 # Muse's trees (the notice of 2026-11-04: Muse adds them by pull requests; this side never edits them)
 !/README.md
 !/BOOTSTRAP.md

@@ -147,13 +147,18 @@ namespace MuseStudio
         }
 
         // The location's spots the play can use, the nearest to her first (the Godot app's first choice).
+        public bool AnySpotForProbe;     // (the photo probe: a play no room has a spot for, posed at any spot - its furniture absent)
+
         public List<Spot> Spots(Dictionary<string, object> row)
         {
             var t = Toggles(row);
             var o = new List<Spot>();
             foreach (var s in stage.Spots)
+            {
+                if (AnySpotForProbe) { o.Add(s); continue; }
                 foreach (var c in s.Categories)
                     if (t.Contains(c)) { o.Add(s); break; }
+            }
             Vector3 at = stage.Heroine != null ? stage.Heroine.oiCharInfo.changeAmount.pos : Vector3.zero;
             o.Sort((a, b) => Flat(a.Pos - at).CompareTo(Flat(b.Pos - at)));
             return o;
