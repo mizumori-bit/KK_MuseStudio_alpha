@@ -1,4 +1,4 @@
-"""MetaMuse Stage launcher + panel manager (implementation-spec.md 6).
+"""MuseStudio launcher + panel manager (begun as MetaMuse Stage's, the Godot version's; game_mode native / web are its).
 
 Start sequence (6.1):
   1. Irodori-TTS-Server: GET /health; if it does not answer and its folder is configured, start it minimized
