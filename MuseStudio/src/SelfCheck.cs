@@ -508,6 +508,19 @@ namespace MuseStudio
             string phases = string.Join(",", la.Phases.ToArray());
             Check("launch: app_starting, stage_ready (the chooser shown, waiting), then character_selected", phases == "app_starting,stage_ready,character_selected"
                   && la.ChosenBy == "check" && h.UiForCheck.ChooserDrawn, phases + " by " + la.ChosenBy);
+            // the chooser's footer (PR #12 adopted): start and the two lists' buttons together on the left, clear of the Muse panel's
+            // window on the screen's right, none over another
+            var cb = la.ChooserButtonsForCheck;
+            bool cbOk = cb.Count == 3;
+            var cbList = new List<Rect>(cb.Values);
+            foreach (var r in cbList) cbOk &= r.xMax <= Screen.width - Ui.PanelRoom + 0.5f && r.x >= 0f && r.yMax <= Screen.height;
+            for (int a = 0; a < cbList.Count; a++) for (int b = a + 1; b < cbList.Count; b++) cbOk &= !cbList[a].Overlaps(cbList[b]);
+            Rect cbStart;
+            cbOk &= cb.TryGetValue("このカードで始める", out cbStart) && cbStart.x < Screen.width * 0.25f;
+            var cbText = new List<string>();
+            foreach (var kv in cb) cbText.Add(kv.Key + " " + kv.Value.x.ToString("F0") + "-" + kv.Value.xMax.ToString("F0"));
+            Check("the chooser: 「このカードで始める」 and the two lists' buttons together from the left, clear of the Muse panel on the right, none over another",
+                  cbOk, Screen.width + " wide: " + string.Join(", ", cbText.ToArray()));
             var health = Json.Obj(Json.Parse(Http("GET", "/health", null)), "launch");
             var hch = Json.Obj(health, "character");
             Check("launch: the bridge's /health has this launch at character_selected with her id and persona", Json.Str(health, "id") == Launch.Id
@@ -1129,6 +1142,13 @@ namespace MuseStudio
                   && (camDist < 1.6f || Json.Str(st.WalkLog[st.WalkLog.Count - 1], "event") == "arrived") && st.CameraKey == "close" && st.ArrivalCamera == "close" && st.SceneKey == "approach",
                   string.Format("walked {0} moved {1:F2} m, {2:F2} m from the camera, {3} {4}", walked, Vector3.Distance(pos0, at), camDist, st.CameraKey, Json.Write(st.WalkLog)));
             Check("sound: footsteps of the walk (the map's floor sound)", h.Sounds.Log.Contains("dse00_01_00_00"), string.Join(",", h.Sounds.Log.ToArray()));
+            // the place change's door as the original chooses it: a school room's sliding door, a hinged one elsewhere, going out to
+            // the park the left room's closing, nothing between doorless places
+            string dHealth = h.Sounds.Moving("park", "health_room"), dHome = h.Sounds.Moving("health_room", "myroom"),
+                dOut = h.Sounds.Moving("myroom", "park"), dNone = h.Sounds.Moving("park", "park");
+            Check("sound: the place change's door as the original chooses it (a school room's sliding door, a hinged one elsewhere, out to the park the left one closing)",
+                  dHealth == "door_open" && dHome == "door2_open" && dOut == "door2_close" && dNone == null && h.Sounds.Log.Contains("se_door1_open") && h.Sounds.Log.Contains("se_door2_close"),
+                  string.Join(" / ", new[] { dHealth, dHome, dOut, dNone ?? "none" }));
             Check("approach: while she walks the camera stays and keeps her face in view (the Godot app's); on arrival the preset nearest the distance",
                   faceAng < 3f, "angle " + faceAng.ToString("F1"));
             // a camera asked for during the walk (a block's) waits for her arrival
@@ -1598,6 +1618,10 @@ namespace MuseStudio
             Check("height: she plays the male part from where a 0.6 tall body would (the hips' anchor)", Mathf.Abs(herHt - 0.6f) < 0.01f || (Mathf.Abs(pc.MaleRatio - 1f) > 0.002f && dh.magnitude > 0.0005f),
                   string.Format("her height {0:F2} ratio {1:F3} shift {2:F3} m", herHt, pc.MaleRatio, dh.magnitude));
             yield return Shot("08_reversed.png");
+            // (PR #12 (8)) the user's penis in the female part: laid up along the user's belly, not into her body
+            float restAng = Vector3.Angle(pc.Rest.DirForCheck, pc.Rest.UpForCheck);
+            Check("reversed: the user's penis (the female part's) is laid up along the user's belly, not run into her body",
+                  pc.Rest.On && restAng < 30f && st.Partner.charInfo.fileStatus.visibleSonAlways, "on " + pc.Rest.On + " angle to the spine " + restAng.ToString("F0") + "°");
             // the user in the female part: the user's climax is declared (Muse's play.climax player, the user's answer), never a gauge
             int pcl0 = EventCount("climax", "who", "player");
             Send(With(Line("イっていいよ。"), "play", D("climax", "player")));
@@ -1612,7 +1636,7 @@ namespace MuseStudio
             yield return Until(() => !pc.Climax.Running, 15f);
             pc.End("check");
             yield return Wait(0.5f);
-            Check("reversed: the play's end takes the strapon off", !Strapon.On(st.Cha) && st.Cha.nowCoordinate.clothes.parts[3].id != Strapon.Id());
+            Check("reversed: the play's end takes the strapon off (and lets the user's penis be)", !Strapon.On(st.Cha) && st.Cha.nowCoordinate.clothes.parts[3].id != Strapon.Id() && !pc.Rest.On);
             var anrow = pc.Row("sonyu_02");
             var anSpots = pc.Spots(anrow);
             err = pc.Begin("sonyu_02", "check", anSpots.Count > 0 ? anSpots[0].Id : null, false, true);

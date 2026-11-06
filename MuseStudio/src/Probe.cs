@@ -43,6 +43,7 @@ namespace MuseStudio
             if (room.StartsWith("aibuuser:")) { yield return AibuUser(room.Substring(9)); yield break; }
             if (room == "gropehand") { yield return GropeHand(); yield break; }
             if (room == "ikfight") { yield return IkFight(); yield break; }
+            if (room == "reversed") { yield return ReversedPenis(); yield break; }
             if (room == "screen") { yield return ScreenTry(); yield break; }
             if (room == "toilet") { yield return ToiletTry(); yield break; }
             if (room == "cardlinks") { yield return CardLinks(); yield break; }
@@ -771,6 +772,88 @@ namespace MuseStudio
             yield return ShoeShot("user_after_one_press_" + next);
             File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
             File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // every play that can be reversed (PR #12 adopted, the user's note: a reversed cowgirl, your male body without its penis),
+        // started reversed with your body male: your body's penis - the setting, its visible flag, its renderers shown - and hers
+        // (her strapon / futanari); a picture of each without one
+        IEnumerator ReversedPenis()
+        {
+            yield return new WaitForSeconds(1.5f);
+            var st = h.Stage;
+            var pc = h.Play;
+            pc.WhoForCheck = new Dictionary<string, Dictionary<string, object>> {
+                { "character", new Dictionary<string, object> { { "body", "female" }, { "futanari", false } } },
+                { "player", new Dictionary<string, object> { { "body", "male" }, { "futanari", false } } } };
+            lines.AppendLine("setting: your penis shown " + h.YourPenisShown.Value + ", your clothes " + h.YourClothes.Value + ", silhouette " + h.YourSilhouette.Value + " (off for the shots)");
+            bool silWas = h.YourSilhouette.Value;
+            h.YourSilhouette.Value = false;
+            foreach (var row in pc.List(null))
+            {
+                string id = Json.Str(row, "id"), group = Json.Str(row, "group");
+                if (!pc.Reversible(row) || (group != "sonyu" && group != "houshi")) continue;
+                var spots = pc.Spots(row);
+                if (spots.Count == 0) { lines.AppendLine(id + ": no spot here"); continue; }
+                string err = pc.Begin(id, "probe", spots[0].Id, true);
+                if (err.Length > 0) { lines.AppendLine(id + " " + Json.Str(row, "name") + ": " + err); continue; }
+                yield return new WaitForSeconds(2.5f);
+                var pt = st.Partner;
+                string mine = "no partner";
+                bool shown = false;
+                if (pt != null)
+                {
+                    int on = 0, all = 0;
+                    var names = new List<string>();
+                    foreach (var r in pt.charInfo.GetComponentsInChildren<Renderer>(true))
+                        if (r.name.Contains("dan") || r.name.Contains("gomu") || r.transform.parent != null && r.transform.parent.name.Contains("dan"))
+                        {
+                            all++;
+                            bool vis = r.enabled && r.gameObject.activeInHierarchy;
+                            if (vis) on++;
+                            names.Add(r.name + (vis ? "+" : "-"));
+                        }
+                    shown = pt.charInfo.fileStatus.visibleSonAlways && on > 0;
+                    var root = HIK.Find(pt.charInfo.objBodyBone.transform, "cm_J_dan101_00");
+                    var tip = HIK.Find(pt.charInfo.objBodyBone.transform, "cm_J_dan109_00");
+                    var hips = HIK.Find(pt.charInfo.objBodyBone.transform, "cf_j_kokan") ?? HIK.Find(pt.charInfo.objBodyBone.transform, "cf_j_waist02");
+                    string bones = root != null && tip != null ? string.Format("dan root->tip {0:F3} m, root from crotch {1:F3} m, root scale {2:F2}, tip in her body {3:F3} m from her crotch",
+                        (tip.position - root.position).magnitude, hips != null ? (root.position - hips.position).magnitude : -1f, root.lossyScale.x,
+                        (tip.position - (HIK.Find(st.Cha.objBodyBone.transform, "cf_j_kokan") ?? st.Cha.transform).position).magnitude) : "no dan bones";
+                    // the penis inside her body? its bones against her torso (a capsule from her waist to her chest, 13 cm round)
+                    var w1 = HIK.Find(st.Cha.objBodyBone.transform, "cf_j_waist01");
+                    var s3 = HIK.Find(st.Cha.objBodyBone.transform, "cf_j_spine03");
+                    int inside = 0, bonesN = 0;
+                    if (w1 != null && s3 != null)
+                        for (int k = 1; k <= 9; k++)
+                        {
+                            var bb = HIK.Find(pt.charInfo.objBodyBone.transform, "cm_J_dan10" + k + "_00");
+                            if (bb == null) continue;
+                            bonesN++;
+                            Vector3 ab = s3.position - w1.position, ap = bb.position - w1.position;
+                            float tt = Mathf.Clamp01(Vector3.Dot(ap, ab) / ab.sqrMagnitude);
+                            if ((w1.position + ab * tt - bb.position).magnitude < 0.13f) inside++;
+                        }
+                    mine = string.Format("your body sex {0} visibleSon {1} gomu {2} dan renderers {3}/{4} [{5}] | {6} | BP aim you {7} her {8} | penis bones inside her torso {9}/{10}", pt.charInfo.sex, pt.charInfo.fileStatus.visibleSonAlways,
+                        pt.charInfo.fileStatus.visibleGomu, on, all, string.Join(" ", names.ToArray()), bones, Penetration.Get(pt.charInfo), Penetration.Get(st.Cha), inside, bonesN);
+                }
+                lines.AppendLine(string.Format("{0} {1}: {2} | her visibleSon {3} strapon {4} | parts {5}", id, Json.Str(row, "name"), mine, st.Cha.fileStatus.visibleSonAlways,
+                    pc.Res != null ? pc.Res.Strapon : "-", pc.Res != null ? Json.Write(pc.Res.Parts) : "-"));
+                if (!shown || id == "sonyu_04" || id == "sonyu_00" || id == "sonyu_02")
+                {
+                    Vector3 c = st.Cha.transform.position + Vector3.up * 0.55f;
+                    yield return Shot(c + st.Cha.transform.right * 2.0f, c, 45f, "reversed_" + id + "_side.png");
+                    yield return Shot(c + st.Cha.transform.forward * 2.0f, c, 45f, "reversed_" + id + "_front.png");
+                }
+                pc.End("probe");
+                yield return new WaitForSeconds(0.3f);
+            }
+            pc.WhoForCheck = null;
+            h.YourSilhouette.Value = silWas;
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0" + "\n");
             MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
             yield return new WaitForSeconds(0.5f);
             Application.Quit();

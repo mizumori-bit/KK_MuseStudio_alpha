@@ -1,6 +1,7 @@
-"""MuseStudio checks: a test bridge on a spare port, then MuseStudio (game/CharaStudio.exe) with --muse-check.
+"""MuseStudio checks: a test bridge on a spare port, then MuseStudio (game/CharaStudio.exe) with --muse-check; then the maker's
+part (game/Koikatu.exe -femalemaker --muse-maker-check: the creation's changes; no bridge, no card saved in the user's folders).
 
-  python -B MuseStudio/tools/run_checks.py [--port 18792] [--timeout 900] [--keep]
+  python -B MuseStudio/tools/run_checks.py [--port 18792] [--timeout 900] [--keep] [--no-maker | --maker-only]
 
 The bridge is bridge/bridge.py with its own temporary events file (never the bridge Muse watches); MuseStudio talks only
 to it (--muse-bridge). Results (CHECK lines, the FPS notes) are printed; the screenshots stay in the temporary folder
@@ -30,7 +31,11 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=900)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--probe", default="", help="(development) instead of the checks, look at this kept room (src/Probe.cs)")
+    ap.add_argument("--no-maker", action="store_true", help="skip the maker's part")
+    ap.add_argument("--maker-only", action="store_true", help="only the maker's part")
     a = ap.parse_args()
+    if a.maker_only:
+        return maker_checks(Path(tempfile.mkdtemp(prefix="musestudio_check_")), a.timeout)
     if not (GAME / "BepInEx" / "plugins" / "MuseStudio" / "MuseStudio.dll").is_file():
         sys.exit("run_checks: build first (tools/setup.py, tools/build.py)")
     tmp = Path(tempfile.mkdtemp(prefix="musestudio_check_"))
@@ -84,7 +89,12 @@ def main() -> int:
         if done:
             print("NOTE the game closed by itself at the end (the quit marker: no 終了しますか？)" if quit_alone else "NOTE the game did not close by itself (killed)")
         print(f"NOTE {time.time() - t0:.0f} s in all; screenshots: {tmp}")
-        return 0 if done and "fail=0" in text else 1
+        ok = done and "fail=0" in text
+        if not a.probe and not a.no_maker:
+            if game is not None and game.poll() is None:
+                game.kill()
+            ok = maker_checks(tmp, a.timeout) == 0 and ok
+        return 0 if ok else 1
     finally:
         if game is not None and game.poll() is None:
             game.kill()
@@ -94,6 +104,41 @@ def main() -> int:
         if not a.keep:
             for f in ("events.json", "bridge_config.json"):
                 (tmp / f).unlink(missing_ok=True)
+
+
+def maker_checks(tmp: Path, timeout: float) -> int:
+    """the maker's part: the original's maker opened as the creation opens it, its checks run in it (src/maker/MakerCheck.cs)"""
+    exe = GAME / "Koikatu.exe"
+    if not exe.is_file() or not (GAME / "BepInEx" / "plugins" / "MuseStudio" / "MuseMaker.dll").is_file():
+        print("CHECK FAIL maker: no game/Koikatu.exe or MuseMaker.dll (tools/setup.py, tools/build.py)")
+        return 1
+    results = tmp / "maker_results.txt"
+    t0 = time.time()
+    game = subprocess.Popen([str(exe), "-femalemaker", f"--muse-maker-check={results}"], cwd=str(GAME))
+    done = False
+    try:
+        while time.time() - t0 < timeout and game.poll() is None:
+            time.sleep(1.0)
+            if results.is_file() and "CHECK SUMMARY" in results.read_text(encoding="utf-8", errors="replace"):
+                done = True
+                break
+        quit_alone = False
+        for _ in range(30):
+            if game.poll() is not None:
+                quit_alone = True
+                break
+            time.sleep(0.5)
+        text = results.read_text(encoding="utf-8", errors="replace") if results.is_file() else ""
+        print(text.rstrip() or "(no maker results)")
+        if not done:
+            print(f"CHECK FAIL maker: the checks did not finish in {timeout:.0f} s (see game/BepInEx/LogOutput.log)")
+        else:
+            print("NOTE the maker closed by itself" if quit_alone else "NOTE the maker did not close by itself (killed)")
+        print(f"NOTE the maker's part {time.time() - t0:.0f} s; screenshots: {tmp}")
+        return 0 if done and "fail=0" in text else 1
+    finally:
+        if game.poll() is None:
+            game.kill()
 
 
 if __name__ == "__main__":

@@ -49,6 +49,11 @@ namespace MuseStudio
                 h.UiForCheck.PickForCheck(h.StageCard());
                 yield return new WaitForSeconds(0.5f);
                 Application.CaptureScreenshot(System.IO.Path.Combine(shots, "00b_chooser_picked.png"));
+                foreach (var k in new[] { "このカードで始める", "アイデンティティリスト編集", "性格引き当てリスト編集" })
+                {
+                    Rect r;
+                    if (h.UiForCheck.Buttons.TryGetValue(k, out r)) ChooserButtonsForCheck[k] = r;
+                }
                 yield return new WaitForSeconds(0.5f);
                 Confirm(h.StageCard(), "check");
             }
@@ -56,6 +61,8 @@ namespace MuseStudio
             else Choosing = true;
             while (Choosing) yield return null;
         }
+
+        public readonly Dictionary<string, Rect> ChooserButtonsForCheck = new Dictionary<string, Rect>();     // (checks) the footer's buttons
 
         public void Confirm(string path, string by)
         {

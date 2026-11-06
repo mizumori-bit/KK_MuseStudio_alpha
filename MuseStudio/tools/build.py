@@ -1,4 +1,6 @@
-"""Builds the MuseStudio plugin (MuseStudio/src/*.cs) into MuseStudio/game/BepInEx/plugins/MuseStudio/MuseStudio.dll.
+"""Builds the MuseStudio plugin (MuseStudio/src/*.cs) into MuseStudio/game/BepInEx/plugins/MuseStudio/MuseStudio.dll, and the
+maker's part (MuseStudio/src/maker/*.cs: the creation's changes in the original's maker, game/Koikatu.exe) into MuseMaker.dll
+beside it, against the original's Koikatu_Data/Managed.
 
   python -B MuseStudio/tools/build.py
 
@@ -18,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 GAME = ROOT / "game"
 OUT = GAME / "BepInEx" / "plugins" / "MuseStudio" / "MuseStudio.dll"
+MAKER_OUT = OUT.parent / "MuseMaker.dll"
 PLUGIN_REFS = ("KKAPI.dll",)
 
 
@@ -52,6 +55,23 @@ def main() -> int:
     if icon.is_file():
         shutil.copyfile(icon, OUT.parent / "MuseStudio.ico")
     print(f"build: {OUT} ({os.path.getsize(OUT)} bytes, {len(srcs)} sources)")
+    # the maker's part: the main game's assemblies (the maker's ChaCustom is not in Studio's)
+    kmanaged = GAME / "Koikatu_Data" / "Managed"
+    msrcs = sorted((ROOT / "src" / "maker").glob("*.cs"))
+    if not kmanaged.is_dir():
+        print("build: no game/Koikatu_Data (tools/setup.py) - the maker's part is not built")
+        return 0
+    mrefs = [p for p in sorted(kmanaged.glob("*.dll"))] + [GAME / "BepInEx" / "core" / n for n in ("BepInEx.dll", "0Harmony.dll")]
+    cmd = csc() + ["-nologo", "-noconfig", "-nostdlib+", "-target:library", "-langversion:7.3", "-optimize+", "-debug-",
+                   "-warn:4", "-nowarn:1701,1702", f"-out:{MAKER_OUT}"] + [f"-r:{r}" for r in mrefs] + [str(s) for s in msrcs]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    out = (r.stdout + r.stderr).strip()
+    if out:
+        print(out)
+    if r.returncode != 0:
+        print("build: the maker's part FAILED")
+        return 1
+    print(f"build: {MAKER_OUT} ({os.path.getsize(MAKER_OUT)} bytes, {len(msrcs)} sources)")
     return 0
 
 

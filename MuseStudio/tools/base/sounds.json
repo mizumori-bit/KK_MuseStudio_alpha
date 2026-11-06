@@ -8,12 +8,22 @@
   "door_open": {
    "bundle": "sound/data/se/00.unity3d",
    "asset": "se_door1_open",
-   "name": "ドアを開ける"
+   "name": "引き戸を開ける"
   },
   "door_close": {
    "bundle": "sound/data/se/00.unity3d",
    "asset": "se_door1_close",
-   "name": "ドアを閉める"
+   "name": "引き戸を閉める"
+  },
+  "door2_open": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_door2_open",
+   "name": "開き戸を開ける"
+  },
+  "door2_close": {
+   "bundle": "sound/data/se/00.unity3d",
+   "asset": "se_door2_close",
+   "name": "開き戸を閉める"
   },
   "locker_open": {
    "bundle": "sound/data/se/00.unity3d",
@@ -201,7 +211,35 @@
    "name": "教会の鐘"
   }
  },
- "location_change": "door_open",
+ "location_change": {
+  "_note": "The place change's door, as the original chooses it. Its free moves through gates play nothing (every gate's seType in map/list/calcgateinfo is -1 and no code reads it); its event scenarios open a school room's sliding door with se_door1 (classroom 2-1, the manga club, a 2F room after a knock) and a hinged door with se_door2 (the locker room by the pool, the player's home). So: entering a room plays its door opening; going out to a place with no door (outdoors) plays the left room's door closing; between doorless places nothing. The rooms the original's events do not show (the toilets, the hotel, the mod maps) are this app's call: hinged doors (a school toilet's and a home's, a hotel room's); the park has none.",
+  "doors": {
+   "sliding": [
+    "door_open",
+    "door_close"
+   ],
+   "hinged": [
+    "door2_open",
+    "door2_close"
+   ]
+  },
+  "rooms": {
+   "health_room": "sliding",
+   "shower_room": "hinged",
+   "myroom": "hinged",
+   "toilet_female": "hinged",
+   "toilet_male": "hinged",
+   "love_hotel": "hinged",
+   "girls_room": "hinged",
+   "sm_room": "hinged",
+   "bedroom": "hinged",
+   "bathroom": "hinged",
+   "home_toilet": "hinged",
+   "hotel_suite": "hinged",
+   "match_room": "hinged",
+   "park": null
+  }
+ },
  "ambience": [
   "health_room",
   "shower_room",
