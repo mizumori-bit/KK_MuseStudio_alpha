@@ -508,16 +508,47 @@ namespace MuseStudio
             Log.Add(new Dictionary<string, object> { { "event", "kiss_end" } });
         }
 
-        // the mouse moves the area's X / Y (0..1); the items with drag type 3 follow it
+        internal bool MouseOffForCheck;           // (checks, probes) the real mouse does not drag
+
+        // (checks, probes) the drag's X / Y of the area pressed now, as a mouse that moved there
+        internal void DragToForCheck(Vector2 p)
+        {
+            if (ctrlArea < 0) return;
+            xy[ctrlArea] = new Vector2(Mathf.Clamp01(p.x), Mathf.Clamp01(p.y));
+            foreach (var kv in attached) if (kv.Key != ctrlArea && kv.Value.L.DragType == 3) xy[kv.Key] = xy[ctrlArea];
+        }
+
+        // The mouse moves the area's X / Y as the original's HandCtrl.DragAction does: from 0..1 to -1..1, the mouse's movement
+        // added - pixels x Unity's mouse axis sensitivity (0.1, the original's InputManager) x HFlag.speedXYMove (0.001): drag_speed
+        // per pixel - its length kept within HFlag.forceLength (1: a circle round the middle, never the box's corners), back to
+        // 0..1; the items with drag type 3 follow it. Before, 240 pixels crossed the whole box: her body's drag blend (the
+        // crotch's kokan_X / Y on her own animator, as the original's SetDefaultAnimatorFloat) went to its ends, her hips swung and
+        // her feet left the floor - "from the hips down she hangs" (the trial run of 2026-11-06). The original turns the movement
+        // from the camera's frame into the area's; here it stays the screen's. The kiss keeps drag_pixels.
         void Drag(int ai, Vector2 deltaPx)
         {
-            float px = (float)Json.Num(cfg, "drag_pixels", 240.0);
-            Vector2 p = ai >= 0 ? xy[ai] : xyKiss;
-            p = new Vector2(Mathf.Clamp01(p.x + deltaPx.x / px), Mathf.Clamp01(p.y + deltaPx.y / px));
-            if (ai < 0) { xyKiss = p; return; }
+            if (ai < 0)
+            {
+                float px = (float)Json.Num(cfg, "drag_pixels", 240.0);
+                xyKiss = new Vector2(Mathf.Clamp01(xyKiss.x + deltaPx.x / px), Mathf.Clamp01(xyKiss.y + deltaPx.y / px));
+                return;
+            }
+            float speed = (float)Json.Num(cfg, "drag_speed", 0.0001), len = (float)Json.Num(cfg, "drag_force_length", 1.0);
+            Vector2 c = Vector2.ClampMagnitude(xy[ai] * 2f - Vector2.one + deltaPx * speed, len);
+            Vector2 p = c * 0.5f + new Vector2(0.5f, 0.5f);
             xy[ai] = p;
             foreach (var kv in attached) if (kv.Key != ai && kv.Value.L.DragType == 3) xy[kv.Key] = p;
         }
+
+        // (checks) the drag's X / Y of an area by its HandCtrl name (muneL, kokan, ...)
+        internal Vector2 XYForCheck(string areaName)
+        {
+            int i = Array.IndexOf(AreaNames, areaName);
+            return i >= 0 ? xy[i] : new Vector2(-1f, -1f);
+        }
+
+        // (checks) a mouse movement in pixels on the area pressed now, as Tick's
+        internal void MoveForCheck(Vector2 deltaPx) { if (ctrlArea >= 0) Drag(ctrlArea, deltaPx); }
 
         // the play ended / changed: everything off - and both breasts free again, their shapes and their sway (an action's
         // EnableDynamicBone may have stopped the other breast's than its item's: the user's note of 2026-11-05, her right
@@ -569,7 +600,7 @@ namespace MuseStudio
             else if (Ctrl == "drag")
             {
                 if (pressing.Length == 0) Finish();
-                else { Drag(ctrlArea, moved); DragCycles(); }
+                else { if (!MouseOffForCheck) Drag(ctrlArea, moved); DragCycles(); }
             }
             else if (Ctrl == "kiss")
             {

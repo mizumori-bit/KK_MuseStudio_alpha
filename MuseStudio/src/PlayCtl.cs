@@ -29,6 +29,10 @@ namespace MuseStudio
         public Spot CurrentSpot;
         public HSceneProc.AnimationListInfo HInfo;   // the original's row of the position (null: not found)
         public int Pace;
+        // one more at every start and end of a play, whoever made it (the state's play_serial; play_started / play_ended
+        // carry it): Muse's start names the number it saw, so a start sent before the user changed or stopped the play is
+        // refused (GPT's handoff of Alpha PR #1: no late start after a manual stop)
+        public int Serial;
         public float SpeedFactor = 1f;
         public bool Inserted;
         public bool CameInside;
@@ -262,7 +266,7 @@ namespace MuseStudio
 
         public bool NudeOnce;          // the next play strips both (shower together)
 
-        public string Begin(string id, string source, string spotId = null, bool reverse = false, bool anal = false)
+        public string Begin(string id, string source, string spotId = null, bool reverse = false, bool anal = false, string request = null)
         {
             var row = Row(id);
             if (row == null) return "unknown play " + id;
@@ -366,7 +370,10 @@ namespace MuseStudio
                 if (MaleBody != null) eyeM.Begin(MaleBody.charInfo, FemaleCha, true, HInfo.paramMale.fileMotionNeck, exp, Mode);
                 if ((Mode == 1 || Mode == 2) && (Res == null || Res.Strapon != Climax.MalePart())) Liquid.Begin(HInfo.paramMale.fileMetaballCtrl, MaleBody != null ? MaleBody.charInfo : null, FemaleCha);
             }
-            bridge.Event("play_started", new Dictionary<string, object> { { "play", Info() }, { "previous", previous }, { "source", source } });
+            Serial++;
+            var started = new Dictionary<string, object> { { "play", Info() }, { "previous", previous }, { "source", source }, { "serial", Serial } };
+            if (request != null) started["request"] = request;       // (Muse's start: its request, echoed)
+            bridge.Event("play_started", started);
             return "";
         }
 
@@ -964,6 +971,7 @@ namespace MuseStudio
         {
             if (!Active) return;
             var info = Info();
+            Serial++;
             Climax.Stop();
             MuseStudioPlugin.Instance.Sounds.PlayEnded();
             if (eyeF != null) { eyeF.End(); eyeM.End(); }
@@ -1013,7 +1021,8 @@ namespace MuseStudio
             if (backToIdle && matchOn) MuseStudioPlugin.Instance.Match.Camera();
             else if (backToIdle) MuseStudioPlugin.Instance.StartCoroutine(IdleCamera());
             if (tell) bridge.Event("play_ended", new Dictionary<string, object> { { "play", info }, { "reason", reason },
-                { "seconds", Math.Round(Time.realtimeSinceStartup - StartedAt, 1) }, { "climaxes", gauge.Climaxes - climaxesAtStart }, { "gauge", gauge.Info() } });
+                { "seconds", Math.Round(Time.realtimeSinceStartup - StartedAt, 1) }, { "climaxes", gauge.Climaxes - climaxesAtStart }, { "gauge", gauge.Info() },
+                { "serial", Serial } });
             MuseStudioPlugin.Instance.Mood.PlayEnded(together);
         }
 

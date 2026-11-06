@@ -1747,6 +1747,207 @@ namespace MuseStudio
             pc.End("check");
             yield return Wait(0.5f);
 
+            // ---- the trial runs 5 and 6 (GPT's handoff of Alpha PR #1, 2026-11-06) ----
+            // 1. a still hold: nothing before it is a hold, one hold's worth as it becomes one, more while it is held, nothing more
+            //    at its release (no double count); a hold moved on into a stroke stops counting, the stroke counted at its release
+            var hgG = h.Gauge;
+            hgG.Value = 0.1f;
+            float hgV0 = hgG.Value, hgWorth = hgG.HoldWorth("thigh", 1);
+            int hgSent0 = tc.Sent.Count;
+            tc.PressForCheck("thigh", "");
+            yield return Wait(0.3f);
+            float hgEarly = hgG.Value;
+            yield return Wait(0.6f);
+            float hgStart = hgG.Value;
+            yield return Wait(2.0f);
+            float hgHeld = hgG.Value;
+            tc.Hold = false;
+            yield return Wait(0.3f);
+            float hgAfter = hgG.Value;
+            yield return Until(() => tc.Sent.Count > hgSent0, 6f);
+            var hgEv = tc.Sent.Count > hgSent0 ? tc.Sent[tc.Sent.Count - 1] : null;
+            Check("touch: a still hold - nothing before it is one, a hold's worth as it becomes one, more while held, nothing more at its release (the trial run of 2026-11-06)",
+                  Mathf.Abs(hgEarly - hgV0) < 1e-4f && hgStart - hgV0 >= hgWorth * 0.99f && hgHeld > hgStart + 0.005f && hgAfter - hgHeld < 0.002f
+                  && hgEv != null && Json.Str(hgEv, "area") == "thigh" && Json.Str(hgEv, "kind") == "hold",
+                  string.Format("v0 {0:F4} 0.3s {1:F4} 0.9s {2:F4} 2.9s {3:F4} released {4:F4} worth {5:F4} event {6}", hgV0, hgEarly, hgStart, hgHeld, hgAfter, hgWorth,
+                      hgEv != null ? Json.Str(hgEv, "kind") : "none"));
+            hgG.Value = 0.1f;
+            tc.PressForCheck("thigh", "");
+            yield return Wait(1.0f);
+            float hsCounted = hgG.Value;
+            tc.Stroking = true;                 // (the mouse moved on: a stroke)
+            yield return Wait(1.0f);
+            float hsStroke = hgG.Value;
+            tc.Hold = false;
+            yield return Wait(0.3f);
+            float hsAfter = hgG.Value;
+            Check("touch: a hold moved on into a stroke stops counting as a hold; the stroke counts once at its release",
+                  hsCounted > 0.1f + hgWorth * 0.99f && Mathf.Abs(hsStroke - hsCounted) < 1e-4f && hsAfter > hsStroke + 0.005f,
+                  string.Format("held 1s {0:F4} stroking 1s {1:F4} released {2:F4}", hsCounted, hsStroke, hsAfter));
+            yield return Wait(2.8f);            // (the touches' event goes)
+
+            // 2. her crotch caressed in the standing aibu: the drag's X / Y moves as the original's HandCtrl (in -1..1, a slow pace,
+            //    within its circle) - a hand's stroke keeps it near the middle and her feet on the floor (before: the box's ends,
+            //    her hips swung and her feet left the floor); still no motion IK in the aibu (the fix of the run of 2026-11-04)
+            hgG.Value = 0f;
+            string drErr = pc.Begin("aibu_00", "check", "here");
+            yield return Wait(1.2f);
+            h.Hands.MouseOffForCheck = true;
+            tc.PressForCheck("crotch", "");
+            yield return Until(() => h.Hands.Ctrl == "drag", 6f);
+            h.Hands.MoveForCheck(new Vector2(3000f, 0f));
+            var drA = h.Hands.XYForCheck("kokan");
+            h.Hands.MoveForCheck(new Vector2(100000f, 100000f));
+            var drB = h.Hands.XYForCheck("kokan");
+            h.Hands.DragToForCheck(new Vector2(0.5f, 0.5f));
+            float drLow = 9f, drHigh = -9f, drT0 = Time.realtimeSinceStartup, drPrev = 0f;
+            Vector2 drMin = Vector2.one, drMax = Vector2.zero;
+            while (Time.realtimeSinceStartup - drT0 < 3f)
+            {
+                yield return new WaitForEndOfFrame();
+                float drT = Time.realtimeSinceStartup - drT0;
+                var drAt = new Vector2(300f * Mathf.Sin(drT * 2f * Mathf.PI), 150f * Mathf.Sin(drT * 4f * Mathf.PI));
+                var drWas = new Vector2(300f * Mathf.Sin(drPrev * 2f * Mathf.PI), 150f * Mathf.Sin(drPrev * 4f * Mathf.PI));
+                drPrev = drT;
+                h.Hands.MoveForCheck(drAt - drWas);
+                var drXY = h.Hands.XYForCheck("kokan");
+                drMin = Vector2.Min(drMin, drXY);
+                drMax = Vector2.Max(drMax, drXY);
+                var drRoot = st.Cha.transform;
+                foreach (var drToe in new[] { "cf_j_toes_L", "cf_j_toes_R" })
+                {
+                    float drY = drRoot.InverseTransformPoint(Bone(st.Cha, drToe).position).y;
+                    drLow = Mathf.Min(drLow, drY);
+                    drHigh = Mathf.Max(drHigh, drY);
+                }
+            }
+            string drState = pc.LastState;
+            tc.Hold = false;
+            h.Hands.MouseOffForCheck = false;
+            yield return Wait(0.5f);
+            Check("aibu: her crotch's drag moves as the original's (3000 px across: 0.15; never past its circle); a hand's stroke keeps it near the middle and her feet on the floor; no motion IK",
+                  drErr == "" && Mathf.Abs(drA.x - 0.65f) < 0.005f && Mathf.Abs(drA.y - 0.5f) < 0.005f && (drB - new Vector2(0.5f, 0.5f)).magnitude <= 0.5001f
+                  && drMin.x > 0.45f && drMax.x < 0.55f && drMin.y > 0.45f && drMax.y < 0.55f && drLow > -0.01f && drHigh < 0.07f && !pc.IK.On,
+                  string.Format("{0} 3000px {1} far {2} stroke x {3:F3}..{4:F3} y {5:F3}..{6:F3} toes {7:F3}..{8:F3} state {9} ik {10}", drErr, drA.ToString("F3"), drB.ToString("F3"),
+                      drMin.x, drMax.x, drMin.y, drMax.y, drLow, drHigh, drState, pc.IK.On));
+            pc.End("check");
+            yield return Wait(0.5f);
+
+            // 3. a face that does not stay (faces.json temporary): her climax face gives way by itself - then afterglow, then her
+            //    last lasting face; a newer face wins over the timer; under a touch's face the timer waits, and put back after its
+            //    time the face goes straight on (no flash of the old one)
+            tc.PackageFace();                   // (no touch reaction's face left to put back meanwhile)
+            st.ApplyFace("gentle");
+            st.ApplyFace("ecstasy");
+            float tfLeft = st.TemporaryLeft;
+            st.EndTemporaryForCheck();
+            yield return null;
+            yield return null;
+            string tfNext = st.Face;
+            float tfLeft2 = st.TemporaryLeft;
+            st.EndTemporaryForCheck();
+            yield return null;
+            yield return null;
+            string tfBase = st.Face;
+            Check("faces: her climax face (ecstasy) does not stay - 8 s, then afterglow (30 s), then her last lasting face (the trial run of 2026-11-06)",
+                  tfLeft > 7.5f && tfLeft <= 8.01f && tfNext == "afterglow" && tfLeft2 > 29f && tfBase == "gentle",
+                  string.Format("left {0:F2} then {1} ({2:F1}) then {3}", tfLeft, tfNext, tfLeft2, tfBase));
+            st.ApplyFace("ecstasy");
+            st.ApplyFace("teasing");
+            yield return null;
+            yield return null;
+            string tfNewer = st.Face;
+            st.ApplyFace("ecstasy");
+            st.ApplyPreset("aroused");          // (a touch's face over it)
+            st.EndTemporaryForCheck();
+            yield return null;
+            yield return null;
+            string tfUnder = st.Face;
+            st.RestoreFace("ecstasy");          // (the touch's face over: its own put back)
+            string tfBack = st.Face;
+            Check("faces: a newer face wins over a temporary one's timer; under a touch's face the timer waits; put back after its time, the next face at once",
+                  tfNewer == "teasing" && tfUnder == "preset:aroused" && tfBack == "afterglow", tfNewer + " / " + tfUnder + " / " + tfBack);
+            st.ApplyFace("service_smile");
+
+            // 5. Muse starts or changes a normal play (only on the user's wish in the chat): checked again as the block shows - aimed
+            //    at this launch and character, a request not seen before, the play_serial Muse saw, the room, the panel's
+            //    availability, the spot; refused, none of the block's play fields; started, play_started carries the request
+            if (pc.Active) pc.End("check");
+            yield return Wait(0.5f);
+            pc.WhoForCheck = Bodies("male", false, false);
+            var msTag = D("launch", Launch.Id, "character", h.CharacterId());
+            int msS0 = pc.Serial;
+            int msUnt0 = Refusals("play.start", "untargeted");
+            Send(With(Line("宛先なしで始めます。"), "play", D("start", "aibu_00", "spot", "here", "request", "chk-ms-1", "basis", msS0, "location", st.Location, "pace", 1)));
+            yield return Until(() => bp.Busy && bp.Text == "宛先なしで始めます。", 10f);
+            yield return Wait(0.5f);
+            bool msUntargeted = Refusals("play.start", "untargeted") == msUnt0 + 1 && !pc.Active && pc.Serial == msS0;
+            bp.Advance(true);
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("始めますね。"), "play", D("start", "aibu_00", "spot", "here", "request", "chk-ms-2", "basis", msS0,
+                "location", st.Location, "pace", 1)));
+            yield return Until(() => bp.Busy && bp.Text == "始めますね。", 10f);
+            yield return Wait(0.6f);
+            var msEv = LastEvent("play_started");
+            bool msStarted = pc.Active && Json.Str(pc.Current, "id") == "aibu_00" && pc.Pace == 1 && msEv != null && Json.Str(msEv, "source") == "muse"
+                && Json.Str(msEv, "request") == "chk-ms-2" && (int)Json.Num(msEv, "serial") == msS0 + 1 && pc.Serial == msS0 + 1;
+            string msStartedWhy = Json.Write(msEv) + " pace " + pc.Pace;
+            bp.Advance(true);
+            int msS1 = pc.Serial;
+            int msDup0 = Refusals("play.start", "duplicate_request");
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("もう一度始めます。"), "play", D("start", "aibu_00", "spot", "here", "request", "chk-ms-2", "basis", msS1,
+                "location", st.Location, "pace", 3)));
+            yield return Until(() => bp.Busy && bp.Text == "もう一度始めます。", 10f);
+            yield return Wait(0.5f);
+            bool msDuplicate = Refusals("play.start", "duplicate_request") == msDup0 + 1 && pc.Serial == msS1 && pc.Pace == 1;
+            bp.Advance(true);
+            int msFit0 = Refusals("play.start", "spot_not_fit");
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("ここで変えます。"), "play", D("start", "sonyu_00", "spot", "no-such-spot", "request", "chk-ms-3", "basis", msS1,
+                "location", st.Location, "pace", 3)));
+            yield return Until(() => bp.Busy && bp.Text == "ここで変えます。", 10f);
+            yield return Wait(0.5f);
+            bool msKept = Refusals("play.start", "spot_not_fit") == msFit0 + 1 && Json.Str(pc.Current, "id") == "aibu_00" && pc.Pace == 1 && pc.Serial == msS1;
+            bp.Advance(true);
+            var msSpots = pc.Spots(pc.Row("sonyu_00"));
+            string msSpot = msSpots.Count > 0 ? msSpots[0].Id : "here";
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("体位を変えましょう。"), "play", D("start", "sonyu_00", "spot", msSpot, "request", "chk-ms-4", "basis", msS1,
+                "location", st.Location)));
+            yield return Until(() => bp.Busy && bp.Text == "体位を変えましょう。", 10f);
+            yield return Wait(0.8f);
+            var msEv2 = LastEvent("play_started");
+            bool msChanged = pc.Active && Json.Str(pc.Current, "id") == "sonyu_00" && msEv2 != null && Json.Str(msEv2, "request") == "chk-ms-4"
+                && Json.Str(Json.Obj(msEv2, "previous"), "id") == "aibu_00" && pc.Serial == msS1 + 2 && pc.Pace == 0;
+            string msChangedWhy = Json.Write(msEv2);
+            bp.Advance(true);
+            int msS2 = pc.Serial;
+            pc.End("user");                     // (the user stopped it meanwhile)
+            int msStale0 = Refusals("play.start", "stale_basis");
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("続けましょう。"), "play", D("start", "aibu_00", "spot", "here", "request", "chk-ms-5", "basis", msS2,
+                "location", st.Location, "pace", 2)));
+            yield return Until(() => bp.Busy && bp.Text == "続けましょう。", 10f);
+            yield return Wait(0.5f);
+            bool msStale = Refusals("play.start", "stale_basis") == msStale0 + 1 && !pc.Active;
+            bp.Advance(true);
+            int msOther0 = Refusals("play.start", "other_location"), msNoReq0 = Refusals("play.start", "no_request");
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("あちらで始めます。"), "play", D("start", "aibu_00", "request", "chk-ms-6", "basis", pc.Serial,
+                "location", "no_such_room")));
+            yield return Until(() => bp.Busy && bp.Text == "あちらで始めます。", 10f);
+            yield return Wait(0.4f);
+            bp.Advance(true);
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("依頼なしで始めます。"), "play", D("start", "aibu_00", "basis", pc.Serial, "location", st.Location)));
+            yield return Until(() => bp.Busy && bp.Text == "依頼なしで始めます。", 10f);
+            yield return Wait(0.4f);
+            bool msOthers = Refusals("play.start", "other_location") == msOther0 + 1 && Refusals("play.start", "no_request") == msNoReq0 + 1 && !pc.Active;
+            bp.Advance(true);
+            pc.WhoForCheck = null;
+            Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));
+            Check("Muse's play start: aimed, a new request, the serial Muse saw, the room and the spot - it starts (play_started source muse with the request and the serial), the block's pace on it",
+                  msStarted, msStartedWhy);
+            Check("Muse's play start: the same request again is refused (duplicate_request) - nothing runs twice, the block's pace not taken", msDuplicate, "serial " + pc.Serial);
+            Check("Muse's play change: refused (a spot that does not fit) - the play as it was and the block's pace not taken", msKept, Json.Write(LastEvent("block_refused")));
+            Check("Muse's play change: to another play - play_started with the previous one, the serial past the end and the start, at pace 0", msChanged, msChangedWhy);
+            Check("Muse's play start: after the user stopped the play, a start on the old number is refused (stale_basis) - no late start", msStale, Json.Write(LastEvent("block_refused")));
+            Check("Muse's play start: another room named (other_location) or no request (no_request) is refused", msOthers, Json.Write(LastEvent("block_refused")));
+
             // her clothes: the panel's 服 (the user) and a block's clothes (Muse) - on / half / off, clothes_changed, the state
             var chU = h.ChangeClothes(D("co_top", "off"), "user");
             yield return Wait(2.5f);
@@ -2785,8 +2986,10 @@ namespace MuseStudio
             yield return Until(() => bp.Busy && bp.Text == "ここでは始めない。", 10f);
             yield return Wait(0.8f);
             var rf = LastEvent("block_refused");
-            Check("match: outside a match Muse's play.start is refused (not_in_match) - the user starts plays as ever", !pc.Active && Json.Str(rf, "field") == "play.start"
-                  && Json.Str(rf, "reason") == "not_in_match", Json.Write(rf));
+            // (outside a match the match's form is not enough: Muse's normal start needs its request, basis and room - MUSE_GUIDE
+            // 1.12; before it was not_in_match)
+            Check("match: outside a match the match's play.start (no request) does not start a play - refused (no_request)", !pc.Active && Json.Str(rf, "field") == "play.start"
+                  && Json.Str(rf, "reason") == "no_request", Json.Write(rf));
             bool poseOut = false;
             foreach (var re in AllEvents())
                 if (Json.Str(re, "type") == "block_refused" && Json.Str(re, "field") == "pose" && Json.Str(re, "reason") == "not_in_match") poseOut = true;

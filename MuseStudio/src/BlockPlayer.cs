@@ -226,6 +226,7 @@ namespace MuseStudio
         IEnumerator Show(Dictionary<string, object> b)
         {
             if (b == null) yield break;
+            int serialSeen = h.Play.Serial, serialOwn = serialSeen;       // (a play this block's own move ends: not a change Muse missed)
             string loc = Json.Str(b, "location", null);
             bool opp = Speaker == "opponent";
             if (!string.IsNullOrEmpty(loc) && (h.Match.Active || opp)) { Refuse("location", loc, "in_match"); loc = null; }       // (the match's room stays)
@@ -252,7 +253,7 @@ namespace MuseStudio
                 Moving = true;
                 Text = "";
                 if (Monologue) MonologueMoved = true;
-                if (h.Play.Active) h.Play.End("location");
+                if (h.Play.Active) { h.Play.End("location"); serialOwn = h.Play.Serial; }
                 string prev = h.Stage.Location;
                 yield return h.Stage.SetLocation(loc);
                 Moving = false;
@@ -325,6 +326,8 @@ namespace MuseStudio
             string cam = Json.Str(b, "camera", null);
             if (!string.IsNullOrEmpty(cam) && !play.Active) stage.ApplyCamera(cam, false);      // (an unknown camera: it stays)
             var pl = Json.Obj(b, "play");
+            // Muse's start or change of a normal play (outside a match): refused, none of this block's play fields take effect
+            if (pl != null && !h.Match.Active && Json.Str(pl, "start", null) != null && !MuseStart(pl, serialSeen, serialOwn)) pl = null;
             MatchPlay(pl);
             if (pl != null)
             {
@@ -369,7 +372,7 @@ namespace MuseStudio
             string start = Json.Str(pl, "start", null);
             if (start != null)
             {
-                if (!h.Match.Active) Refuse("play.start", start, "not_in_match");
+                if (!h.Match.Active) { }        // (outside a match: Muse's start of a normal play - MuseStart, before this)
                 else
                 {
                     // the part (male_part; the lesbian format: giver) is an absolute side; omitted: the speaker's other side - the
@@ -406,6 +409,67 @@ namespace MuseStudio
                     pl.TryGetValue(f.Key.Substring(5), out v);
                     Refuse(f.Key, FieldValue(v), f.Value);
                 }
+        }
+
+        // Muse's start or change of a normal play (MUSE_GUIDE 3.7; GPT's handoff of Alpha PR #1): Muse sends it only when the
+        // user asked for it in the chat (Muse's rule); the app checks it again as the block shows - the package aimed at this
+        // launch and character, its request not seen before (sent again: refused, so nothing runs twice), the play's serial
+        // still the one Muse saw (the user changed or stopped the play meanwhile: refused - no late start after a stop), the
+        // room, the play's availability as the panel shows it (Availability), the spot. Started: play_started (source "muse",
+        // the request), then the block's other play fields (pace and the rest) on the new play; refused: block_refused with the
+        // request and none of the block's play fields - the play as it was. The panel's start, change and end stay the app's.
+        readonly HashSet<string> startRequests = new HashSet<string>();
+        readonly Queue<string> startOrder = new Queue<string>();
+
+        bool MuseStart(Dictionary<string, object> pl, int serialSeen, int serialOwn)
+        {
+            var play = h.Play;
+            string id = Json.Str(pl, "start", "");
+            string req = Json.Str(pl, "request", null);
+            Func<string, string, List<object>, bool> no = (reason, detail, avail) => { RefuseStart(id, req, reason, detail, avail); return false; };
+            if (string.IsNullOrEmpty(req)) return no("no_request", "", null);
+            if (startRequests.Contains(req)) return no("duplicate_request", "", null);
+            startRequests.Add(req);                  // (refused or not: a late copy of it never runs)
+            startOrder.Enqueue(req);
+            while (startOrder.Count > 500) startRequests.Remove(startOrder.Dequeue());
+            object ev;
+            if (pl.TryGetValue("end", out ev) && ev is bool && (bool)ev) return no("with_end", "", null);
+            string lid = Json.Str(Pkg, "launch", null), cid = Json.Str(Pkg, "character", null);
+            if (lid == null || cid == null) return no("untargeted", "", null);
+            if (lid != Launch.Id) return no("old_launch", Launch.Id, null);
+            if (cid != h.CharacterId()) return no("other_character", h.CharacterId(), null);
+            if (!Json.Has(pl, "basis")) return no("no_basis", "", null);
+            // (the number as the block came - before its own move, which ends a play - and nothing else since)
+            if ((int)Json.Num(pl, "basis") != serialSeen || play.Serial != serialOwn) return no("stale_basis", Convert.ToString(play.Serial), null);
+            string loc = Json.Str(pl, "location", null);
+            if (loc == null) return no("no_location", "", null);
+            if (h.Outing.Out) return no("she_is_out", "", null);
+            if (h.Presence.Apart) return no("apart", "", null);
+            if (loc != h.Stage.Location) return no("other_location", h.Stage.Location, null);
+            var row = play.Row(id);
+            if (row == null) return no("unknown_play", "", null);
+            object rv, an;
+            bool rev = pl.TryGetValue("reverse", out rv) && rv is bool && (bool)rv;
+            bool anal = pl.TryGetValue("anal", out an) && an is bool && (bool)an;
+            var av = play.Availability(row);
+            if (!(bool)av[rev ? "reversed_ok" : "ok"]) return no("not_available", Json.Str(av, rev ? "reversed_reason" : "reason", ""), null);
+            if (anal && !(bool)av["anal"]) return no("no_anal", "", null);
+            string spot = Json.Str(pl, "spot", null);
+            if (spot != null)
+            {
+                bool fits = false;
+                foreach (var s in play.Spots(row)) if (s.Id == spot || s.Aliases.Contains(spot)) fits = true;
+                if (!fits) return no("spot_not_fit", "", (List<object>)av["spots"]);
+            }
+            string err = play.Begin(id, "muse", spot, rev, anal, req);
+            if (err.Length > 0) return no("not_started", err, null);
+            return true;
+        }
+
+        void RefuseStart(string id, string req, string reason, string detail, List<object> available)
+        {
+            h.Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "play.start" }, { "value", id }, { "reason", reason },
+                { "available", available ?? new List<object>() }, { "request", req }, { "detail", detail } });
         }
 
         // a block's pose (the original's talk motions, Talk): a match's talk - not in a play - on the speaker's body

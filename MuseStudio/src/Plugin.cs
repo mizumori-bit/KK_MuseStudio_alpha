@@ -583,7 +583,7 @@ namespace MuseStudio
                 { "character", Chars.Info() }, { "outfit", Stage.Cha != null ? CharaSummary.OutfitNow(Stage.Cha) : null },
                 { "location", Stage.LocationInfo(Outing.Out && Outing.KnownRoom.Length > 0 ? Outing.KnownRoom : Presence.Apart ? Presence.HerRoom : Stage.Location) },     // (her knowledge of where he is: out, or he went alone - where she last saw him)
                 { "scene", Play.Active ? Play.SceneInfo() : new Dictionary<string, object> { { "key", Stage.SceneKey }, { "intensity", Stage.Intensity }, { "speed", Stage.Speed } } },
-                { "emotion", Stage.Emotion }, { "camera", Stage.CameraKey }, { "package", Blocks.Info() }, { "play", Play.Info() },
+                { "emotion", Stage.Emotion }, { "camera", Stage.CameraKey }, { "package", Blocks.Info() }, { "play", Play.Info() }, { "play_serial", Play.Serial },
                 { "gauge", Gauge.Info() }, { "beat", Beat.Info() }, { "mood", Mood.Info() },
                 { "presence", Presence.Info() }, { "belief", Presence.BeliefInfo() }, { "urges", Urges.Info() }, { "outing", Outing.Info() },
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },
