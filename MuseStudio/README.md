@@ -120,6 +120,11 @@ MuseStudio/
    - tailnet から届くよう、この PC の Tailscale の中継（`tailscale serve`）をブリッジのポート（既定 `127.0.0.1:18765`）へ向けます。届く機械は tailnet の ACL で絞ります。
    - ブリッジを一度起動すると、`bridge/cache/tokens.json` に鍵が 2 つ（Muse 用・アプリ用）できます。MuseStudio と起動役は、そこからアプリの鍵を読みます（人手は要りません）。
    - Muse の鍵を表示し、Muse の安全な入力欄へ入れます（チャットに貼らない）。
+   - **Muse の鍵が tailnet の経路で付かない（代理文字列のまま届く）とき**は、Muse 専用の受け口を使います（MUSE_GUIDE 7.1）。
+     - 機械の確認：`python bridge/bridge.py --list-machines` で tailnet の機械と StableID を表示し、Tailscale の管理画面（Machines）と見比べて Muse の機械を確かめます。
+     - 設定：`bridge_config.json` の `muse_listener` に、その StableID（`machine`）と `"enabled": true` を書きます。
+     - 届く範囲：Windows のファイアウォールで、そのポート（既定 18767）への受信を、Muse の機械の tailnet の IP と Python だけに許します（管理者の PowerShell の `New-NetFirewallRule`）。tailnet の許可設定（ACL）も、Muse の機械からそのポートだけに絞ります。
+     - 動き：ブリッジを起動すると、受け口がこの PC の tailnet のアドレスで開きます。Muse は送り先のポートを 18767 にします。
    - 成功の見分け方：鍵を付けない `GET http://127.0.0.1:18765/health` が `{"ok": true, "auth": "required"}` だけを返し、Muse が鍵を付けて読むと中身（`launch` など）が返ります。
 
    ```bash

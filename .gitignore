@@ -39,6 +39,7 @@
 !/bridge/irodori_client.py
 !/bridge/kk_card.py
 !/bridge/muse_match.py
+!/bridge/muse_listener.py
 !/bridge/static/
 !/bridge/tests/
 !/bridge/bridge_config.example.json
