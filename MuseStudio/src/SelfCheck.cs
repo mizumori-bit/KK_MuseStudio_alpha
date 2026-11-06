@@ -1752,7 +1752,7 @@ namespace MuseStudio
             //    at its release (no double count); a hold moved on into a stroke stops counting, the stroke counted at its release
             var hgG = h.Gauge;
             hgG.Value = 0.1f;
-            float hgV0 = hgG.Value, hgWorth = hgG.HoldWorth("thigh", 1);
+            float hgV0 = hgG.Value, hgWorth = hgG.TouchWorth("thigh", "hold", 1);
             int hgSent0 = tc.Sent.Count;
             tc.PressForCheck("thigh", "");
             yield return Wait(0.3f);
@@ -1781,14 +1781,39 @@ namespace MuseStudio
             tc.Hold = false;
             yield return Wait(0.3f);
             float hsAfter = hgG.Value;
-            Check("touch: a hold moved on into a stroke stops counting as a hold; the stroke counts once at its release",
-                  hsCounted > 0.1f + hgWorth * 0.99f && Mathf.Abs(hsStroke - hsCounted) < 1e-4f && hsAfter > hsStroke + 0.005f,
+            Check("touch: a hold moved on into a stroke goes on counting while pressed (as a stroke); nothing more at its release (the trial run 7)",
+                  hsCounted > 0.1f + hgWorth * 0.99f && hsStroke > hsCounted + 0.005f && hsAfter - hsStroke < 0.002f,
                   string.Format("held 1s {0:F4} stroking 1s {1:F4} released {2:F4}", hsCounted, hsStroke, hsAfter));
             yield return Wait(2.8f);            // (the touches' event goes)
+            // the real mouse (Windows' own input; the trial run 7: a real hand is never still - a few pixels made the press a stroke,
+            // counted only when let go): a press on her thigh with a hand's small jitter - the gauge rises while it is held,
+            // nothing more at its release
+            hgG.Value = 0.1f;
+            yield return Wait(0.3f);
+            var rtWp = Vector3.Lerp(Bone(st.Cha, "cf_j_thigh00_L").position, Bone(st.Cha, "cf_j_leg01_L").position, 0.4f);
+            var rtSp = Camera.main.WorldToScreenPoint(rtWp);
+            float rt1 = -1f, rt3 = -1f, rtEnd = 0f;
+            string rtPressed = "";
+            bool rtStroke = false;
+            yield return RealInput.Press(new Vector2(rtSp.x, Screen.height - rtSp.y), 3.5f, 2, t =>
+            {
+                if (rtPressed.Length == 0 && tc.Pressing.Length > 0) rtPressed = tc.Pressing;
+                if (tc.Stroking) rtStroke = true;
+                if (rt1 < 0f && t >= 1f) rt1 = hgG.Value;
+                if (rt3 < 0f && t >= 3f) rt3 = hgG.Value;
+                rtEnd = hgG.Value;
+            });
+            yield return Wait(0.4f);
+            float rtAfter = hgG.Value;
+            Check("touch (real mouse): a press with a hand's small jitter rises while it is held (as a stroke) - nothing more when let go",
+                  RealInput.LastError.Length == 0 && rtPressed == "thigh" && rtStroke && rt1 > 0.1f + 0.005f && rt3 > rt1 + 0.005f && rtAfter - rtEnd < 0.002f,
+                  string.Format("{0} pressed '{1}' stroke {2} 1s {3:F4} 3s {4:F4} end {5:F4} let go {6:F4}", RealInput.LastError, rtPressed, rtStroke, rt1, rt3, rtEnd, rtAfter));
+            yield return Wait(2.8f);
 
             // 2. her crotch caressed in the standing aibu: the drag's X / Y moves as the original's HandCtrl (in -1..1, a slow pace,
             //    within its circle) - a hand's stroke keeps it near the middle and her feet on the floor (before: the box's ends,
-            //    her hips swung and her feet left the floor); still no motion IK in the aibu (the fix of the run of 2026-11-04)
+            //    her hips swung and her feet left the floor); the aibu has the original's motion IK again (its data pins her feet to
+            //    her own pivots cf_pv_*; PR #5's re-investigation)
             hgG.Value = 0f;
             string drErr = pc.Begin("aibu_00", "check", "here");
             yield return Wait(1.2f);
@@ -1825,38 +1850,58 @@ namespace MuseStudio
             tc.Hold = false;
             h.Hands.MouseOffForCheck = false;
             yield return Wait(0.5f);
-            Check("aibu: her crotch's drag moves as the original's (3000 px across: 0.15; never past its circle); a hand's stroke keeps it near the middle and her feet on the floor; no motion IK",
+            Check("aibu: her crotch's drag moves as the original's (3000 px across: 0.15; never past its circle); a hand's stroke keeps it near the middle and her feet on the floor; the original's motion IK on",
                   drErr == "" && Mathf.Abs(drA.x - 0.65f) < 0.005f && Mathf.Abs(drA.y - 0.5f) < 0.005f && (drB - new Vector2(0.5f, 0.5f)).magnitude <= 0.5001f
-                  && drMin.x > 0.45f && drMax.x < 0.55f && drMin.y > 0.45f && drMax.y < 0.55f && drLow > -0.01f && drHigh < 0.07f && !pc.IK.On,
+                  && drMin.x > 0.45f && drMax.x < 0.55f && drMin.y > 0.45f && drMax.y < 0.55f && drLow > -0.01f && drHigh < 0.07f && pc.IK.On && pc.IK.Enabled,
                   string.Format("{0} 3000px {1} far {2} stroke x {3:F3}..{4:F3} y {5:F3}..{6:F3} toes {7:F3}..{8:F3} state {9} ik {10}", drErr, drA.ToString("F3"), drB.ToString("F3"),
                       drMin.x, drMax.x, drMin.y, drMax.y, drLow, drHigh, drState, pc.IK.On));
             pc.End("check");
             yield return Wait(0.5f);
 
-            // 3. a face that does not stay (faces.json temporary): her climax face gives way by itself - then afterglow, then her
-            //    last lasting face; a newer face wins over the timer; under a touch's face the timer waits, and put back after its
-            //    time the face goes straight on (no flash of the old one)
+            // 3. every face goes back by itself to the scene's default (faces.json return; PR #5 adopted): in the talk her climax
+            //    face after 8 s, a teasing face after 12 s, an unlisted one after 20 s - to the talk's default (service_smile), which
+            //    stays; in a play to the play's default by her gauge; a newer face wins over the timer; under a touch's face the
+            //    timer waits, and put back after its time the face goes straight on to the default (no flash of the old one)
             tc.PackageFace();                   // (no touch reaction's face left to put back meanwhile)
-            st.ApplyFace("gentle");
             st.ApplyFace("ecstasy");
             float tfLeft = st.TemporaryLeft;
             st.EndTemporaryForCheck();
             yield return null;
             yield return null;
-            string tfNext = st.Face;
-            float tfLeft2 = st.TemporaryLeft;
+            string tfTalk = st.Face;
+            float tfDefaultLeft = st.TemporaryLeft;
+            st.ApplyFace("teasing");
+            float tfTeaseLeft = st.TemporaryLeft;
+            st.ApplyFace("gentle");
+            float tfGentleLeft = st.TemporaryLeft;
+            Check("faces: every face goes back by itself to the scene's default - her climax face after 8 s, teasing 12 s, an unlisted one 20 s, in the talk to service_smile (which stays)",
+                  tfLeft > 7.5f && tfLeft <= 8.01f && tfTalk == "service_smile" && tfDefaultLeft < 0f && st.FaceScene == "talk"
+                  && tfTeaseLeft > 11.5f && tfTeaseLeft <= 12.01f && tfGentleLeft > 19.5f && tfGentleLeft <= 20.01f,
+                  string.Format("ecstasy {0:F2} -> {1} (timer {2:F1}) teasing {3:F2} gentle {4:F2} scene {5}", tfLeft, tfTalk, tfDefaultLeft, tfTeaseLeft, tfGentleLeft, st.FaceScene));
+            string tfPlayErr = pc.Begin("aibu_00", "check", "here");
+            yield return Wait(0.8f);
+            tc.PackageFace();
+            h.Gauge.Value = 0.6f;
+            st.ApplyFace("teasing");
             st.EndTemporaryForCheck();
             yield return null;
             yield return null;
-            string tfBase = st.Face;
-            Check("faces: her climax face (ecstasy) does not stay - 8 s, then afterglow (30 s), then her last lasting face (the trial run of 2026-11-06)",
-                  tfLeft > 7.5f && tfLeft <= 8.01f && tfNext == "afterglow" && tfLeft2 > 29f && tfBase == "gentle",
-                  string.Format("left {0:F2} then {1} ({2:F1}) then {3}", tfLeft, tfNext, tfLeft2, tfBase));
+            string tfPlayHigh = st.Face;
+            h.Gauge.Value = 0.1f;
+            st.ApplyFace("teasing");
+            st.EndTemporaryForCheck();
+            yield return null;
+            yield return null;
+            string tfPlayLow = st.Face;
+            pc.End("check");
+            yield return Wait(0.5f);
+            Check("faces: in a play a face goes back to the play's default by her gauge (0.6: aroused, 0.1: flushed)", tfPlayErr == "" && tfPlayHigh == "aroused" && tfPlayLow == "flushed",
+                  tfPlayErr + " " + tfPlayHigh + " / " + tfPlayLow);
+            tc.PackageFace();
             st.ApplyFace("ecstasy");
             st.ApplyFace("teasing");
-            yield return null;
-            yield return null;
             string tfNewer = st.Face;
+            float tfNewerLeft = st.TemporaryLeft;
             st.ApplyFace("ecstasy");
             st.ApplyPreset("aroused");          // (a touch's face over it)
             st.EndTemporaryForCheck();
@@ -1865,8 +1910,9 @@ namespace MuseStudio
             string tfUnder = st.Face;
             st.RestoreFace("ecstasy");          // (the touch's face over: its own put back)
             string tfBack = st.Face;
-            Check("faces: a newer face wins over a temporary one's timer; under a touch's face the timer waits; put back after its time, the next face at once",
-                  tfNewer == "teasing" && tfUnder == "preset:aroused" && tfBack == "afterglow", tfNewer + " / " + tfUnder + " / " + tfBack);
+            Check("faces: a newer face wins over the old one's timer; under a touch's face the timer waits; put back after its time, the scene's default at once",
+                  tfNewer == "teasing" && tfNewerLeft > 11.5f && tfUnder == "preset:aroused" && tfBack == "service_smile",
+                  tfNewer + " (" + tfNewerLeft.ToString("F1") + ") / " + tfUnder + " / " + tfBack);
             st.ApplyFace("service_smile");
 
             // 5. Muse starts or changes a normal play (only on the user's wish in the chat): checked again as the block shows - aimed
@@ -1938,7 +1984,41 @@ namespace MuseStudio
             yield return Wait(0.4f);
             bool msOthers = Refusals("play.start", "other_location") == msOther0 + 1 && Refusals("play.start", "no_request") == msNoReq0 + 1 && !pc.Active;
             bp.Advance(true);
+            // (GPT's review of PR #3) a start with a move to another room while a play goes on: neither is done - the play and the
+            // room as they were; the move and the start in their own blocks of one package: the move, then the start on the number
+            // Muse saw before the package (the package's own changes counted in)
+            pc.Begin("aibu_00", "check", "here");
+            yield return Wait(0.8f);
+            int mvS = pc.Serial;
+            string mvRoom = st.Location;
+            int mvWith0 = Refusals("play.start", "with_move"), mvLoc0 = Refusals("location", "with_start");
+            SendPkg(new Dictionary<string, object>(msTag), With(With(Line("トイレで続けましょう。"), "location", "home_toilet"), "play", D("start", "aibu_00", "spot", "here",
+                "request", "chk-ms-7", "basis", mvS, "location", "home_toilet")));
+            yield return Until(() => bp.Busy && bp.Text == "トイレで続けましょう。", 10f);
+            yield return Wait(0.5f);
+            bool msWithMove = Refusals("play.start", "with_move") == mvWith0 + 1 && Refusals("location", "with_start") == mvLoc0 + 1 && pc.Active
+                && st.Location == mvRoom && pc.Serial == mvS;
+            string msWithMoveWhy = "active " + pc.Active + " room " + st.Location + " serial " + pc.Serial + "/" + mvS + " " + Json.Write(LastEvent("block_refused"));
+            bp.Advance(true);
+            SendPkg(new Dictionary<string, object>(msTag), With(Line("トイレへ行きましょう。"), "location", "home_toilet"),
+                With(Line("ここで始めます。"), "play", D("start", "aibu_00", "spot", "here", "request", "chk-ms-8", "basis", mvS, "location", "home_toilet")));
+            yield return Until(() => bp.Busy && bp.Text == "トイレへ行きましょう。" && !bp.Moving, 30f);
+            yield return Wait(0.3f);
+            bp.Advance(true);
+            yield return Until(() => bp.Busy && bp.Text == "ここで始めます。", 10f);
+            yield return Wait(0.8f);
+            var mvEv = LastEvent("play_started");
+            bool msSplit = pc.Active && st.Location == "home_toilet" && Json.Str(mvEv, "request") == "chk-ms-8" && pc.Serial == mvS + 2;
+            string msSplitWhy = "room " + st.Location + " serial " + pc.Serial + "/" + mvS + " " + Json.Write(mvEv);
+            bp.Advance(true);
+            if (pc.Active) pc.End("check");
+            h.MoveTo(mvRoom, "check");
+            yield return Until(() => st.Location == mvRoom && !st.Moving, 30f);
+            yield return Wait(0.5f);
             pc.WhoForCheck = null;
+            Check("Muse's play start with a move to another room while a play goes on: neither - the play and the room as they were (with_move, the location with_start; GPT's review of PR #3)",
+                  msWithMove, msWithMoveWhy);
+            Check("Muse's play start after a move in its own block of the same package: the move, then the start on the number seen before the package", msSplit, msSplitWhy);
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));
             Check("Muse's play start: aimed, a new request, the serial Muse saw, the room and the spot - it starts (play_started source muse with the request and the serial), the block's pace on it",
                   msStarted, msStartedWhy);

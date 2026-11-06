@@ -32,6 +32,12 @@ namespace MuseStudio
             if (room == "poses") { yield return Poses(); yield break; }
             if (room == "aibufeet") { yield return AibuFeet(); yield break; }
             if (room == "aibukokan") { yield return AibuKokan(); yield break; }
+            if (room == "aibuheight") { yield return AibuHeight(); yield break; }
+            if (room == "aibuik") { yield return AibuIk(); yield break; }
+            if (room == "aibulegs") { yield return AibuLegs(); yield break; }
+            if (room == "realtouch") { yield return RealTouch(); yield break; }
+            if (room.StartsWith("aibufloor")) { yield return AibuFloor(room.Length > 10 ? room.Substring(10) : "aibu_00"); yield break; }
+            if (room.StartsWith("ikdata:")) { yield return IkData(room.Substring(7)); yield break; }
             if (room == "screen") { yield return ScreenTry(); yield break; }
             if (room == "toilet") { yield return ToiletTry(); yield break; }
             if (room == "cardlinks") { yield return CardLinks(); yield break; }
@@ -265,6 +271,345 @@ namespace MuseStudio
                 var ta = GlobalMethod.LoadAllFolderInOneFile<TextAsset>("h/list/", ikFile, null);
                 lines.AppendLine("IK DATA " + ikFile + ":");
                 lines.AppendLine(ta != null ? ta.text : "(none)");
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // the standing aibu at her body's heights 0..1 (the shape's first value; in memory only): her toes' height over 1 s without
+        // the animator's "height" (as MuseStudio was) and with it (the original's HActionBase.SetDefaultAnimatorFloat: the
+        // female's shape 0 every frame) - at rest and with her crotch held; the animator's parameters
+        IEnumerator AibuHeight()
+        {
+            yield return new WaitForSeconds(1.5f);
+            var st = h.Stage;
+            var pc = h.Play;
+            var tc = h.Touch;
+            var cha = st.Cha;
+            float was = cha.GetShapeBodyValue(0);
+            string err = pc.Begin("aibu_00", "probe", "here");
+            yield return new WaitForSeconds(1.5f);
+            var an = cha.animBody;
+            var names = new List<string>();
+            foreach (var prm in an.parameters) names.Add(prm.name + ":" + prm.type + "=" + (prm.type == AnimatorControllerParameterType.Float ? an.GetFloat(prm.name).ToString("F2") : ""));
+            lines.AppendLine("begin " + err + " body height " + was.ToString("F3") + " params " + string.Join(",", names.ToArray()));
+            foreach (var held in new[] { false, true })
+            {
+                if (held) { h.Hands.MouseOffForCheck = true; tc.PressForCheck("crotch", ""); yield return new WaitForSeconds(1.5f); }
+                foreach (var v in new[] { 0f, 0.25f, 0.5f, 0.75f, 1f })
+                {
+                    cha.SetShapeBodyValue(0, v);
+                    foreach (var withParam in new[] { false, true })
+                    {
+                        float t0 = Time.realtimeSinceStartup, low = 9f, high = -9f, hipY = 0f;
+                        while (Time.realtimeSinceStartup - t0 < 1.2f)
+                        {
+                            an.SetFloat("height", withParam ? v : 0f);
+                            yield return new WaitForEndOfFrame();
+                            if (Time.realtimeSinceStartup - t0 < 0.4f) continue;     // (the change settles)
+                            var root = cha.transform;
+                            foreach (var toe in new[] { "cf_j_toes_L", "cf_j_toes_R", "cf_j_foot_L", "cf_j_foot_R" })
+                            {
+                                float y = root.InverseTransformPoint(HIK.Find(cha.objBodyBone.transform, toe).position).y;
+                                low = Mathf.Min(low, y);
+                                high = Mathf.Max(high, y);
+                            }
+                            hipY = root.InverseTransformPoint(HIK.Find(cha.objBodyBone.transform, "cf_j_hips").position).y;
+                        }
+                        lines.AppendLine(string.Format("{0} body {1:F2} param height {2} -> feet y {3:F3}..{4:F3} hips {5:F3} state {6}", held ? "crotch held" : "at rest", v,
+                            withParam ? v.ToString("F2") : "0 (unset)", low, high, hipY, pc.LastState));
+                        if (v == 0f || v == 1f) yield return KokanShots(string.Format("h{0}_{1}_{2}", held ? "held" : "rest", v.ToString("F0"), withParam ? "param" : "unset"));
+                    }
+                }
+            }
+            tc.Hold = false;
+            h.Hands.MouseOffForCheck = false;
+            cha.SetShapeBodyValue(0, was);
+            pc.End("probe");
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // the standing aibu with the original's motion IK (as now) and without it (IK.End after the start): her feet at the end of
+        // each frame (after the IK's solve) at rest, her crotch held, stroked (the drag's own mapping) and after; pictures
+        IEnumerator AibuIk()
+        {
+            yield return new WaitForSeconds(1.5f);
+            var pc = h.Play;
+            var tc = h.Touch;
+            h.Hands.MouseOffForCheck = true;
+            foreach (var pass in new[] { "ik", "noik" })
+            {
+                h.Gauge.Value = 0f;
+                string err = pc.Begin("aibu_00", "probe", "here");
+                yield return new WaitForSeconds(1.5f);
+                if (pass == "noik") pc.IK.End();
+                lines.AppendLine(pass + " begin " + err + " ik on " + pc.IK.On + " enabled " + pc.IK.Enabled);
+                yield return new WaitForEndOfFrame();
+                {
+                    var fb = h.Stage.Cha.animBody.GetComponent<RootMotion.FinalIK.FullBodyBipedIK>();
+                    var rt = h.Stage.Cha.transform;
+                    var lf = fb != null ? fb.solver.leftFootEffector : null;
+                    var foot = HIK.Find(h.Stage.Cha.objBodyBone.transform, "cf_j_foot_L");
+                    var pv = HIK.Find(h.Stage.Cha.objBodyBone.transform, "cf_pv_leg_L");
+                    lines.AppendLine(string.Format("  fbik {0} LF weight {1:F2} target {2} at {3} | foot at {4} | cf_pv_leg_L at {5}", fb != null && fb.enabled,
+                        lf != null ? lf.positionWeight : -1f, lf != null && lf.target != null ? lf.target.name : "none",
+                        lf != null && lf.target != null ? rt.InverseTransformPoint(lf.target.position).ToString("F3") : "-",
+                        rt.InverseTransformPoint(foot.position).ToString("F3"), pv != null ? rt.InverseTransformPoint(pv.position).ToString("F3") : "none"));
+                }
+                yield return FeetSample(pass, "rest", 1.5f, false);
+                yield return KokanShots(pass + "_ik_rest");
+                tc.PressForCheck("crotch", "");
+                float t0 = Time.realtimeSinceStartup;
+                while (h.Hands.Ctrl != "drag" && Time.realtimeSinceStartup - t0 < 6f) yield return null;
+                yield return FeetSample(pass, "held", 3f, false);
+                yield return KokanShots(pass + "_ik_held");
+                yield return FeetSample(pass, "stroke", 4f, true);
+                yield return KokanShots(pass + "_ik_stroke");
+                tc.Hold = false;
+                yield return new WaitForSeconds(0.3f);
+                yield return FeetSample(pass, "after", 2f, false);
+                yield return KokanShots(pass + "_ik_after");
+                pc.End("probe");
+                yield return new WaitForSeconds(1.0f);
+            }
+            h.Hands.MouseOffForCheck = false;
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=aibufloor[:<play ids>]: every kept room, every spot the play fits (and "here"): the play started there, her
+        // root, toes and the floor straight below (a ray down against the map's colliders, the characters' left out) - the gap
+        // between her feet and the floor; a picture where the gap is large
+        IEnumerator AibuFloor(string ids)
+        {
+            yield return new WaitForSeconds(1.5f);
+            var st = h.Stage;
+            var pc = h.Play;
+            foreach (var room in new List<string>(st.LocationKeys()))
+            {
+                if (room != st.Location) yield return st.SetLocation(room);
+                yield return new WaitForSeconds(0.8f);
+                foreach (var id in ids.Split(','))
+                {
+                    var row = pc.Row(id);
+                    if (row == null) continue;
+                    var seen = new HashSet<string>();
+                    foreach (var sp in pc.Spots(row))
+                    {
+                        if (!seen.Add(sp.Name)) continue;
+                        h.Gauge.Value = 0f;
+                        string err = pc.Begin(id, "probe", sp.Id);
+                        if (err.Length > 0) { lines.AppendLine(string.Format("{0} {1} {2}: {3}", room, id, sp.Name, err)); continue; }
+                        yield return new WaitForSeconds(1.2f);
+                        yield return new WaitForEndOfFrame();
+                        var cha = st.Cha;
+                        var root = cha.transform.position;
+                        float toeL = HIK.Find(cha.objBodyBone.transform, "cf_j_toes_L").position.y, toeR = HIK.Find(cha.objBodyBone.transform, "cf_j_toes_R").position.y;
+                        var hips = HIK.Find(cha.objBodyBone.transform, "cf_j_hips").position;
+                        string floor = "no floor below";
+                        float gap = 0f;
+                        foreach (var hit in Physics.RaycastAll(new Vector3(hips.x, hips.y + 0.2f, hips.z), Vector3.down, 5f))
+                        {
+                            if (hit.collider.GetComponentInParent<ChaControl>() != null) continue;
+                            if (floor == "no floor below" || hit.point.y > gap)
+                            {
+                                if (hit.point.y > Mathf.Min(toeL, toeR) + 0.15f) continue;      // (a table or bed above her feet: not her floor)
+                                gap = hit.point.y;
+                                floor = hit.collider.name;
+                            }
+                        }
+                        float g = floor == "no floor below" ? float.NaN : Mathf.Min(toeL, toeR) - gap;
+                        lines.AppendLine(string.Format("{0} {1} {2} ({3}): root y {4:F3} toes {5:F3}/{6:F3} floor {7} at {8:F3} -> gap {9:F3}", room, id, sp.Name, sp.Id,
+                            root.y, toeL, toeR, floor, gap, g));
+                        if (!float.IsNaN(g) && Mathf.Abs(g) > 0.06f) yield return KokanShots(string.Format("floor_{0}_{1}_{2}", room, id, seen.Count));
+                        pc.End("probe");
+                        yield return new WaitForSeconds(0.4f);
+                    }
+                }
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // the standing aibu with her legs made shorter / longer (both thighs scaled 0.85 / 1.15, as a card whose legs a bone mod
+        // such as ABMX changed): her feet with the original's motion IK and without - at rest and with her crotch held
+        IEnumerator AibuLegs()
+        {
+            yield return new WaitForSeconds(1.5f);
+            var pc = h.Play;
+            var tc = h.Touch;
+            var cha = h.Stage.Cha;
+            var thighs = new[] { HIK.Find(cha.objBodyBone.transform, "cf_j_thigh00_L"), HIK.Find(cha.objBodyBone.transform, "cf_j_thigh00_R") };
+            var scale0 = thighs[0].localScale;
+            h.Hands.MouseOffForCheck = true;
+            foreach (var s in new[] { 0.85f, 1f, 1.15f })
+            {
+                foreach (var t in thighs) t.localScale = scale0 * s;
+                foreach (var pass in new[] { "ik", "noik" })
+                {
+                    h.Gauge.Value = 0f;
+                    string err = pc.Begin("aibu_00", "probe", "here");
+                    yield return new WaitForSeconds(1.2f);
+                    if (pass == "noik") pc.IK.End();
+                    string tag = string.Format("legs x{0:F2} {1}", s, pass);
+                    yield return FeetSample(tag, "rest", 1.2f, false);
+                    if (s != 1f) yield return KokanShots(string.Format("legs{0:F0}_{1}_rest", s * 100f, pass));
+                    tc.PressForCheck("crotch", "");
+                    float t0 = Time.realtimeSinceStartup;
+                    while (h.Hands.Ctrl != "drag" && Time.realtimeSinceStartup - t0 < 6f) yield return null;
+                    yield return FeetSample(tag, "held", 2.5f, false);
+                    if (s != 1f) yield return KokanShots(string.Format("legs{0:F0}_{1}_held", s * 100f, pass));
+                    tc.Hold = false;
+                    yield return new WaitForSeconds(0.3f);
+                    pc.End("probe");
+                    yield return new WaitForSeconds(0.8f);
+                }
+            }
+            foreach (var t in thighs) t.localScale = scale0;
+            h.Hands.MouseOffForCheck = false;
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // presses with the real mouse (Windows' own input on the game window): on her thigh outside a play and on her chest in the
+        // standing aibu, held 4 s still and with a hand's small jitter - the gauge while it is held and after it is let go
+        IEnumerator RealTouch()
+        {
+            yield return new WaitForSeconds(1.5f);
+            var st = h.Stage;
+            var pc = h.Play;
+            var tc = h.Touch;
+            foreach (var where in new[] { "thigh", "chest" })
+            {
+                if (where == "chest") { pc.Begin("aibu_00", "probe", "here"); yield return new WaitForSeconds(1.5f); }
+                foreach (var jitter in new[] { 0, 2 })
+                {
+                    h.Gauge.Value = 0.1f;
+                    yield return new WaitForSeconds(0.5f);
+                    var cha = st.Cha;
+                    Vector3 wp = where == "thigh"
+                        ? Vector3.Lerp(HIK.Find(cha.objBodyBone.transform, "cf_j_thigh00_L").position, HIK.Find(cha.objBodyBone.transform, "cf_j_leg01_L").position, 0.4f)
+                        : HIK.Find(cha.objBodyBone.transform, "cf_d_bust01_L") != null ? HIK.Find(cha.objBodyBone.transform, "cf_d_bust01_L").position : HIK.Find(cha.objBodyBone.transform, "cf_j_spine03").position;
+                    var sp = Camera.main.WorldToScreenPoint(wp);
+                    var gui = new Vector2(sp.x, Screen.height - sp.y);
+                    var log = new StringBuilder();
+                    float next = 0f;
+                    string pressed = "";
+                    yield return RealInput.Press(gui, 4f, jitter, t =>
+                    {
+                        if (pressed.Length == 0 && tc.Pressing.Length > 0) pressed = tc.Pressing;
+                        if (t >= next) { log.Append(string.Format(" {0:F1}s {1:F3}{2}", t, h.Gauge.Value, tc.Stroking ? "s" : "")); next += 0.5f; }
+                    });
+                    float atRelease = h.Gauge.Value;
+                    yield return new WaitForSeconds(0.4f);
+                    lines.AppendLine(string.Format("{0} jitter {1} (pressed '{2}', {3}): {4} | let go +0.4s {5:F3} (jump {6:+0.000;-0.000})", where, jitter, pressed,
+                        RealInput.LastError.Length > 0 ? RealInput.LastError : "ok", log, h.Gauge.Value, h.Gauge.Value - atRelease));
+                    yield return new WaitForSeconds(2.8f);
+                }
+                if (pc.Active) pc.End("probe");
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // her feet (ankles and toes) over a while, read at the end of each frame: their lowest and highest above her root (the
+        // floor), how far each foot slid; a stroke moves the mouse through the drag's own mapping meanwhile (±300 / ±150 px, a
+        // round a second)
+        IEnumerator FeetSample(string pass, string what, float secs, bool stroke)
+        {
+            var cha = h.Stage.Cha;
+            float t0 = Time.realtimeSinceStartup, prev = 0f;
+            var names = new[] { "cf_j_foot_L", "cf_j_toes_L", "cf_j_foot_R", "cf_j_toes_R" };
+            var low = new float[4];
+            var high = new float[4];
+            var first = new Vector3[4];
+            var slide = new float[4];
+            for (int i = 0; i < 4; i++) { low[i] = 9f; high[i] = -9f; }
+            bool started = false;
+            while (Time.realtimeSinceStartup - t0 < secs)
+            {
+                yield return new WaitForEndOfFrame();
+                float t = Time.realtimeSinceStartup - t0;
+                if (stroke)
+                {
+                    var at = new Vector2(300f * Mathf.Sin(t * 2f * Mathf.PI), 150f * Mathf.Sin(t * 4f * Mathf.PI));
+                    var was = new Vector2(300f * Mathf.Sin(prev * 2f * Mathf.PI), 150f * Mathf.Sin(prev * 4f * Mathf.PI));
+                    h.Hands.MoveForCheck(at - was);
+                }
+                prev = t;
+                var root = cha.transform;
+                for (int i = 0; i < 4; i++)
+                {
+                    var p = root.InverseTransformPoint(HIK.Find(cha.objBodyBone.transform, names[i]).position);
+                    low[i] = Mathf.Min(low[i], p.y);
+                    high[i] = Mathf.Max(high[i], p.y);
+                    if (!started) first[i] = p;
+                    slide[i] = Mathf.Max(slide[i], new Vector2(p.x - first[i].x, p.z - first[i].z).magnitude);
+                }
+                started = true;
+            }
+            lines.AppendLine(string.Format("{0} {1} state {2}: ankle L {3:F3}..{4:F3} toes L {5:F3}..{6:F3} ankle R {7:F3}..{8:F3} toes R {9:F3}..{10:F3} slide L {11:F3} R {12:F3}",
+                pass, what, h.Play.LastState, low[0], high[0], low[1], high[1], low[2], high[2], low[3], high[3], slide[0], slide[2]));
+        }
+
+        // --muse-probe=ikdata:<play id>,...: the original's motion IK data of the plays' female (and male) parts as MotionIKData
+        // reads it (a binary TextAsset: its text is empty) - per state the hands' and feet's target (whose body by sex, which
+        // bone, the weights) and the bends
+        IEnumerator IkData(string ids)
+        {
+            yield return new WaitForSeconds(1.0f);
+            foreach (var id in ids.Split(','))
+            {
+                var row = h.Play.Row(id);
+                var hi = row == null ? null : HData.Info((int)Json.Num(row, "mode"), (int)Json.Num(row, "motion_id"));
+                if (hi == null) { lines.AppendLine(id + ": no row"); continue; }
+                foreach (var part in new[] { "female", "male" })
+                {
+                    string file = part == "female" ? hi.paramFemale.path.file : hi.paramMale.path.file;
+                    lines.AppendLine(string.Format("== {0} {1} {2} file '{3}'", id, Json.Str(row, "name"), part, file));
+                    if (string.IsNullOrEmpty(file)) continue;
+                    var ta = GlobalMethod.LoadAllFolderInOneFile<TextAsset>("h/list/", file, null);
+                    if (ta == null) { lines.AppendLine("  (no asset)"); continue; }
+                    lines.AppendLine("  bytes " + ta.bytes.Length);
+                    var mik = new MotionIK(h.Stage.Cha, null);
+                    bool ok = false;
+                    try { ok = mik.LoadData(ta); } catch (Exception e) { lines.AppendLine("  read: " + e.Message); }
+                    if (!ok || mik.data == null || mik.data.states == null) { lines.AppendLine("  read failed"); continue; }
+                    foreach (var s in mik.data.states)
+                    {
+                        var sb = new StringBuilder("  " + s.name + ":");
+                        var names = new[] { "LH", "RH", "LF", "RF" };
+                        var parts = new[] { s.leftHand, s.rightHand, s.leftFoot, s.rightFoot };
+                        for (int i = 0; i < 4; i++)
+                        {
+                            var p = parts[i];
+                            if (p == null) { sb.Append(" " + names[i] + " -"); continue; }
+                            sb.Append(string.Format(" {0}[sex {1} {2} pos {3:F2} ang {4:F2} | bend {5} {6:F2}]", names[i], p.param2.sex, p.param2.target, p.param2.weightPos,
+                                p.param2.weightAng, p.param3.chein, p.param3.weight));
+                        }
+                        sb.Append(" frames " + (s.frames != null ? s.frames.Length : 0));
+                        lines.AppendLine(sb.ToString());
+                    }
+                }
             }
             File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
             File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");

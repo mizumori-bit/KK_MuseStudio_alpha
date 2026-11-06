@@ -209,6 +209,7 @@ namespace MuseStudio
             Pkg = pkg;
             Blocks = Json.Arr(pkg, "blocks") ?? new List<object>();
             Index = -1;
+            ownSerial = 0;
             h.Beat.Played(pkg);
             Advance(true);
         }
@@ -226,9 +227,15 @@ namespace MuseStudio
         IEnumerator Show(Dictionary<string, object> b)
         {
             if (b == null) yield break;
-            int serialSeen = h.Play.Serial, serialOwn = serialSeen;       // (a play this block's own move ends: not a change Muse missed)
             string loc = Json.Str(b, "location", null);
             bool opp = Speaker == "opponent";
+            // Muse's start of a normal play with a move to another room while a play goes on: the move would end that play before
+            // the start is judged, and a refused start must leave it as it was (GPT's review of PR #3) - neither is done, both
+            // refused (the move and the start in their own blocks: the move, then the start)
+            var plStart = Json.Obj(b, "play");
+            bool startWithMove = !opp && !h.Match.Active && plStart != null && Json.Str(plStart, "start", null) != null && !string.IsNullOrEmpty(loc)
+                && loc != h.Stage.Location && h.Play.Active && !h.Presence.Apart;
+            if (startWithMove) { Refuse("location", loc, "with_start"); loc = null; }
             if (!string.IsNullOrEmpty(loc) && (h.Match.Active || opp)) { Refuse("location", loc, "in_match"); loc = null; }       // (the match's room stays)
             if (!string.IsNullOrEmpty(loc) && loc != h.Stage.Location && !h.Stage.Reachable(loc))
             {
@@ -253,7 +260,7 @@ namespace MuseStudio
                 Moving = true;
                 Text = "";
                 if (Monologue) MonologueMoved = true;
-                if (h.Play.Active) { h.Play.End("location"); serialOwn = h.Play.Serial; }
+                if (h.Play.Active) Own(() => h.Play.End("location"));
                 string prev = h.Stage.Location;
                 yield return h.Stage.SetLocation(loc);
                 Moving = false;
@@ -307,7 +314,7 @@ namespace MuseStudio
             Pose(Json.Str(b, "pose", null), stage.Cha);        // (a match's talk: her motion)
             var act = Json.Obj(b, "action");
             string actKind = Json.Str(b, "action") ?? Json.Str(act, "kind");
-            if (actKind != null) h.Urges.Act(actKind, act);          // (in a match: refused, in_match)
+            if (actKind != null) Own(() => h.Urges.Act(actKind, act));          // (in a match: refused, in_match)
             var emo = Json.Obj(b, "emotion");
             if (emo != null && Json.Has(emo, "label"))
             {
@@ -327,8 +334,14 @@ namespace MuseStudio
             if (!string.IsNullOrEmpty(cam) && !play.Active) stage.ApplyCamera(cam, false);      // (an unknown camera: it stays)
             var pl = Json.Obj(b, "play");
             // Muse's start or change of a normal play (outside a match): refused, none of this block's play fields take effect
-            if (pl != null && !h.Match.Active && Json.Str(pl, "start", null) != null && !MuseStart(pl, serialSeen, serialOwn)) pl = null;
-            MatchPlay(pl);
+            if (pl != null && !h.Match.Active && Json.Str(pl, "start", null) != null)
+            {
+                bool started = false;
+                Own(() => started = MuseStart(pl, startWithMove));
+                if (!started) pl = null;
+            }
+            var plNow = pl;
+            Own(() => MatchPlay(plNow));
             if (pl != null)
             {
                 if (!play.Active)
@@ -421,7 +434,19 @@ namespace MuseStudio
         readonly HashSet<string> startRequests = new HashSet<string>();
         readonly Queue<string> startOrder = new Queue<string>();
 
-        bool MuseStart(Dictionary<string, object> pl, int serialSeen, int serialOwn)
+        // the play_serial changes this package's own blocks made (a move that ended a play, an action, a start, play.end): Muse's
+        // basis is the number it saw before it sent the package, so the start's check counts them in - and nothing else (the
+        // user's change meanwhile, the app's own: refused)
+        int ownSerial;
+
+        void Own(Action a)
+        {
+            int before = h.Play.Serial;
+            a();
+            ownSerial += h.Play.Serial - before;
+        }
+
+        bool MuseStart(Dictionary<string, object> pl, bool withMove)
         {
             var play = h.Play;
             string id = Json.Str(pl, "start", "");
@@ -434,13 +459,14 @@ namespace MuseStudio
             while (startOrder.Count > 500) startRequests.Remove(startOrder.Dequeue());
             object ev;
             if (pl.TryGetValue("end", out ev) && ev is bool && (bool)ev) return no("with_end", "", null);
+            if (withMove) return no("with_move", h.Stage.Location, null);
             string lid = Json.Str(Pkg, "launch", null), cid = Json.Str(Pkg, "character", null);
             if (lid == null || cid == null) return no("untargeted", "", null);
             if (lid != Launch.Id) return no("old_launch", Launch.Id, null);
             if (cid != h.CharacterId()) return no("other_character", h.CharacterId(), null);
             if (!Json.Has(pl, "basis")) return no("no_basis", "", null);
-            // (the number as the block came - before its own move, which ends a play - and nothing else since)
-            if ((int)Json.Num(pl, "basis") != serialSeen || play.Serial != serialOwn) return no("stale_basis", Convert.ToString(play.Serial), null);
+            // (the number Muse saw before the package, and since then only the package's own changes)
+            if ((int)Json.Num(pl, "basis") + ownSerial != play.Serial) return no("stale_basis", Convert.ToString(play.Serial), null);
             string loc = Json.Str(pl, "location", null);
             if (loc == null) return no("no_location", "", null);
             if (h.Outing.Out) return no("she_is_out", "", null);

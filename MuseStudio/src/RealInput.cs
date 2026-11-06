@@ -145,6 +145,51 @@ namespace MuseStudio
             yield return null;
         }
 
+        // a left press held at a point of the GUI for some seconds, the hand moving a little (jitter: the most pixels a frame,
+        // back and forth - a real hand's press is never quite still; 0: still), each frame told how long it has been held;
+        // then let go
+        public static IEnumerator Press(Vector2 gui, float seconds, int jitter, Action<float> each = null)
+        {
+            LastError = "";
+            var w = Window();
+            var p = new POINT();
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                if (attempt > 0) yield return new WaitForSecondsRealtime(0.5f);
+                LastError = "";
+                if (!Front(w)) continue;
+                yield return null;
+                p = new POINT { X = Mathf.RoundToInt(gui.x), Y = Mathf.RoundToInt(gui.y) };
+                ClientToScreen(w, ref p);
+                var at = WindowFromPoint(p);
+                if (at != w && GetAncestor(at, 2) != w) { LastError = "the point is not on the game window"; continue; }
+                break;
+            }
+            if (LastError.Length > 0) yield break;
+            SetCursorPos(p.X, p.Y);
+            yield return null;
+            yield return null;
+            mouse_event(LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+            float t0 = Time.realtimeSinceStartup;
+            int n = 0, off = 0;
+            while (Time.realtimeSinceStartup - t0 < seconds)
+            {
+                yield return null;
+                if (jitter > 0)
+                {
+                    int step = (n++ % 2 == 0 ? 1 : -1) * (1 + n % jitter);     // (back and forth, never far from where it pressed)
+                    if (Mathf.Abs(off + step) > 4 * jitter) step = -step;
+                    off += step;
+                    mouse_event(MOVE, (uint)step, 0, 0, UIntPtr.Zero);
+                }
+                if (each != null) each(Time.realtimeSinceStartup - t0);
+            }
+            mouse_event(LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            Clicks++;
+            yield return null;
+            yield return null;
+        }
+
         // the wheel turned at a point of the GUI (notches: + away from the user)
         public static IEnumerator Wheel(Vector2 gui, int notches)
         {
