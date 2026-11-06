@@ -1,5 +1,6 @@
 {
- "_note": "MetaMuse Stage launcher + panel manager settings (implementation-spec.md 6). Relative paths are relative to this file. game_mode: musestudio (MuseStudio on the original Studio, 2026-11-03) / native (the Godot app) / web.",
+ "_note": "MuseStudio launcher + panel manager settings (the launcher began as MetaMuse Stage's, the Godot version's). Relative paths are relative to this file. game_mode: musestudio (MuseStudio on the original Studio, 2026-11-03; the one in use) / native (the Godot app, frozen) / web.",
+ "_legacy_note": "game_title, godot_exe, godot_project: only for game_mode native / web (the Godot version); musestudio ignores them (its window is MuseStudio). game_url is still read in every mode: the placeholder Muse panel (when muse_url is empty) is the bridge's page under it.",
  "browser": "",
  "game_mode": "musestudio",
  "musestudio_exe": "../MuseStudio/game/CharaStudio.exe",

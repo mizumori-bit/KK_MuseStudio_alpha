@@ -1,6 +1,7 @@
-"""MetaMuse Stage bridge (implementation-spec.md 4): the local server between Muse, Irodori and the Godot app.
+"""MuseStudio bridge (begun as MetaMuse Stage's, the Godot version's; its routes are kept): the local server between Muse,
+Irodori and the app (MuseStudio; the Godot app spoke the same contract, MUSE_GUIDE.md).
 
-  GET  /                      the Godot web export (static files of web_root)
+  GET  /                      the Godot version's web export (static files of web_root; none -> static/no_web_build.html)
   GET  /health                {"ok": true, "irodori": true|false, "voice": true|false, "queue": packages waiting,
                               "launch": {"id", "phase", "started", "updated", "character"}}
                               (voice false: bridge_config.json irodori.enabled is false - the voice is off, Irodori is not called)
@@ -142,8 +143,8 @@ def load_config(path: Path) -> dict:
 # Two tokens, made at the first start and kept on this PC only (tokens_file, default bridge/cache/tokens.json - never in the
 # repository or a log): "muse" for Muse (packages, the feed and its ack, the state and lists, the match's rooms) and "app"
 # for MuseStudio and the launcher (events, state, catalog and launch reports, taking packages, watching its match room).
-# Sent as "Authorization: Bearer <token>". bridge_config.json "auth": "required" (the default) or "off" (as before: until
-# Muse holds its token). GET /health answers without a token, but only that the bridge is alive. And every request's Host
+# Sent as "Authorization: Bearer <token>". bridge_config.json "auth": "required" (the default, from the start) or "off" (the
+# bridge's own tests only). GET /health answers without a token, but only that the bridge is alive. And every request's Host
 # must be this PC's own name (127.0.0.1 / localhost / [::1]) or one "allowed_hosts" lists (the tailnet name Tailscale's
 # serve passes on): a foreign name pointed here (DNS rebinding) is refused whether or not the request looks like a browser's.
 
@@ -1764,7 +1765,7 @@ def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    ap = argparse.ArgumentParser(description="MetaMuse Stage bridge")
+    ap = argparse.ArgumentParser(description="MuseStudio bridge")
     ap.add_argument("--config", default=str(HERE / "bridge_config.json"))
     ap.add_argument("--port", type=int, default=0, help="override the configured port")
     ap.add_argument("--test", action="store_true", help="(the checks) allow POST /api/test/faults")

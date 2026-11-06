@@ -71,25 +71,66 @@ MuseStudio/
 - .NET SDK（プラグインのビルド。`build.py` が `dotnet` の C# コンパイラを使う）。このリポジトリには DLL を入れていません。
 - 声を使うときだけ Irodori の TTS サーバー（ブリッジの `irodori_client.py`）。
 
-## 使い方
+## 新しい環境で始める（最初から最後まで）
 
-**リポジトリは浅い場所に置いてください**（例：`E:\KK_MuseStudio`）。`game/mods` は原作の `mods` へのリンクなので、深い場所だと Mod のファイルのパスが Windows の 260 文字を超え、Sideloader が Mod を一つも読めません（Mod の部屋・AL の体位・ペニスバンドが無くなり、`derive_data.py` もそれらを「no match」と言います）。
+この節だけで、新しい PC で MuseStudio を立て、Muse がつなげるところまで通せるように書いています。
 
-```bash
-python -B MuseStudio/tools/setup.py
-```
+**確かめたこと**（2026-11-05）：作者の PC で、このリポジトリを別の浅い場所に新しくクローンし、下の 1〜4 を通しました。原作と前提 Mod の入っている PC で、原作の場所だけを環境変数で渡しました。作った 5 つのデータは手元のものと同じ（Mod のマップの番号だけ違う）で、全点検が通りました。5・6 は、作者の PC を鍵必須に切り替えたときに確かめました（2026-11-06）：鍵の無い要求は断られ、MuseStudio は自分の鍵でつながります。
 
-```bash
-python -B MuseStudio/tools/build.py
-```
+**確かめていないこと**：
+- Muse が自分の鍵を付けて tailnet から読むところは、作者の PC の経路では、まだ通っていません（Muse の側の鍵の付け方が、この経路で本物の鍵に置き換わらないため。PR #31 で対応中）。
+- 原作や Mod の構成が違う別の PC と、前提 Mod の欠けた PC では、まだ通していません。そうした PC で何が欠けるかは、上の「前提 Mod」の表と、3 の `no match:` で分かります。「約 3 分半」は、そのときの 3（データ作り）にかかった時間で、全体の時間ではありません。
 
-```bash
-python -B MuseStudio/tools/derive_data.py --dump
-```
+### 前もって用意するもの
 
-```bash
-python -B MuseStudio/tools/run_checks.py
-```
+- コイカツ本体と CharaStudio（原作のインストール）と、上の「無いと動かない」Mod。使う機能に要る Mod（「特定の機能が使えなくなる」の表）。
+- Python 3 と .NET SDK（上の「Mod でない前提」）。
+- 原作の場所：`MuseStudio/tools/original_path.txt` に 1 行で書くか、環境変数 `MUSESTUDIO_ORIGINAL` に入れます（どちらもリポジトリには入りません）。
+- **リポジトリは浅い場所に置いてください**（例：ドライブの直下の `KK_MuseStudio`）。`game/mods` は原作の `mods` へのリンクなので、深い場所だと Mod のファイルのパスが Windows の 260 文字を超え、Sideloader が Mod を一つも読めません（Mod の部屋・AL の体位・ペニスバンドが無くなり、3 の `no match:` にそれらが並びます）。
+- 動いている CharaStudio・コイカツは閉じておきます（2〜4 はゲームを起動します）。
+
+### 順番と、うまくいったかの見分け方
+
+1. 起動用のフォルダを作る。最後に `ready:` と、作ったフォルダが出れば成功です。
+
+   ```bash
+   python -B MuseStudio/tools/setup.py
+   ```
+
+2. プラグインをビルドする。`build: …MuseStudio.dll (… bytes, … sources)` と、キャラメイクの部品の `build: …MuseMaker.dll …` の 2 行が出れば成功です（`FAILED` なら失敗で、コンパイラの出力がその上に出ます）。
+
+   ```bash
+   python -B MuseStudio/tools/build.py
+   ```
+
+3. データを作る。原作を一度起動して（窓が開いて閉じます。原作の表を初めて読むので数分かかります。2026-11-05 の新しいクローンでは約 3 分半）、原作の表を読み、`data/` の 5 つのデータと、リポジトリの直下の `for_muse/talk-poses.md`（MUSE_GUIDE 8.7 の資料）を作ります。`wrote …` が並び、最後の `no match:` が `none` なら、全部見つかりました。名前が並ぶときは、その Mod が無いか読めないので、その部屋・体位などは使えません。原作の表そのものは `game/` の中（`studio_lists.json`・`original_lists.json`）にだけ置き、リポジトリには入れません。
+
+   ```bash
+   python -B MuseStudio/tools/derive_data.py --dump
+   ```
+
+4. 全点検。空きポートに**テスト用のブリッジ**を立て、MuseStudio をそこにつないで流します（Muse が見ているブリッジ、ユーザーのキャラ・設定には触れません）。`CHECK SUMMARY pass=… fail=0` と、続くキャラメイクの分の `fail=0` が出れば成功です。撮った画面と結果は一時フォルダに残ります（最後に場所を表示します）。同じ PC でほかの窓が前に出ると、実クリック・実キーの項目が落ちることがあります（下の「今できること」の「確認」）。
+
+   ```bash
+   python -B MuseStudio/tools/run_checks.py
+   ```
+
+5. ブリッジの準備（鍵必須のまま。MUSE_GUIDE 7.1）。**Muse がつなぐ前に**、次を済ませます。
+   - `bridge/bridge_config.example.json` を `bridge/bridge_config.json` に写し、`allowed_hosts` にこの PC の tailnet の名前を書きます（Muse の要求の `Host`。書かないと tailnet からの要求は `403`）。`auth` は `"required"`（既定）のままにします。`bridge_config.json` は PC ごとの設定で、リポジトリには入りません。
+   - tailnet から届くよう、この PC の Tailscale の中継（`tailscale serve`）をブリッジのポート（既定 `127.0.0.1:18765`）へ向けます。届く機械は tailnet の ACL で絞ります。
+   - ブリッジを一度起動すると、`bridge/cache/tokens.json` に鍵が 2 つ（Muse 用・アプリ用）できます。MuseStudio と起動役は、そこからアプリの鍵を読みます（人手は要りません）。
+   - Muse の鍵を表示し、Muse の安全な入力欄へ入れます（チャットに貼らない）。
+   - 成功の見分け方：鍵を付けない `GET http://127.0.0.1:18765/health` が `{"ok": true, "auth": "required"}` だけを返し、Muse が鍵を付けて読むと中身（`launch` など）が返ります。
+
+   ```bash
+   python bridge/bridge.py --print-token muse
+   ```
+
+6. 起動。起動役がブリッジ・MuseStudio・Muse のパネルを開きます。`launcher/panel_config.example.json` を `launcher/panel_config.json` に写して、この PC の値を入れます（無ければ例の設定で動きます。`game_mode` は `musestudio`）。成功の見分け方：MuseStudio の窓が開いてキャラを選ぶ画面が出て、`/health` の `launch.phase` が `stage_ready`、選ぶと `character_selected` になります。
+
+   ```bat
+   launcher\start.cmd
+   ```
 
 ゲームを起動しない軽いテスト（ブリッジ・対戦の通信。標準ライブラリの unittest、対戦の分は `cryptography` があるときだけ）：
 
@@ -97,10 +138,10 @@ python -B MuseStudio/tools/run_checks.py
 python -B -m unittest discover -s bridge/tests
 ```
 
-- 3 つめ（`derive_data.py --dump`）は、原作を一度起動して（窓が開いて閉じます。原作の表を初めて読むので数分かかります。2026-11-05 に新しい環境で試したときは約 3 分半）、原作の表を読み、`data/` の 5 つのデータを作ります。原作の表そのものは `game/` の中（`studio_lists.json`・`original_lists.json`）にだけ置き、リポジトリには入れません。
-- 起動は `MuseStudio\game\CharaStudio.exe` です（作業フォルダを `game` にして起動してください）。ブリッジは既定で `http://127.0.0.1:18765` で、プラグインの設定（`game/BepInEx/config/metamuse.musestudio.cfg`）で変えられます。
-- **ブリッジの鍵**（2026-11-05、GPT のセキュリティレビュー SEC-01・06。MUSE_GUIDE 7.1）：ブリッジが最初の起動で `bridge/cache/tokens.json` に鍵を 2 つ（Muse 用・アプリ用）作り、MuseStudio はそこからアプリの鍵を読んで要求に付けます（人手は要りません）。Muse の鍵は `python bridge/bridge.py --print-token muse` で表示し、Muse の安全な入力欄へ渡します（チャットに貼らない）。作り直すときは `python bridge/bridge.py --new-tokens`（ブリッジは止めなくてよい。古い鍵は効かなくなる）の後に表示し直します。設定 `bridge_config.json` の `auth` が `"required"`（既定）で鍵を求め、`"off"` で今までどおり。`allowed_hosts` には、この PC の tailnet の名前（Muse の要求の `Host`）を書きます。どちらも PC ごとの設定で、リポジトリには入りません。
-- 確認（`run_checks.py`）は、空きポートに**テスト用のブリッジ**を立て、MuseStudio をそこにつないで流します。Muse が見ているブリッジには触れません。撮った画面と結果は一時フォルダに残ります（最後に場所を表示します）。
+## 使い方
+
+- 起動は起動役（上の 6）か、`MuseStudio\game\CharaStudio.exe` です（作業フォルダを `game` にして起動してください）。ブリッジは既定で `http://127.0.0.1:18765` で、プラグインの設定（`game/BepInEx/config/metamuse.musestudio.cfg`）で変えられます。
+- **ブリッジの鍵**（2026-11-05、GPT のセキュリティレビュー SEC-01・06。MUSE_GUIDE 7.1）：鍵の作り方・渡し方は上の 5 です。作り直すときは `python bridge/bridge.py --new-tokens`（ブリッジは止めなくてよい。古い鍵は効かなくなり、Muse は渡し直すまでつなげません）の後に表示し直します。`auth` は最初から `"required"`（既定。項目が無くても同じ）で使います。`"off"`（鍵なし）はブリッジのテストのための値で、つなぐ手順では使いません。
 - Studio の画面部品は隠しています。F2 で出し入れできます。
 - 画面の UI（上の操作の列・キー操作の一覧・在席の表示）は、F3 か、メニューの右上の「UI を隠す」で隠せます。台詞の枠は残ります。もう一度押すと出ます。
 - カメラを自分で動かすと（ドラッグ・ホイール・キー）、止まったところで部屋ごとに覚えます（`game/UserData/MuseStudio/cameras.json`）。次の起動と、その部屋にまた入ったときは、その位置・向きから始まります。Muse がブロックでカメラを指定したときは、そちらが優先です。プレイ中・対戦中のカメラは覚えません。
