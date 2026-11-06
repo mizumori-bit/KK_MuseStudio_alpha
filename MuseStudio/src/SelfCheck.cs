@@ -2197,6 +2197,82 @@ namespace MuseStudio
                   && scChanged.Count == 1 && scChanged.ContainsKey("gauge_speed") && EventCount("settings_changed") == scBefore + 1
                   && Json.Has(Json.Obj(scEv, "changed"), "gauge_speed") && !Json.Has(Json.Obj(scEv, "changed"), "arousal_speed") && scNone.Count == 0,
                   string.Format("gauge +{0:F4} arousal +{1:F4} changed {2} event {3}", gsAdded, arSpeedAdded, scChanged.Count, Json.Write(scEv)));
+
+            // ---- PR #12 adopted (2026-11-06) ----
+            // Muse's end of a normal play: checked as a start is - aimed, a new request, the serial seen; a stale one (the user
+            // changed the play meanwhile), an untargeted one and one with no play refused, the play as it was
+            var meTag = D("launch", Launch.Id, "character", h.CharacterId());
+            if (pc.Active) pc.End("check");
+            yield return Wait(0.3f);
+            pc.Begin("aibu_00", "check", "here");
+            yield return Wait(0.6f);
+            int meS = pc.Serial;
+            pc.End("user");
+            pc.Begin("aibu_00", "check", "here");          // (the user changed it meanwhile)
+            yield return Wait(0.5f);
+            int meStale0 = Refusals("play.end", "stale_basis");
+            SendPkg(new Dictionary<string, object>(meTag), With(Line("終わりにしましょうか。"), "play", D("end", true, "request", "chk-me-1", "basis", meS)));
+            yield return Until(() => bp.Busy && bp.Text == "終わりにしましょうか。", 10f);
+            yield return Wait(0.5f);
+            bool meStale = Refusals("play.end", "stale_basis") == meStale0 + 1 && pc.Active;
+            bp.Advance(true);
+            int meUnt0 = Refusals("play.end", "untargeted");
+            Send(With(Line("宛先なしで終えます。"), "play", D("end", true, "request", "chk-me-2", "basis", pc.Serial)));
+            yield return Until(() => bp.Busy && bp.Text == "宛先なしで終えます。", 10f);
+            yield return Wait(0.5f);
+            bool meUntargeted = Refusals("play.end", "untargeted") == meUnt0 + 1 && pc.Active;
+            bp.Advance(true);
+            int meS2 = pc.Serial;
+            SendPkg(new Dictionary<string, object>(meTag), With(Line("ここで終わりにします。"), "play", D("end", true, "request", "chk-me-3", "basis", meS2)));
+            yield return Until(() => bp.Busy && bp.Text == "ここで終わりにします。", 10f);
+            yield return Wait(0.6f);
+            var meEv = LastEvent("play_ended");
+            bool meEnded = !pc.Active && Json.Str(meEv, "reason") == "muse" && Json.Str(meEv, "request") == "chk-me-3" && pc.Serial == meS2 + 1;
+            var shownEv = LastEvent("package_shown");
+            bp.Advance(true);
+            int meNo0 = Refusals("play.end", "no_play");
+            SendPkg(new Dictionary<string, object>(meTag), With(Line("もう一度終えます。"), "play", D("end", true, "request", "chk-me-4", "basis", pc.Serial)));
+            yield return Until(() => bp.Busy && bp.Text == "もう一度終えます。", 10f);
+            yield return Wait(0.5f);
+            bool meNoPlay = Refusals("play.end", "no_play") == meNo0 + 1;
+            bp.Advance(true);
+            Check("Muse's play end: aimed, a new request and the serial seen - the play ends (play_ended reason muse with the request); stale, untargeted and with no play refused",
+                  meStale && meUntargeted && meEnded && meNoPlay, string.Format("stale {0} untargeted {1} ended {2} no play {3} {4}", meStale, meUntargeted, meEnded, meNoPlay, Json.Write(meEv)));
+            // package_shown: the bridge's taking and the first block's showing, a wait between them
+            long psRecv = shownEv != null && Json.Has(shownEv, "received_ms") ? Convert.ToInt64(shownEv["received_ms"]) : 0L;
+            long psWait = shownEv != null && Json.Has(shownEv, "waited_ms") ? Convert.ToInt64(shownEv["waited_ms"]) : -1L;
+            Check("package_shown: a package's first block shown tells when the bridge took it and when it showed (the wait between)",
+                  shownEv != null && psRecv > 0 && psWait >= 0 && psWait < 20000 && Json.Num(shownEv, "turn") > 0, Json.Write(shownEv));
+
+            // Muse's change of the speeds (the user asked in the chat): set and told (settings_changed by muse with the request); out
+            // of range, unknown names and the same request again refused; untargeted refused
+            float msWasG = h.GaugeSpeed.Value;
+            SendPkg(D("launch", Launch.Id, "character", h.CharacterId(), "settings", D("gauge_speed", 1.75, "request", "chk-set-1")), Line("少しゆっくりにしますね。"));
+            yield return Until(() => bp.Busy && bp.Text == "少しゆっくりにしますね。", 10f);
+            yield return Wait(0.5f);
+            var setEv = LastEvent("settings_changed");
+            bool setOk = Mathf.Abs(h.GaugeSpeed.Value - 1.75f) < 0.001f && Json.Str(setEv, "by") == "muse" && Json.Str(setEv, "request") == "chk-set-1"
+                && Json.Has(Json.Obj(setEv, "changed"), "gauge_speed");
+            bp.Advance(true);
+            int setRange0 = Refusals("settings.gauge_speed", "out_of_range"), setUnknown0 = Refusals("settings.pace_speed", "unknown_setting"), setDup0 = Refusals("settings", "duplicate_request");
+            SendPkg(D("launch", Launch.Id, "character", h.CharacterId(), "settings", D("gauge_speed", 5.0, "pace_speed", 2.0, "request", "chk-set-2")), Line("それは無理です。"));
+            yield return Until(() => bp.Busy && bp.Text == "それは無理です。", 10f);
+            yield return Wait(0.4f);
+            bp.Advance(true);
+            SendPkg(D("launch", Launch.Id, "character", h.CharacterId(), "settings", D("gauge_speed", 2.0, "request", "chk-set-1")), Line("もう一度です。"));
+            yield return Until(() => bp.Busy && bp.Text == "もう一度です。", 10f);
+            yield return Wait(0.4f);
+            bp.Advance(true);
+            int setUnt0 = Refusals("settings", "untargeted");
+            SendPkg(D("settings", D("gauge_speed", 2.0, "request", "chk-set-3")), Line("宛先なしの設定です。"));
+            yield return Until(() => bp.Busy && bp.Text == "宛先なしの設定です。", 15f);
+            yield return Wait(0.4f);
+            bp.Advance(true);
+            bool setRefused = Refusals("settings.gauge_speed", "out_of_range") == setRange0 + 1 && Refusals("settings.pace_speed", "unknown_setting") == setUnknown0 + 1
+                && Refusals("settings", "duplicate_request") == setDup0 + 1 && Refusals("settings", "untargeted") == setUnt0 + 1 && Mathf.Abs(h.GaugeSpeed.Value - 1.75f) < 0.001f;
+            h.GaugeSpeed.Value = msWasG;
+            Check("Muse's speeds: a change the user asked for is set and told (settings_changed by muse, the request); out of range, unknown, the same request again and untargeted refused",
+                  setOk && setRefused, "set " + setOk + " refused " + setRefused + " " + Json.Write(setEv));
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));
             Check("Muse's play start: aimed, a new request, the serial Muse saw, the room and the spot - it starts (play_started source muse with the request and the serial), the block's pace on it",
                   msStarted, msStartedWhy);

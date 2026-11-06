@@ -269,6 +269,18 @@ def validate_package(pkg) -> list[str]:
                 errors.append("match.end must be a string (the reason) or null")
             if mt.get("export_creation") is not None and not isinstance(mt["export_creation"], bool):
                 errors.append("match.export_creation must be true / false or null")
+    st = pkg.get("settings")
+    if st is not None:
+        # (Muse's change of the speeds the user asked for - PR #12 adopted; the app judges the names and the ranges)
+        if not isinstance(st, dict):
+            errors.append("settings must be an object or null")
+        else:
+            for k, v in st.items():
+                if k == "request":
+                    if not isinstance(v, str) or not v or len(v) > 200:
+                        errors.append("settings.request must be a string of 1-200 characters")
+                elif isinstance(v, bool) or not isinstance(v, (int, float)):
+                    errors.append(f"settings.{k} must be a number")
     rel = pkg.get("relationship")
     if rel is not None:
         if not isinstance(rel, dict) or "person" not in rel:
@@ -1351,6 +1363,9 @@ def make_handler(state: State):
                 errors = validate_package(body)
                 if errors:
                     return self._json(400, {"accepted": False, "errors": errors})
+                # (when it came - the app's package_shown tells how long it waited to be shown: PR #12 adopted, the measuring)
+                received = time.time()
+                body["_received_ms"] = int(received * 1000)
                 size = _size(body)
                 with state.lock:
                     if len(state.packages) >= MAX_PACKAGES or state.packages_bytes + size > MAX_PACKAGES_BYTES:
@@ -1365,7 +1380,8 @@ def make_handler(state: State):
                     return self._json(429, {"accepted": False, "queue": full,
                                             "errors": [f"the queue is full ({MAX_PACKAGES} packages / {MAX_PACKAGES_BYTES} bytes): send again after the app has taken some"]})
                 sys.stderr.write(f"[bridge] package accepted: session={body['session']} turn={body['turn']} queue={n}\n")
-                return self._json(200, {"accepted": True, "queue": n})
+                stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(received)) + ".%03d" % (int(received * 1000) % 1000)
+                return self._json(200, {"accepted": True, "queue": n, "received_ms": body["_received_ms"], "received": stamp})
             if path == "/api/choices":
                 errors = validate_choice(body)
                 if errors:

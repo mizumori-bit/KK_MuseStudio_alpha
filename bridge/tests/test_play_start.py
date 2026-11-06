@@ -37,5 +37,56 @@ class PlayStartShape(unittest.TestCase):
                                                        "reverse": None})), [])
 
 
+
+class SettingsShape(unittest.TestCase):
+    # (Muse's change of the speeds, PR #12 adopted: the bridge checks the shapes, the app the names and the ranges)
+    def test_numbers_and_a_request_pass(self):
+        p = {"session": "s", "turn": 1, "launch": "a", "character": "card:a.png", "settings": {"gauge_speed": 1.5, "arousal_speed": 2, "request": "r-1"},
+             "blocks": [{"type": "dialogue", "text": "はい。"}]}
+        self.assertEqual(bridge.validate_package(p), [])
+
+    def test_wrong_shapes_are_400(self):
+        for st, field in (("fast", "settings must be"), ({"gauge_speed": "1.5"}, "settings.gauge_speed"), ({"gauge_speed": True}, "settings.gauge_speed"),
+                          ({"request": 3}, "settings.request"), ({"request": ""}, "settings.request")):
+            with self.subTest(st=st):
+                p = {"session": "s", "turn": 1, "settings": st, "blocks": [{"type": "dialogue", "text": "x"}]}
+                self.assertTrue(any(field in e for e in bridge.validate_package(p)), bridge.validate_package(p))
+
+
+class ReceivedTime(unittest.TestCase):
+    # (the app's package_shown measures the wait from the bridge's taking: PR #12 adopted)
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from _helpers import Bridge, package
+        cls.package = staticmethod(package)
+        cls.b = Bridge(18871)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.b.close()
+
+    def test_the_package_carries_when_it_came(self):
+        import time
+        before = int(time.time() * 1000)
+        code, r = self.b.call("POST", "/api/packages", self.package("はい。"))
+        after = int(time.time() * 1000)
+        self.assertEqual(code, 200, r)
+        self.assertTrue(before <= r["received_ms"] <= after, r)
+        self.assertRegex(r["received"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}$")
+        code, got = self.b.call("GET", "/api/packages/next")
+        self.assertEqual(code, 200)
+        self.assertEqual(got["_received_ms"], r["received_ms"])
+
+    def test_a_muse_sent_time_is_overwritten(self):
+        p = self.package("x", 2)
+        p["_received_ms"] = 1
+        code, r = self.b.call("POST", "/api/packages", p)
+        self.assertEqual(code, 200, r)
+        code, got = self.b.call("GET", "/api/packages/next")
+        self.assertEqual(got["_received_ms"], r["received_ms"])
+        self.assertNotEqual(got["_received_ms"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -970,7 +970,7 @@ namespace MuseStudio
             return true;
         }
 
-        public void End(string reason, bool backToIdle = true, bool tell = true)
+        public void End(string reason, bool backToIdle = true, bool tell = true, string request = null)
         {
             if (!Active) return;
             var info = Info();
@@ -1023,9 +1023,14 @@ namespace MuseStudio
             if (backToIdle && !(matchOn && MuseStudioPlugin.Instance.Talk.Stand(stage.Cha))) stage.ApplyScene(Json.Str(stage.Cfg, "idle_scene", "idle"), 1, 1f);
             if (backToIdle && matchOn) MuseStudioPlugin.Instance.Match.Camera();
             else if (backToIdle) MuseStudioPlugin.Instance.StartCoroutine(IdleCamera());
-            if (tell) bridge.Event("play_ended", new Dictionary<string, object> { { "play", info }, { "reason", reason },
-                { "seconds", Math.Round(Time.realtimeSinceStartup - StartedAt, 1) }, { "climaxes", gauge.Climaxes - climaxesAtStart }, { "gauge", gauge.Info() },
-                { "serial", Serial } });
+            if (tell)
+            {
+                var ended = new Dictionary<string, object> { { "play", info }, { "reason", reason },
+                    { "seconds", Math.Round(Time.realtimeSinceStartup - StartedAt, 1) }, { "climaxes", gauge.Climaxes - climaxesAtStart }, { "gauge", gauge.Info() },
+                    { "serial", Serial } };
+                if (request != null) ended["request"] = request;          // (Muse's play.end: its request, echoed)
+                bridge.Event("play_ended", ended);
+            }
             MuseStudioPlugin.Instance.Mood.PlayEnded(together);
         }
 
