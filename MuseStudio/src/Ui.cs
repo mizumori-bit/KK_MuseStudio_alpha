@@ -163,10 +163,12 @@ namespace MuseStudio
         // (checks) where the panel's buttons are now (drawn this frame): the checks click them as one does
         public readonly Dictionary<string, Rect> Buttons = new Dictionary<string, Rect>();
 
+        public bool ShotMode;          // (the photo probe: nothing of the app's on the screen)
+
         public void Draw()
         {
             var stage = host.Stage;
-            if (stage == null) return;
+            if (stage == null || ShotMode) return;
             if (host.Launch != null && host.Launch.Choosing)
             {
                 Styles();

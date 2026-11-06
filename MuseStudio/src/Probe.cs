@@ -44,6 +44,8 @@ namespace MuseStudio
             if (room == "gropehand") { yield return GropeHand(); yield break; }
             if (room == "ikfight") { yield return IkFight(); yield break; }
             if (room == "reversed") { yield return ReversedPenis(); yield break; }
+            if (room.StartsWith("photosany:")) { h.Play.AnySpotForProbe = true; yield return Photos(room.Substring(10)); yield break; }
+            if (room.StartsWith("photos")) { yield return Photos(room.Length > 7 ? room.Substring(7) : ""); yield break; }
             if (room == "screen") { yield return ScreenTry(); yield break; }
             if (room == "toilet") { yield return ToiletTry(); yield break; }
             if (room == "cardlinks") { yield return CardLinks(); yield break; }
@@ -1122,6 +1124,185 @@ namespace MuseStudio
             yield return new WaitForSeconds(0.5f);
             try { Directory.CreateDirectory(System.IO.Path.GetDirectoryName(MuseStudioPlugin.QuitMarker)); File.WriteAllText(MuseStudioPlugin.QuitMarker, "quit"); } catch (Exception) { }
             Application.Quit();
+        }
+
+        // every play photographed for Muse (the user's request of 2026-11-06, a collection, not a check: Muse writes each play's
+        // summary from them for the play table). Each play where some room has a spot for it, the bodies it takes (the user's
+        // body male, else female; her futanari only when nothing else does), in its main motion (an insertion put in, the rest
+        // at the slow pace), the app's UI off and the user's body as a body (no silhouette): the play's own camera
+        // (<id>_<name>.png) and from the side, both bodies in (<id>_<name>_横.png); photos.json lists them and the plays no room
+        // takes. Original-derived pictures: kept on this machine (for_muse/, never the repository).
+        IEnumerator Photos(string only)
+        {
+            yield return new WaitForSeconds(1.5f);
+            var pc = h.Play;
+            var st = h.Stage;
+            var ui = h.UiForCheck;
+            bool silWas = h.YourSilhouette.Value, shownWas = h.YourBodyShown.Value;
+            h.YourSilhouette.Value = false;
+            h.YourBodyShown.Value = true;
+            ui.ShotMode = true;
+            var done = new HashSet<string>();
+            var list = new List<object>();
+            var all = pc.List(null);
+            var bodies = new[] { new[] { "male", "no" }, new[] { "female", "no" }, new[] { "male", "futa" }, new[] { "female", "futa" } };
+            foreach (var room in st.LocationKeys())
+            {
+                if (room != st.Location) yield return st.SetLocation(room);
+                yield return new WaitForSeconds(0.8f);
+                string roomName = Json.Str(st.LocationInfo(room), "name", room);
+                foreach (var row in all)
+                {
+                    string id = Json.Str(row, "id"), name = Json.Str(row, "name"), group = Json.Str(row, "group");
+                    if (done.Contains(id)) continue;
+                    if (only.Length > 0 && Array.Find(only.Split(','), q => id.StartsWith(q)) == null) continue;
+                    var spots = pc.Spots(row);
+                    if (spots.Count == 0) continue;
+                    string err = "", used = "";
+                    foreach (var b in bodies)
+                    {
+                        if (group == "lesbian" && b[0] == "male") continue;
+                        pc.WhoForCheck = new Dictionary<string, Dictionary<string, object>> {
+                            { "character", new Dictionary<string, object> { { "body", "female" }, { "futanari", b[1] == "futa" } } },
+                            { "player", new Dictionary<string, object> { { "body", b[0] }, { "futanari", false } } } };
+                        err = pc.Begin(id, "probe", spots[0].Id);
+                        if (err.Length == 0) { used = "あなた：" + (b[0] == "male" ? "男性の体" : "女性の体") + (b[1] == "futa" ? "、彼女：ふたなり" : ""); break; }
+                    }
+                    if (err.Length > 0) continue;
+                    done.Add(id);
+                    yield return new WaitForSeconds(1.2f);
+                    if (group == "sonyu") pc.Insert(1);
+                    else pc.SetPace(1, "probe");
+                    float t0 = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - t0 < 10f && (pc.LastState ?? "").IndexOf("Loop", StringComparison.Ordinal) < 0) yield return null;
+                    yield return new WaitForSeconds(1.5f);
+                    string state = pc.LastState;
+                    string file = FileName(id + "_" + name);
+                    pc.Camera(true);
+                    yield return new WaitForSeconds(1.0f);
+                    // (the bones read at the frame's end: earlier in a frame they stand in a rest pose)
+                    yield return new WaitForEndOfFrame();
+                    var pts = BodyPoints();
+                    Vector3 c = Middle(pts);
+                    var cut = Cutaway(Camera.main.transform.position, pts, c);
+                    yield return new WaitForEndOfFrame();
+                    Application.CaptureScreenshot(System.IO.Path.Combine(outDir, file + ".png"));
+                    yield return new WaitForSeconds(0.5f);
+                    foreach (var r in cut) if (r != null) r.enabled = true;
+                    // from the side, both bodies filling the picture: the distance from how far they spread, the first side (her
+                    // right, left, front, back) with no wall within it; failing all, her right pulled in front of the wall
+                    float spread = 0f;
+                    foreach (var q in pts) spread = Mathf.Max(spread, (q - c).magnitude);
+                    float fov = 40f, want = Mathf.Clamp(spread * 1.25f / Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad), 1.2f, 3.2f);
+                    var t = st.Cha.transform;
+                    Vector3 eye = Vector3.zero;
+                    bool found = false;
+                    foreach (var dir in new[] { t.right, -t.right, t.forward, -t.forward })
+                    {
+                        Vector3 e = c + dir * want + Vector3.up * (0.45f + want * 0.3f);       // (from above the low furniture, looking down)
+                        float hitAt;
+                        if (!Stage.MapRay(c, e, out hitAt)) { eye = e; found = true; break; }
+                    }
+                    if (!found)
+                    {
+                        Vector3 e = c + t.right * want + Vector3.up * 0.35f;
+                        float hitAt;
+                        if (Stage.MapRay(c, e, out hitAt)) { float keep = Mathf.Max(0.8f, hitAt - 0.15f); fov = Mathf.Clamp(fov * want / keep, 40f, 80f); e = c + (e - c).normalized * keep; }
+                        eye = e;
+                    }
+                    st.SetCamera(eye, c, fov, 0f);
+                    yield return new WaitForSeconds(0.6f);
+                    yield return new WaitForEndOfFrame();
+                    cut = Cutaway(Camera.main.transform.position, pts, c);
+                    yield return new WaitForEndOfFrame();
+                    Application.CaptureScreenshot(System.IO.Path.Combine(outDir, file + "_横.png"));
+                    yield return new WaitForSeconds(0.5f);
+                    foreach (var r in cut) if (r != null) r.enabled = true;
+                    list.Add(new Dictionary<string, object> { { "id", id }, { "name", name }, { "group", group }, { "room", roomName }, { "spot", spots[0].Id },
+                        { "bodies", used }, { "state", state }, { "photos", new List<object> { file + ".png", file + "_横.png" } } });
+                    lines.AppendLine(id + " " + name + " [" + group + "] " + roomName + " / " + spots[0].Id + " | " + used + " | " + state);
+                    pc.End("probe");
+                    yield return new WaitForSeconds(0.3f);
+                }
+            }
+            var none = new List<object>();
+            foreach (var row in all)
+                if (!done.Contains(Json.Str(row, "id"))) none.Add(new Dictionary<string, object> { { "id", Json.Str(row, "id") }, { "name", Json.Str(row, "name") }, { "group", Json.Str(row, "group") } });
+            pc.WhoForCheck = null;
+            ui.ShotMode = false;
+            h.YourSilhouette.Value = silWas;
+            h.YourBodyShown.Value = shownWas;
+            File.WriteAllText(System.IO.Path.Combine(outDir, "photos.json"), Json.Write(new Dictionary<string, object> { { "photographed", list }, { "not_photographed", none } }), new System.Text.UTF8Encoding(false));
+            lines.AppendLine("photographed " + list.Count + ", no room for " + none.Count);
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            try { Directory.CreateDirectory(System.IO.Path.GetDirectoryName(MuseStudioPlugin.QuitMarker)); File.WriteAllText(MuseStudioPlugin.QuitMarker, "quit"); } catch (Exception) { }
+            Application.Quit();
+        }
+
+        // the bodies' points (hips, head, hands, knees, feet of both), read at a frame's end
+        List<Vector3> BodyPoints()
+        {
+            var pts = new List<Vector3>();
+            foreach (var cha in new[] { h.Stage.Cha, h.Stage.Partner != null ? h.Stage.Partner.charInfo : null })
+            {
+                if (cha == null || cha.objBodyBone == null) continue;
+                foreach (var n in new[] { "cf_j_hips", "cf_j_head", "cf_j_hand_L", "cf_j_hand_R", "cf_j_leg01_L", "cf_j_leg01_R", "cf_j_leg03_L", "cf_j_leg03_R" })
+                {
+                    var tr = HIK.Find(cha.objBodyBone.transform, n);
+                    if (tr != null) pts.Add(tr.position);
+                }
+            }
+            if (pts.Count == 0) pts.Add(h.Stage.Cha.transform.position + Vector3.up * 0.6f);
+            return pts;
+        }
+
+        static Vector3 Middle(List<Vector3> pts)
+        {
+            Vector3 min = pts[0], max = pts[0];
+            foreach (var q in pts) { min = Vector3.Min(min, q); max = Vector3.Max(max, q); }
+            return (min + max) * 0.5f;
+        }
+
+        // the room's things between the camera and the bodies (a shelf, a desk, a wall seen from outside) hidden for the shot: a
+        // renderer of the scene, not of a body, whose bounds a line from the camera to a body point (or the middle) meets well
+        // before it, holding neither end
+        static List<Renderer> Cutaway(Vector3 eye, List<Vector3> pts, Vector3 middle)
+        {
+            var hidden = new List<Renderer>();
+            var targets = new List<Vector3>(pts) { middle };
+            foreach (var r in UnityEngine.Object.FindObjectsOfType<Renderer>())
+            {
+                if (!r.enabled || !r.gameObject.activeInHierarchy || r.GetComponentInParent<ChaControl>() != null) continue;
+                var b = r.bounds;
+                bool holds = false;           // (a bed, a chair, the floor under a body: kept)
+                foreach (var target in targets) if (b.Contains(target)) { holds = true; break; }
+                if (holds) continue;
+                if (b.Contains(eye))
+                {
+                    // the camera inside a thing's box: a piece of furniture hidden (the room itself - over 3 m - kept)
+                    if (Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z)) < 3f) { r.enabled = false; hidden.Add(r); }
+                    continue;
+                }
+                foreach (var target in targets)
+                {
+                    Vector3 d = target - eye;
+                    float dist = d.magnitude, hit;
+                    if (dist < 0.3f) continue;
+                    if (b.IntersectRay(new Ray(eye, d / dist), out hit) && hit < dist - 0.3f) { r.enabled = false; hidden.Add(r); break; }
+                }
+            }
+            return hidden;
+        }
+
+        static string FileName(string s)
+        {
+            var bad = System.IO.Path.GetInvalidFileNameChars();
+            var b = new System.Text.StringBuilder();
+            foreach (char ch in s) b.Append(Array.IndexOf(bad, ch) >= 0 || ch == ' ' ? '_' : ch);
+            return b.ToString();
         }
 
         // every play: where her eyes and face go a moment in (the original's eye / neck list or not; at the camera or not)
