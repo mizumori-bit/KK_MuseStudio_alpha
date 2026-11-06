@@ -13,6 +13,8 @@ Start sequence (6.1):
 Resident (6.2): every hover_poll_ms the cursor is checked against the panel (inside: opaque; outside: the base opacity);
 a small control bar follows the panel (opacity slider 64-255, click-through toggle, show / hide, quit). Quit (the bar or
 the hotkey, default Ctrl+Alt+Q) restores the panel's attributes and ends only this manager unless stop_on_exit says more.
+Hover focus (hover_focus, off by default; the bar's ホバーで入力 turns it on and keeps it in panel_config.json): the cursor
+resting on the panel gives it the keyboard, leaving it gives the keyboard back to the window that had it (HoverFocus).
 Running it again while it runs changes nothing (a named mutex); components already up are reused, not started twice.
 
 Windows only. Python standard library (ctypes for Win32, tkinter for the bar). AutoHotkey v2 was the spec's suggestion;
@@ -71,6 +73,17 @@ user32.IsWindowVisible.argtypes = [wt.HWND]
 user32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
 user32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
 EnumWindowsProc = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+user32.GetForegroundWindow.restype = wt.HWND
+user32.GetAncestor.restype = wt.HWND
+user32.GetAncestor.argtypes = [wt.HWND, wt.UINT]
+user32.AttachThreadInput.argtypes = [wt.DWORD, wt.DWORD, wt.BOOL]
+user32.BringWindowToTop.argtypes = [wt.HWND]
+user32.SetForegroundWindow.argtypes = [wt.HWND]
+user32.IsIconic.argtypes = [wt.HWND]
+user32.GetAsyncKeyState.restype = ctypes.c_short
+user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+GA_ROOTOWNER = 3
+VK_LBUTTON, VK_RBUTTON, VK_MBUTTON = 0x01, 0x02, 0x04
 
 
 def log(msg: str) -> None:
@@ -156,6 +169,120 @@ def cursor_pos() -> tuple[int, int]:
     return p.x, p.y
 
 
+def foreground() -> int:
+    return int(user32.GetForegroundWindow() or 0)
+
+
+def root_of(hwnd: int) -> int:
+    """the top-level window a window (a popup, a dialog of it) belongs to"""
+    return int(user32.GetAncestor(hwnd, GA_ROOTOWNER) or hwnd or 0) if hwnd else 0
+
+
+def force_foreground(hwnd: int) -> bool:
+    """Another process's window to the front with the keyboard. Windows refuses a background process's plain
+    SetForegroundWindow (tried 2026-11-06 on Windows 11: a browser --app window came forward 1 time in 5); with this thread's
+    input attached to the foreground window's thread and the target's for the call, 5 in 5 both ways."""
+    if not hwnd or not user32.IsWindow(hwnd):
+        return False
+    if root_of(foreground()) == hwnd:
+        return True
+    me = kernel32.GetCurrentThreadId()
+    threads = {user32.GetWindowThreadProcessId(foreground(), None), user32.GetWindowThreadProcessId(hwnd, None)}
+    attached = [t for t in threads if t and t != me and user32.AttachThreadInput(me, t, True)]
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        for t in attached:
+            user32.AttachThreadInput(me, t, False)
+    return root_of(foreground()) == hwnd
+
+
+def mouse_buttons_down() -> bool:
+    return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in (VK_LBUTTON, VK_RBUTTON, VK_MBUTTON))
+
+
+class HoverFocus:
+    """The panel takes the keyboard while the cursor rests on it and gives it back when the cursor leaves (PR #19, the owner's
+    request; GPT's review: only when turned on, the user's own switch wins, never back to a window that is gone).
+
+    - In: the cursor on the panel (or its bar) for enter_s, no mouse button held (a drag of the game's camera across it
+      switches nothing), the panel shown and not click-through, at least cooldown_s after the last switch. The window that
+      had the keyboard is remembered - not the panel's own windows. A refused switch is not tried again until the cursor
+      leaves (the panel stays usable with a click).
+    - Out: the cursor off both for leave_s, no button held (a drag out of the panel: when it is let go). Back only after this
+      class's own switch, while the panel still has the keyboard and the remembered window is still there (shown, not
+      minimized); otherwise nothing.
+    - The user's switch (Alt+Tab, a click elsewhere, the task bar) while on the panel: forgotten - nothing to go back to.
+    """
+
+    def __init__(self, enter_s: float = 0.15, leave_s: float = 0.3, cooldown_s: float = 0.4):
+        self.enter_s, self.leave_s, self.cooldown_s = enter_s, leave_s, cooldown_s
+        self.reset()
+        self.last_switch = -1e9
+        self.events: list[str] = []          # (tests) what each tick did, when it did something
+
+    def reset(self) -> None:
+        self.over_since = None
+        self.out_since = None
+        self.prev = 0
+        self.switched = False
+        self.refused = False
+
+    def _note(self, what: str) -> str:
+        self.events.append(what)
+        if what in ("focused", "restored", "refused", "restore_refused", "user_switched", "window_gone"):
+            log(f"hover focus: {what}")
+        return what
+
+    def tick(self, panel: int, over: bool, allowed: bool, buttons: bool, now: float, ours=()) -> str:
+        fg = foreground()
+        fg_root = root_of(fg)
+        on_panel = fg_root == panel
+        if self.switched and fg and not on_panel:
+            self.reset()                      # (the user went elsewhere: theirs wins)
+            return self._note("user_switched")
+        if not allowed:
+            self.reset()
+            return "off"
+        if over:
+            self.out_since = None
+            if self.switched or self.refused or on_panel:
+                return "inside"
+            if buttons:
+                self.over_since = None
+                return "buttons"
+            if self.over_since is None:
+                self.over_since = now
+            if now - self.over_since < self.enter_s or now - self.last_switch < self.cooldown_s:
+                return "waiting"
+            mine = {int(h) for h in ours if h} | {panel}
+            prev = fg_root if fg_root and fg_root not in mine and user32.IsWindow(fg_root) else 0
+            self.over_since = None
+            if force_foreground(panel):
+                self.switched, self.prev, self.last_switch = True, prev, now
+                return self._note("focused")
+            self.refused = True
+            return self._note("refused")
+        self.over_since = None
+        self.refused = False
+        if not self.switched:
+            return "outside"
+        if buttons:
+            self.out_since = None
+            return "buttons"
+        if self.out_since is None:
+            self.out_since = now
+        if now - self.out_since < self.leave_s or now - self.last_switch < self.cooldown_s:
+            return "waiting"
+        prev = self.prev
+        self.reset()
+        if not prev or not user32.IsWindow(prev) or not user32.IsWindowVisible(prev) or user32.IsIconic(prev):
+            return self._note("window_gone")
+        self.last_switch = now
+        return self._note("restored" if force_foreground(prev) else "restore_refused")
+
+
 def process_command_lines(names: tuple[str, ...]) -> list[tuple[int, str]]:
     """(pid, command line) of running processes with these image names (PowerShell CIM; startup only)."""
     flt = " or ".join(f"Name='{n}'" for n in names)
@@ -219,6 +346,10 @@ class Manager:
         self.click_through = False
         self.panel_hidden = False
         self.current_alpha = -1
+        self.bar_hwnd = 0
+        self.conf_path: Path | None = None
+        self.focus = HoverFocus(cfg.get("hover_focus_enter_ms", 150) / 1000.0, cfg.get("hover_focus_leave_ms", 300) / 1000.0,
+                                cfg.get("hover_focus_cooldown_ms", 400) / 1000.0)
 
     # 6.1-1
     def ensure_irodori(self) -> bool:
@@ -415,6 +546,11 @@ class Manager:
         if target != self.current_alpha:
             set_alpha(h, target)
             self.current_alpha = target
+        if self.hover_focus:
+            # (the bar under the panel counts as the panel: going down to its buttons keeps the keyboard where it is)
+            bl, bt, br, bb = window_rect(self.bar_hwnd) if self.bar_hwnd and user32.IsWindow(self.bar_hwnd) else (0, 0, 0, 0)
+            over_any = over or (bl <= cx < br and bt <= cy < bb)
+            self.focus.tick(h, over_any, not self.click_through, mouse_buttons_down(), time.monotonic(), (self.bar_hwnd,))
 
     @property
     def hover_opaque(self) -> bool:
@@ -423,6 +559,27 @@ class Manager:
     def set_hover_opaque(self, on: bool) -> None:
         self.cfg["hover_opaque"] = bool(on)
         self.hover_tick()
+
+    @property
+    def hover_focus(self) -> bool:
+        return bool(self.cfg.get("hover_focus", False))
+
+    def set_hover_focus(self, on: bool) -> None:
+        self.cfg["hover_focus"] = bool(on)
+        self.focus.reset()
+        self.save_setting("hover_focus", bool(on))
+
+    def save_setting(self, key: str, value) -> None:
+        """one setting written back to this machine's panel_config.json (never the example)"""
+        p = self.conf_path
+        if not p or p.name != "panel_config.json" or not p.is_file():
+            return
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+            doc[key] = value
+            p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        except (OSError, ValueError) as e:
+            log(f"setting {key}: not saved ({e})")
 
     # the bar's 全体を終了 (the trial run of 2026-11-04: its 終了 looked like the whole's end): the game and the bridge too (quit_all;
     # the panel's attributes back, the panel itself and Irodori stay unless the setting says)
@@ -455,6 +612,7 @@ class Manager:
 
     def toggle_click_through(self, on: bool) -> None:
         self.click_through = on
+        self.focus.reset()
         if self.panel_hwnd and user32.IsWindow(self.panel_hwnd):
             set_click_through(self.panel_hwnd, on)
             set_topmost(self.panel_hwnd, True)
@@ -463,6 +621,7 @@ class Manager:
         if not self.panel_hwnd or not user32.IsWindow(self.panel_hwnd):
             return self.panel_hidden
         self.panel_hidden = not self.panel_hidden
+        self.focus.reset()
         if self.panel_hidden:
             user32.ShowWindow(self.panel_hwnd, SW_HIDE)
         else:
@@ -560,6 +719,9 @@ class ControlBar:
         self.ho = tk.BooleanVar(value=mgr.hover_opaque)
         tk.Checkbutton(f, text="ホバーで不透明", variable=self.ho, command=lambda: self.mgr.set_hover_opaque(self.ho.get()), bg=bg, fg=fg, selectcolor="#6c2951",
                        activebackground=bg, activeforeground=fg, font=("Yu Gothic UI", 9), bd=0, highlightthickness=0).pack(side="left", padx=(6, 0))
+        self.hf = tk.BooleanVar(value=mgr.hover_focus)
+        tk.Checkbutton(f, text="ホバーで入力", variable=self.hf, command=lambda: self.mgr.set_hover_focus(self.hf.get()), bg=bg, fg=fg, selectcolor="#6c2951",
+                       activebackground=bg, activeforeground=fg, font=("Yu Gothic UI", 9), bd=0, highlightthickness=0).pack(side="left", padx=(6, 0))
         self.closing = False
         self.root.after(int(mgr.cfg.get("hover_poll_ms", 100)), self._tick)
 
@@ -574,6 +736,11 @@ class ControlBar:
         self.vis.configure(text="表示" if hidden else "隠す")
 
     def _follow(self):
+        if not self.mgr.bar_hwnd:
+            try:
+                self.mgr.bar_hwnd = int(self.root.frame(), 16)
+            except (tk.TclError, ValueError):
+                pass
         h = self.mgr.panel_hwnd
         if not h or not user32.IsWindow(h):
             return
@@ -728,6 +895,7 @@ def main() -> int:
         log("No panel_config.json: using panel_config.example.json")
     cfg = json.loads(conf.read_text(encoding="utf-8"))
     mgr = Manager(cfg)
+    mgr.conf_path = conf
     mgr.ensure_irodori()
     mgr.ensure_bridge()
     mgr.ensure_game()

@@ -44,6 +44,7 @@ namespace MuseStudio
             if (room == "gropehand") { yield return GropeHand(); yield break; }
             if (room == "ikfight") { yield return IkFight(); yield break; }
             if (room == "reversed") { yield return ReversedPenis(); yield break; }
+            if (room.StartsWith("hold:")) { yield return Hold(float.Parse(room.Substring(5), System.Globalization.CultureInfo.InvariantCulture)); yield break; }
             if (room.StartsWith("photosany:")) { h.Play.AnySpotForProbe = true; yield return Photos(room.Substring(10)); yield break; }
             if (room.StartsWith("photos")) { yield return Photos(room.Length > 7 ? room.Substring(7) : ""); yield break; }
             if (room == "screen") { yield return ScreenTry(); yield break; }
@@ -1119,6 +1120,17 @@ namespace MuseStudio
             }
             pc.WhoForCheck = null;
             File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            try { Directory.CreateDirectory(System.IO.Path.GetDirectoryName(MuseStudioPlugin.QuitMarker)); File.WriteAllText(MuseStudioPlugin.QuitMarker, "quit"); } catch (Exception) { }
+            Application.Quit();
+        }
+
+        // the game kept open for some seconds and closed (the launcher's hover focus tried against a real game window, PR #19)
+        IEnumerator Hold(float seconds)
+        {
+            yield return new WaitForSeconds(seconds);
             File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
             MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
             yield return new WaitForSeconds(0.5f);
