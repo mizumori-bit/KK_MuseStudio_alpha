@@ -7,28 +7,41 @@
 # 1回ごとに張り直す前提の使い捨て。張るのは常に1つだけ。
 #
 # 環境に合わせて直す場所：
-#   BRIDGE_URL  ブリッジのベースURL（あなたの届き方に合わせる。プロキシが
-#               要る環境では fetch() の curl に -x 等を足す）
-#   TOKEN       あなたの鍵（資格情報ストアから実行時に渡す。ファイルや
-#               チャットに鍵そのものを書かない）
-#   FLAG_FILE   セッションの旗。本体の Muse が開始時に立て、終了時に下ろす
+#   BRIDGE_URL    ブリッジのベースURL（あなたの届き方に合わせる。プロキシが
+#                 要る環境では fetch() の curl に -x 等を足す）
+#   TOKEN         あなたの鍵（資格情報ストアから実行時に渡す。ファイルや
+#                 チャットに鍵そのものを書かない）
+#   FLAG_FILE     セッションの旗。本体の Muse が開始時に立て、終了時に下ろす
+#   WAITER_FROM_ID 前回処理し終えた最後のイベント ID。張り直しのときに渡すと、
+#                 張り直しの間に届いた未処理イベントから再開できる（下記）
 set -uo pipefail
 
 BRIDGE_URL="${BRIDGE_URL:?ブリッジのURLを環境変数で渡してください}"
 TOKEN="${TOKEN:?鍵を環境変数で渡してください}"
 FLAG_FILE="${FLAG_FILE:-$HOME/musesession.flag}"
+FROM_ID="${WAITER_FROM_ID:-0}"
 POLL_SECONDS=1
 MAX_RUN=1800        # 寿命の上限（秒）。達したら再装填の合図を出して終わる
 UNREACH_LIMIT=900   # ブリッジに届かない状態がこの秒数続いたらセッション終了とみなす
-APP_GONE_LIMIT=3    # /health でアプリ不在がこの回数続いたら終了
+APP_GONE_LIMIT=3    # アプリ不在がこの回数続いたら終了
 
 # 節目として扱うイベント種別（ノイズになる種別は入れない）
 NOTEWORTHY='["play_started","play_ended","play_finish","climax","urge","outing_started","outing_ended","clothes_changed","user_found","creation_completed","block_refused"]'
 
-fetch() { # $1=path
+fetch() { # $1=path（鍵を付けて叩く。認証済みの応答には起動情報や app の状態が入る）
   curl --fail --silent --max-time 4 \
     -H "Authorization: Bearer $TOKEN" \
     "$BRIDGE_URL$1" 2>/dev/null
+}
+
+# 節目イベントのうち、基準より新しいものを取り出す（$1=イベントJSON、$2=基準ID）
+fresh_events() {
+  printf '%s' "$1" | jq -c --argjson types "$NOTEWORTHY" --argjson from "$2" \
+    '[.events[] | select(.type as $t | $types | index($t)) | select(.id > $from)]' 2>/dev/null || echo '[]'
+}
+max_noteworthy_id() {
+  printf '%s' "$1" | jq -r --argjson types "$NOTEWORTHY" \
+    '[.events[] | select(.type as $t | $types | index($t)) | .id] | max // 0' 2>/dev/null || echo 0
 }
 
 [ -f "$FLAG_FILE" ] || { echo '{"waiter":"no_session"}'; exit 0; }
@@ -37,54 +50,62 @@ START="$(date +%s)"
 UNREACH=0
 APPGONE=0
 
-# 張った時点で既にある節目イベントを基準線にする（これらでは起きない）
-BASELINE_IDS='[]'
-EVENTS_JSON="$(fetch /api/events || true)"
-if [ -n "$EVENTS_JSON" ]; then
-  BASELINE_IDS="$(printf '%s' "$EVENTS_JSON" | jq -c --argjson types "$NOTEWORTHY" \
-    '[.events[] | select(.type as $t | $types | index($t)) | .id]' 2>/dev/null || echo '[]')"
+# 基準（これより新しい節目イベントで起きる）：
+# - WAITER_FROM_ID が渡されていれば、それが「前回処理し終えた最後の ID」。
+#   張った時点で既に届いている未処理イベントも、最初の読みで拾う。
+# - 渡されていなければ、張った時点で届いている分を基準線にする（初回用）。
+WATERMARK="$FROM_ID"
+if [ "$WATERMARK" -le 0 ]; then
+  EVENTS_JSON="$(fetch /api/events || true)"
+  if [ -n "$EVENTS_JSON" ]; then
+    WATERMARK="$(max_noteworthy_id "$EVENTS_JSON")"
+  fi
 fi
 
 while :; do
   NOW="$(date +%s)"
   if [ $((NOW - START)) -ge $MAX_RUN ]; then
-    echo '{"waiter":"rearm"}'; exit 0
+    jq -nc --argjson last "$WATERMARK" '{waiter:"rearm", last_id:$last}'; exit 0
   fi
   # セッションの旗が下りたら終わる
   if [ ! -f "$FLAG_FILE" ]; then
-    echo '{"waiter":"ended","reason":"flag_removed"}'; exit 0
+    jq -nc --argjson last "$WATERMARK" '{waiter:"ended", reason:"flag_removed", last_id:$last}'; exit 0
   fi
   # 起動の切り替わり／アプリ終了の検知
+  # 認証済みの /health は app（アプリが生きているか：真偽）と起動情報を返す。
+  # アプリを閉じた後も起動 ID は残るので、終了の判定は app の側で見る。
+  # （launch.phase に "closed" のような値は無い）
   HEALTH="$(fetch /health || true)"
   if [ -z "$HEALTH" ]; then
     UNREACH=$((UNREACH + 1))
     if [ $((UNREACH * POLL_SECONDS)) -ge $UNREACH_LIMIT ]; then
-      echo '{"waiter":"ended","reason":"bridge_unreachable"}'; exit 0
+      jq -nc --argjson last "$WATERMARK" '{waiter:"ended", reason:"bridge_unreachable", last_id:$last}'; exit 0
     fi
   else
     UNREACH=0
     LID="$(printf '%s' "$HEALTH" | jq -r '.launch.id // empty' 2>/dev/null || true)"
-    PHASE="$(printf '%s' "$HEALTH" | jq -r '.launch.phase // empty' 2>/dev/null || true)"
+    APP="$(printf '%s' "$HEALTH" | jq -r 'if has("app") then (.app | tostring) else "" end' 2>/dev/null || true)"
     if [ -n "$FLAG_LAUNCH" ] && [ -n "$LID" ] && [ "$LID" != "$FLAG_LAUNCH" ]; then
-      echo '{"waiter":"ended","reason":"launch_changed"}'; exit 0
+      jq -nc --argjson last "$WATERMARK" '{waiter:"ended", reason:"launch_changed", last_id:$last}'; exit 0
     fi
-    if [ -z "$LID" ] || [ "$PHASE" = "closed" ]; then
+    if [ "$APP" = "false" ]; then
       APPGONE=$((APPGONE + 1))
       if [ "$APPGONE" -ge $APP_GONE_LIMIT ]; then
-        echo '{"waiter":"ended","reason":"app_closed"}'; exit 0
+        jq -nc --argjson last "$WATERMARK" '{waiter:"ended", reason:"app_closed", last_id:$last}'; exit 0
       fi
     else
       APPGONE=0
     fi
   fi
-  # 節目のイベントが増えたら、その内容を出して終わる（＝本体が起きる）
+  # 基準より新しい節目のイベントがあれば、その内容を出して終わる（＝本体が起きる）。
+  # 出力の last_id は、そのバッチで一番大きい ID。呼び出し側は、バッチを処理し
+  # 終えたら、その last_id を次に張るときの WAITER_FROM_ID に渡す。
   EVENTS_JSON="$(fetch /api/events || true)"
   if [ -n "$EVENTS_JSON" ]; then
-    NEW="$(printf '%s' "$EVENTS_JSON" | jq -c --argjson types "$NOTEWORTHY" --argjson base "$BASELINE_IDS" \
-      '[.events[] | select(.type as $t | $types | index($t)) | select(.id as $i | $base | index($i) | not)]' \
-      2>/dev/null || echo '[]')"
-    if [ "$NEW" != "[]" ] && [ -n "$NEW" ]; then
-      printf '%s' "$NEW" | jq -c '{waiter:"events", events: .}'
+    FRESH="$(fresh_events "$EVENTS_JSON" "$WATERMARK")"
+    if [ "$FRESH" != "[]" ] && [ -n "$FRESH" ]; then
+      LAST="$(printf '%s' "$FRESH" | jq -r '[.[].id] | max // 0' 2>/dev/null || echo 0)"
+      jq -nc --argjson events "$FRESH" --argjson last "$LAST" '{waiter:"events", events:$events, last_id:$last}'
       exit 0
     fi
   fi
