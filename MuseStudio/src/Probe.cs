@@ -31,6 +31,7 @@ namespace MuseStudio
             if (room == "icons") { yield return Icons(); yield break; }
             if (room == "poses") { yield return Poses(); yield break; }
             if (room == "aibufeet") { yield return AibuFeet(); yield break; }
+            if (room == "aibukokan") { yield return AibuKokan(); yield break; }
             if (room == "screen") { yield return ScreenTry(); yield break; }
             if (room == "toilet") { yield return ToiletTry(); yield break; }
             if (room == "cardlinks") { yield return CardLinks(); yield break; }
@@ -191,6 +192,109 @@ namespace MuseStudio
             MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
             yield return new WaitForSeconds(0.5f);
             Application.Quit();
+        }
+
+        // the standing aibu, her crotch caressed as the user does it (a press held, then let go; the trial run of 2026-11-06:
+        // "from the hips down she hangs") - her hips, knees and feet against the floor before, at the touch's start, while it
+        // goes on and after; without the motion IK (as now) and with the original's (HActionBase.SetPlay: every state's
+        // MotionIK.Calc, the female's data for every mode); her IK data's text; pictures
+        IEnumerator AibuKokan()
+        {
+            yield return new WaitForSeconds(1.5f);
+            var st = h.Stage;
+            var pc = h.Play;
+            var tc = h.Touch;
+            string ikFile = "";
+            h.Hands.MouseOffForCheck = true;
+            foreach (var pass in new[] { "noik" })
+            {
+                string err = pc.Begin("aibu_00", "probe", "here");
+                ikFile = pc.HInfo != null ? pc.HInfo.paramFemale.path.file : "";
+                lines.AppendLine(pass + " begin " + err + " female ik file '" + ikFile + "' male '" + (pc.HInfo != null ? pc.HInfo.paramMale.path.file : "") + "'");
+                yield return new WaitForSeconds(1.5f);
+                yield return new WaitForEndOfFrame();
+                KokanMeasure(pass, "idle");
+                yield return KokanShots(pass + "_idle");
+                tc.PressForCheck("crotch", "");
+                float t0 = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - t0 < 1.5f) yield return null;
+                // a stroke as a hand does it: the mouse back and forth (±300 px across, ±150 px up and down, a round a second) for
+                // 6 s through the drag's own mapping (HandCtrl.DragAction's, AibuHands.Drag) - the drag's X / Y, her toes' height
+                // and her feet's slide over it
+                h.Hands.DragToForCheck(new Vector2(0.5f, 0.5f));
+                float ts = Time.realtimeSinceStartup, prevT = 0f;
+                float lowL = 9f, lowR = 9f, highL = -9f, highR = -9f, minX = 9f, maxX = -9f, minY = 9f, maxY = -9f;
+                Vector3 f0L = Vector3.zero, f0R = Vector3.zero;
+                float slideL = 0f, slideR = 0f;
+                bool firstF = true;
+                while (Time.realtimeSinceStartup - ts < 6f)
+                {
+                    yield return new WaitForEndOfFrame();
+                    float t = Time.realtimeSinceStartup - ts;
+                    var at = new Vector2(300f * Mathf.Sin(t * 2f * Mathf.PI), 150f * Mathf.Sin(t * 4f * Mathf.PI));
+                    var was = new Vector2(300f * Mathf.Sin(prevT * 2f * Mathf.PI), 150f * Mathf.Sin(prevT * 4f * Mathf.PI));
+                    prevT = t;
+                    h.Hands.MoveForCheck(at - was);
+                    var xyNow = h.Hands.XYForCheck("kokan");
+                    minX = Mathf.Min(minX, xyNow.x); maxX = Mathf.Max(maxX, xyNow.x); minY = Mathf.Min(minY, xyNow.y); maxY = Mathf.Max(maxY, xyNow.y);
+                    var root = st.Cha.transform;
+                    var tl = root.InverseTransformPoint(HIK.Find(st.Cha.objBodyBone.transform, "cf_j_toes_L").position);
+                    var tr = root.InverseTransformPoint(HIK.Find(st.Cha.objBodyBone.transform, "cf_j_toes_R").position);
+                    lowL = Mathf.Min(lowL, tl.y); lowR = Mathf.Min(lowR, tr.y); highL = Mathf.Max(highL, tl.y); highR = Mathf.Max(highR, tr.y);
+                    if (firstF) { f0L = tl; f0R = tr; firstF = false; }
+                    slideL = Mathf.Max(slideL, new Vector2(tl.x - f0L.x, tl.z - f0L.z).magnitude);
+                    slideR = Mathf.Max(slideR, new Vector2(tr.x - f0R.x, tr.z - f0R.z).magnitude);
+                    if (Mathf.Abs(t - 3f) < 0.02f) yield return KokanShots(pass + "_stroke3");
+                }
+                KokanMeasure(pass, string.Format("stroke 6s xy x {0:F3}..{1:F3} y {2:F3}..{3:F3} toesY L {4:F3}..{5:F3} R {6:F3}..{7:F3} slide L {8:F3} R {9:F3}",
+                    minX, maxX, minY, maxY, lowL, highL, lowR, highR, slideL, slideR));
+                yield return KokanShots(pass + "_stroke6");
+                tc.Hold = false;
+                t0 = Time.realtimeSinceStartup;
+                foreach (var at in new[] { 1.0f, 3.0f })
+                {
+                    while (Time.realtimeSinceStartup - t0 < at) yield return null;
+                    KokanMeasure(pass, "after " + at.ToString("F1"));
+                }
+                yield return KokanShots(pass + "_after");
+                pc.End("probe");
+                yield return new WaitForSeconds(1.0f);
+            }
+            if (ikFile.Length > 0)
+            {
+                var ta = GlobalMethod.LoadAllFolderInOneFile<TextAsset>("h/list/", ikFile, null);
+                lines.AppendLine("IK DATA " + ikFile + ":");
+                lines.AppendLine(ta != null ? ta.text : "(none)");
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        void KokanMeasure(string pass, string when)
+        {
+            var st = h.Stage;
+            var root = st.Cha.transform;
+            var sb = new StringBuilder();
+            sb.Append(string.Format("{0} {1} state {2} hands {3} root {4}", pass, when, h.Play.LastState, h.Hands.Ctrl, root.position.ToString("F3")));
+            foreach (var n in new[] { "cf_j_hips", "cf_j_waist01", "cf_j_thigh00_L", "cf_j_leg01_L", "cf_j_foot_L", "cf_j_toes_L", "cf_j_leg01_R", "cf_j_foot_R", "cf_j_toes_R" })
+            {
+                var t = HIK.Find(st.Cha.objBodyBone.transform, n);
+                if (t == null) continue;
+                var local = root.InverseTransformPoint(t.position);        // (her own frame: y above her root - the floor)
+                sb.Append(string.Format(" | {0} {1}", n.Substring(5), local.ToString("F3")));
+            }
+            lines.AppendLine(sb.ToString());
+        }
+
+        IEnumerator KokanShots(string name)
+        {
+            var st = h.Stage;
+            var c = st.Cha.transform.position + Vector3.up * 0.55f;
+            yield return Shot(c + st.Cha.transform.right * 2.0f, c, 45f, "kokan_" + name + "_side.png");
+            yield return Shot(c + st.Cha.transform.forward * 2.0f, c, 45f, "kokan_" + name + "_front.png");
         }
 
         // every play (or those whose id starts with one of the comma-separated prefixes): the play camera as the play starts

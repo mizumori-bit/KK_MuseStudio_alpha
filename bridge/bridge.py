@@ -342,11 +342,19 @@ def validate_package(pkg) -> list[str]:
                 errors.append(f"{n}.play.start must be a play id (string) or null")
             if pl.get("male_part") is not None and pl["male_part"] not in MATCH_SIDES:
                 errors.append(f"{n}.play.male_part must be 'host' / 'guest' or null")
-            for key in ("spot",):
+            for key in ("spot", "location"):
                 if pl.get(key) is not None and not isinstance(pl[key], str):
                     errors.append(f"{n}.play.{key} must be a string or null")
-            if pl.get("anal") is not None and not isinstance(pl["anal"], bool):
-                errors.append(f"{n}.play.anal must be true / false or null")
+            # (Muse's start of a normal play - MUSE_GUIDE 3.7: its request and the play_serial it saw; the app checks them as it shows)
+            rq = pl.get("request")
+            if rq is not None and (not isinstance(rq, str) or not rq or len(rq) > 200):
+                errors.append(f"{n}.play.request must be a string of 1-200 characters or null")
+            bs = pl.get("basis")
+            if bs is not None and (isinstance(bs, bool) or not isinstance(bs, int) or bs < 0):
+                errors.append(f"{n}.play.basis must be a non-negative integer (the state's play_serial) or null")
+            for key in ("anal", "reverse"):
+                if pl.get(key) is not None and not isinstance(pl[key], bool):
+                    errors.append(f"{n}.play.{key} must be true / false or null")
             if pl.get("strapon") is not None and not isinstance(pl["strapon"], bool):
                 errors.append(f"{n}.play.strapon must be true / false or null")
             if pl.get("end") is not None and not isinstance(pl["end"], bool):

@@ -45,6 +45,19 @@ namespace MuseStudio
             return g;
         }
 
+        // a still hold while it lasts (Touch; the trial run of 2026-11-06): one touch's worth of a hold at a strength (area x hold
+        // x strength) - its start takes it once at strength 1, then each second strength's worth / touch.hold_worth_seconds
+        public float HoldWorth(string area, int strength)
+        {
+            var t = Json.Obj(doc, "touch");
+            float g = (float)Json.Num(Json.Obj(t, "area"), area, 0) * (float)Json.Num(Json.Obj(t, "kind"), "hold", 1);
+            var s = Json.Arr(t, "strength");
+            if (s != null && s.Count > 0) g *= Convert.ToSingle(s[Mathf.Clamp(strength, 1, s.Count) - 1]);
+            return g;
+        }
+
+        public float HoldWorthSeconds { get { return (float)Json.Num(Json.Obj(doc, "touch"), "hold_worth_seconds", 1.5); } }
+
         public void Add(float amount, Dictionary<string, object> cause)
         {
             if (amount <= 0f || Phase == "afterglow") return;

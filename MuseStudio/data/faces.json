@@ -1,5 +1,5 @@
 {
- "_note": "Emotion label (MUSE_GUIDE.md 3.1) -> the original's face parameters (ChaControl): eyebrow / eyes / mouth pattern, their open max, eyes_look (-1 keeps it), cheek, highlight, tears, blink. From the Godot app's emotion_map.json + face_presets.json (tools/derive_data.py).",
+ "_note": "Emotion label (MUSE_GUIDE.md 3.1) -> the original's face parameters (ChaControl): eyebrow / eyes / mouth pattern, their open max, eyes_look (-1 keeps it), cheek, highlight, tears, blink. From the Godot app's emotion_map.json + face_presets.json (tools/derive_data.py). temporary: a label that does not stay (GPT's handoff of Alpha PR #1, the trial run of 2026-11-06: her climax face stayed with her eyes shut till the next package) - seconds after it was put on, it gives way to then (a label; \"\": the last lasting face put on), unless another face came meanwhile; put back after a reaction or her climax, it keeps its own end.",
  "columns": [
   "eyebrow",
   "eyes",
@@ -335,5 +335,15 @@
    "1",
    "TRUE"
   ]
+ },
+ "temporary": {
+  "ecstasy": {
+   "seconds": 8.0,
+   "then": "afterglow"
+  },
+  "afterglow": {
+   "seconds": 30.0,
+   "then": ""
+  }
  }
 }

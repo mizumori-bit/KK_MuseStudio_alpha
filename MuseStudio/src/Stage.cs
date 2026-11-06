@@ -414,12 +414,56 @@ namespace MuseStudio
         public Dictionary<string, object> Locations { get { return locations; } }
         public Dictionary<string, object> Cameras { get { return cameras; } }
 
-        public bool ApplyFace(string label)
+        public bool ApplyFace(string label) { return ApplyFace(label, false); }
+
+        bool ApplyFace(string label, bool restoring)
         {
+            var temp = Temporary(label);
+            // (put back after a reaction or her climax when its own time is over: what follows it, not a flash of it)
+            if (restoring && temp != null && tempLabel == label && Time.realtimeSinceStartup >= tempUntil) return ApplyFace(AfterTemporary(label), false);
             if (!ApplyCells(Json.Arr(Json.Obj(Json.Obj(faces, "labels"), label), "cells"))) return false;
             Emotion = label;
             Face = label;
+            faceSerial++;
+            if (temp == null) { BaseFace = label; tempLabel = ""; }
+            else if (!(restoring && tempLabel == label))
+            {
+                tempLabel = label;
+                tempUntil = Time.realtimeSinceStartup + (float)Json.Num(temp, "seconds", 10.0);
+            }
+            tempSerial = faceSerial;
             return true;
+        }
+
+        // A label that does not stay (faces.json temporary; GPT's handoff of Alpha PR #1 - the trial run of 2026-11-06: her
+        // climax face from Muse's finish stayed, eyes shut, till the next package): its seconds after it was put on, it gives
+        // way to its "then" (a label - itself maybe temporary - or "": the last lasting label put on, BaseFace), unless another
+        // face came meanwhile - a newer label, a touch's or her climax's face: an old timer never puts its face over them. Put
+        // back after those (RestoreFace), it keeps its own end. Muse is not told (the state's emotion shows the face now).
+        public string BaseFace = "";       // the last lasting label put on
+        string tempLabel = "";
+        float tempUntil = -1f;
+        int faceSerial, tempSerial;
+
+        Dictionary<string, object> Temporary(string label) { return Json.Obj(Json.Obj(faces, "temporary"), label); }
+
+        string AfterTemporary(string label)
+        {
+            string then = Json.Str(Temporary(label), "then", "");
+            return then.Length > 0 ? then : BaseFace.Length > 0 ? BaseFace : Json.Str(cfg, "start_face", "service_smile");
+        }
+
+        public float TemporaryLeft { get { return tempLabel.Length > 0 ? tempUntil - Time.realtimeSinceStartup : -1f; } }      // (checks)
+
+        internal void EndTemporaryForCheck() { if (tempLabel.Length > 0) tempUntil = Time.realtimeSinceStartup; }
+
+        void TempFaceTick()
+        {
+            if (tempLabel.Length == 0 || Heroine == null || Time.realtimeSinceStartup < tempUntil) return;
+            if (tempSerial != faceSerial || Face != tempLabel) return;       // (another face on it now: when that one is put back)
+            string was = tempLabel;
+            tempLabel = "";
+            if (!ApplyFace(AfterTemporary(was), false)) ApplyFace("neutral", false);
         }
 
         // A face preset by name (a touch's face in a play, the climax, the afterglow); the emotion stays Muse's label.
@@ -427,6 +471,7 @@ namespace MuseStudio
         {
             if (!ApplyCells(Json.Arr(Json.Obj(faces, "presets"), name))) return false;
             Face = "preset:" + name;
+            faceSerial++;
             return true;
         }
 
@@ -438,7 +483,7 @@ namespace MuseStudio
         {
             if (string.IsNullOrEmpty(face)) return;
             if (face.StartsWith("preset:")) ApplyPreset(face.Substring(7));
-            else if (!face.StartsWith("expr:")) ApplyFace(face);
+            else if (!face.StartsWith("expr:")) ApplyFace(face, true);
         }
 
         // The original's face parameters (the expression table's columns: eyebrow / eyes / mouth pattern, their open max,
@@ -823,6 +868,7 @@ namespace MuseStudio
         {
             WalkTick(Time.deltaTime);
             BlushTick(Time.deltaTime);
+            TempFaceTick();
             if (Heroine != null && !MuseStudioPlugin.Instance.Play.Active && !Walking && Heroine.animeSpeed != speedTarget)
                 Heroine.animeSpeed = Mathf.MoveTowards(Heroine.animeSpeed, speedTarget, Mathf.Max(speedRate, 0.01f) * Time.deltaTime);
             if (ReactUntil < 0f) return;

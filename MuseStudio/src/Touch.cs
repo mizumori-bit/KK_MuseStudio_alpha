@@ -324,15 +324,17 @@ namespace MuseStudio
                     path = 0f;
                     Stroking = false;
                     gropeTried = false;
+                    HoldCounted = false;
                 }
                 return;
             }
-            path += moved.magnitude;
+            path += Hold ? 0f : moved.magnitude;         // (a check's press: the real mouse does not move it)
             var g = Json.Obj(Doc, "gesture");
             if (!Stroking && path >= Json.Num(g, "stroke_pixels", 14)) Stroking = true;
             // outside a play, holding or rubbing her chest (crotch, hips) gropes her: the standing aibu starts where she is
             // (the user's wish 2026-11-03: not only from the play menu)
             if (!h.Play.Active && !gropeTried && (Stroking || Now - pressTime >= Json.Num(g, "hold_seconds", 0.6)) && GropeStart(Pressing)) gropeTried = true;
+            HoldGain(g);
             if (Input.GetMouseButton(0) || Hold) return;
             float secs = Now - pressTime;
             string kind = "tap";
@@ -352,10 +354,51 @@ namespace MuseStudio
             }
             string area = Pressing;
             Pressing = "";
-            Gesture(area, kind, strength, secs);
+            Gesture(area, kind, strength, secs, kind == "hold" && HoldCounted);
         }
 
         bool gropeTried;
+
+        // A still hold: the gauge rises while it is held (the trial run of 2026-11-06: a hold let go was counted once, nothing
+        // while pressed - and after 8 s without a gain the gauge fell; GPT's handoff of Alpha PR #1). Once the press is a hold
+        // (hold_seconds without moving): one hold's worth at strength 1 at once, then each second the worth at the strength by
+        // its time (hold_strength_seconds) / hold_worth_seconds, the area's item as ever (the aibu's). Let go, it adds nothing
+        // more (counted while held: no double count); moved on into a stroke, it stops (the stroke counted at its release as
+        // ever). The gauge's own bounds stand (at most 1, nothing in the afterglow); the play hears the touch each second (its
+        // idle stop).
+        public bool HoldCounted;              // (this press's hold has been counted while held)
+        public float HoldAdded;               // (checks) what this press's hold added
+        float holdLast, holdTold;
+
+        void HoldGain(Dictionary<string, object> g)
+        {
+            if (Stroking || Pressing.Length == 0) return;
+            float now = Now, held = now - pressTime, holdSec = (float)Json.Num(g, "hold_seconds", 0.6);
+            if (held < holdSec) return;
+            var gauge = h.Gauge;
+            float factor = h.Hands.GainFactor(Pressing);
+            var cause = new Dictionary<string, object> { { "source", "touch" }, { "area", Pressing }, { "kind", "hold" } };
+            float add;
+            if (!HoldCounted)
+            {
+                HoldCounted = true;
+                HoldAdded = 0f;
+                holdLast = holdTold = now;
+                add = gauge.HoldWorth(Pressing, 1) * factor;
+                lastTouch = now;
+                h.Play.Touched(Pressing);
+            }
+            else
+            {
+                var hs = Json.Arr(g, "hold_strength_seconds");
+                int strength = 1 + (held >= At(hs, 0, 2f) ? 1 : 0) + (held >= At(hs, 1, 4f) ? 1 : 0);
+                add = gauge.HoldWorth(Pressing, strength) * factor * (now - holdLast) / Mathf.Max(0.1f, gauge.HoldWorthSeconds);
+                holdLast = now;
+                if (now - holdTold >= 1f) { holdTold = now; lastTouch = now; h.Play.Touched(Pressing); }
+            }
+            gauge.Add(add, cause);
+            HoldAdded += add;
+        }
 
         // stage.json grope: the areas, the play (the standing aibu) at "here"; play_started source "touch"
         bool GropeStart(string area)
@@ -383,13 +426,15 @@ namespace MuseStudio
             pressTime = Now;
             path = 0f;
             Stroking = false;
+            HoldCounted = false;
             Hold = true;
         }
 
         static float At(List<object> a, int i, float def) { return a != null && a.Count > i ? Convert.ToSingle(a[i]) : def; }
 
         // One finished touch (also the entry for checks): reaction, gauge, count.
-        public void Gesture(string area, string kind, int strength, float seconds)
+        // counted: a still hold already counted while it was held (HoldGain) - the gauge left alone at its release
+        public void Gesture(string area, string kind, int strength, float seconds, bool counted = false)
         {
             float now = Now;
             Pending p;
@@ -406,7 +451,7 @@ namespace MuseStudio
             lastTouch = now;
             var r = React(area);
             if (r != null) p.Reaction = r;
-            h.Gauge.Add(h.Gauge.TouchGain(area, kind, strength, seconds) * h.Hands.GainFactor(area),
+            if (!counted) h.Gauge.Add(h.Gauge.TouchGain(area, kind, strength, seconds) * h.Hands.GainFactor(area),
                 new Dictionary<string, object> { { "source", "touch" }, { "area", area }, { "kind", kind } });
             h.Play.Touched(area);
             if (Touched != null) Touched(area);
