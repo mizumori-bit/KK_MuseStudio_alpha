@@ -230,7 +230,7 @@ namespace MuseStudio
             if (pc != null && pc.Active)
             {
                 parts.Add(Key(host.BodyShownKey.Value) + "／" + Key(host.PenisShownKey.Value) + "／" + Key(host.SilhouetteKey.Value) + "／" + Key(host.TranslucentKey.Value) + "：あなたの体・ペニス・影・透過");
-                if (pc.Mode == 0) parts.Add(Key(host.HitShapesKey.Value) + "：当たりの形");
+                if (host.Hands.OnNow) parts.Add(Key(host.HitShapesKey.Value) + "：当たりの形");
             }
             var k = host.CamKeys;
             if (pc != null && pc.Active && pc.View == "pov")
@@ -892,7 +892,7 @@ namespace MuseStudio
                     y += lh;
                 }
                 y += 4f * s;
-                if (pc.Mode == 0) y = DrawHands(x, y, w, lh, s);
+                if (host.Hands.OnNow) y = DrawHands(x, y, w, lh, s);      // (the aibu, and a service and an insertion as the original's)
                 if (host.Stage.Partner != null)
                 {
                     // the user's eyes / the position's camera; the user's clothes
@@ -1174,7 +1174,7 @@ namespace MuseStudio
             {
                 string v = Clothes.State(cha, k);
                 if (GUILayout.Button(Clothes.Names[k] + "：" + label[v], button, GUILayout.Height(lh)))
-                    host.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[k], Clothes.Next(v) } }, "user");
+                    host.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[k], Clothes.Next(cha, k, v) } }, "user");
             }
             GUILayout.EndArea();
         }

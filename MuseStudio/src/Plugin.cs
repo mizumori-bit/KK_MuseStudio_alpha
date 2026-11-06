@@ -48,6 +48,7 @@ namespace MuseStudio
         internal ConfigEntry<float> TranslucentAlpha;
         internal ConfigEntry<Color> SilhouetteColor;
         internal ConfigEntry<float> YourHeight;
+        internal ConfigEntry<float> GaugeSpeed, ArousalSpeed;      // (PR #9 adopted: the speeds the user sets on the screen; Muse told when the settings close)
         internal ConfigEntry<bool> MatchBroadcast, MatchKeepMood, MatchRecord;
         internal ConfigEntry<float> MatchArousalStart;
         internal ConfigEntry<string> MatchNotice, MatchFormat;
@@ -160,6 +161,12 @@ namespace MuseStudio
             YourHeight = Config.Bind("Play", "Your height (male body)", 0.6f, Ja("プレイ", "あなたの体の身長（男性の体）",
                 "男性の体の身長（0.35〜0.85。原作の男性は 0.6 固定で、キャラメイクに欄がありません）。体位は 0.6 の体で作られていて、ずれは腰の位置で合わせます。", 13,
                 new AcceptableValueRange<float>(0.35f, 0.85f)));
+            GaugeSpeed = Config.Bind("Gauge", "Pleasure speed", 1f, Ja("ゲージ", "快感度の上がる速さ",
+                "彼女の快感度ゲージの上がる速さの倍率（1＝今までどおり）。おさわり・プレイ・場面のすべてに掛かります。変えて設定を閉じると、変わったことが Muse に伝わります。", 0,
+                new AcceptableValueRange<float>(0.25f, 4f)));
+            ArousalSpeed = Config.Bind("Gauge", "Arousal speed", 1f, Ja("ゲージ", "発情の上がる速さ",
+                "気分のゲージ「発情」の上がる速さの倍率（1＝今までどおり）。時間・おさわり・プレイで上がる分に掛かります（満たされて下がる分には掛かりません）。変えて設定を閉じると、変わったことが Muse に伝わります。", 1,
+                new AcceptableValueRange<float>(0.25f, 4f)));
             MatchBroadcast = Config.Bind("Match", "Broadcast view", false, Ja("通信対戦", "中継風の表示", "通信対戦を、中継や配信のような画面で見ます（LIVE の表示・点数のテロップ・二人を回る観戦カメラ）。あなたの側の表示だけで、相手にも Muse にも伝わりません。", 0));
             MatchArousalStart = Config.Bind("Match", "Arousal at the start", 0.2f, Ja("通信対戦", "対戦の発情の開始値",
                 "あなたが招く側（ホスト）のとき、試合の両側の彼女の発情をこの値から始めます（0〜1。Muse が招待の条件に載せます）。招かれた側では、相手の値で始まります。", 1,
@@ -398,6 +405,7 @@ namespace MuseStudio
                 Touch.Tick();
             }
             else Touch.CursorOff();
+            SettingsTick();
             Stage.Tick();
             if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2)) Mood.Acted();
             Mood.Tick(Time.deltaTime);
@@ -495,6 +503,44 @@ namespace MuseStudio
 
         internal static bool SettingsAvailable { get { return ConfigManager() != null; } }
 
+        // The settings Muse is told about (PR #9 adopted): when the settings window closes, the ones the user really changed
+        // while it was open - each with its value before and now - in one settings_changed; none changed, nothing told. The
+        // state's settings has them all.
+        Dictionary<string, object> settingsAtOpen;
+        bool settingsWereShown;
+
+        internal Dictionary<string, object> SettingsInfo()
+        {
+            return new Dictionary<string, object> { { "gauge_speed", Math.Round(GaugeSpeed.Value, 3) }, { "arousal_speed", Math.Round(ArousalSpeed.Value, 3) } };
+        }
+
+        void SettingsTick()
+        {
+            bool shown = SettingsShown;
+            if (shown == settingsWereShown) return;
+            settingsWereShown = shown;
+            if (shown) { settingsAtOpen = SettingsInfo(); return; }
+            SettingsClosed();
+        }
+
+        internal Dictionary<string, object> SettingsClosed()            // (checks call it as the window closing)
+        {
+            var now = SettingsInfo();
+            var changed = new Dictionary<string, object>();
+            if (settingsAtOpen != null)
+                foreach (var kv in now)
+                {
+                    object was;
+                    if (settingsAtOpen.TryGetValue(kv.Key, out was) && Convert.ToDouble(was) != Convert.ToDouble(kv.Value))
+                        changed[kv.Key] = new Dictionary<string, object> { { "from", was }, { "to", kv.Value } };
+                }
+            settingsAtOpen = null;
+            if (changed.Count > 0) Bridge.Event("settings_changed", new Dictionary<string, object> { { "changed", changed }, { "settings", now }, { "by", "user" } });
+            return changed;
+        }
+
+        internal void SettingsOpenedForCheck() { settingsAtOpen = SettingsInfo(); }
+
         // the panel's 設定 opens it on MuseStudio's own settings (its search box; cleared there, all the plugins show)
         internal static void OpenSettings()
         {
@@ -587,7 +633,7 @@ namespace MuseStudio
                 { "gauge", Gauge.Info() }, { "beat", Beat.Info() }, { "mood", Mood.Info() },
                 { "presence", Presence.Info() }, { "belief", Presence.BeliefInfo() }, { "urges", Urges.Info() }, { "outing", Outing.Info() },
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },
-                { "clothes", Clothes.Info(Stage.Cha) }, { "replay", Replay != null ? Replay.Info() : null } };
+                { "clothes", Clothes.Info(Stage.Cha) }, { "replay", Replay != null ? Replay.Info() : null }, { "settings", SettingsInfo() } };
         }
 
         internal string CharacterId()
@@ -659,7 +705,8 @@ namespace MuseStudio
         internal List<object> ChangeClothes(Dictionary<string, object> want, string by)
         {
             var unknown = new List<string>();
-            var changed = Clothes.Apply(Stage.Cha, want, unknown);
+            var noHalf = new List<string>();
+            var changed = Clothes.Apply(Stage.Cha, want, unknown, null, noHalf);
             if (changed.Count > 0)
                 Bridge.Event("clothes_changed", new Dictionary<string, object> { { "clothes", Clothes.Info(Stage.Cha) }, { "changed", changed }, { "by", by } });
             if (unknown.Count > 0 && by == "muse")
@@ -670,6 +717,9 @@ namespace MuseStudio
                 Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "clothes" }, { "value", string.Join(",", unknown.ToArray()) },
                     { "reason", "not_worn" }, { "available", avail } });
             }
+            if (noHalf.Count > 0 && by == "muse")
+                Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "clothes" }, { "value", string.Join(",", noHalf.ToArray()) },
+                    { "reason", "no_half" }, { "available", new List<object> { "on", "off" } } });
             return changed;
         }
 

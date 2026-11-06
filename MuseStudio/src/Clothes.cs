@@ -42,6 +42,18 @@ namespace MuseStudio
 
         public static string State(ChaControl cha, int k) { return Of(cha.fileStatus.clothesState[k]); }
 
+        // the garment has the original's half state (ChaControl.dictStateType: the states its kind has). The shoes have none -
+        // on / off only: the panel's 靴 went on -> half (nothing changed) -> off, so a press seemed to do nothing ("no way to
+        // take her shoes off", PR #9 adopted)
+        public static bool HasHalf(ChaControl cha, int k)
+        {
+            Dictionary<byte, string> kinds;
+            if (k == 7) return false;                                              // (shoes: on / off only, whatever the table says - the checks saw it name a half)
+            if (cha == null || cha.dictStateType == null) return true;
+            int slot = k == 7 && cha.fileStatus.shoesType == 1 ? 8 : k;           // (the shoes she has on now: indoor / outdoor)
+            return cha.dictStateType.TryGetValue(slot, out kinds) && kinds.ContainsKey(1);
+        }
+
         static void Put(ChaControl cha, int k, string v)
         {
             cha.SetClothesState(k, To(v), false);
@@ -49,7 +61,7 @@ namespace MuseStudio
         }
 
         // a change: {slot or "all": on / half / off}; returns what changed ("" keys unknown are left)
-        public static List<object> Apply(ChaControl cha, Dictionary<string, object> want, List<string> unknown, AccHold acc = null)
+        public static List<object> Apply(ChaControl cha, Dictionary<string, object> want, List<string> unknown, AccHold acc = null, List<string> noHalf = null)
         {
             acc = acc ?? herAcc;
             var changed = new List<object>();
@@ -61,7 +73,11 @@ namespace MuseStudio
                 if (System.Array.IndexOf(Values, v) < 0) { unknown.Add(kv.Key); continue; }
                 if (kv.Key == "all")
                 {
-                    foreach (int k in worn) if (State(cha, k) != v) { Put(cha, k, v); changed.Add(Keys[k]); }
+                    foreach (int k in worn)
+                    {
+                        string vk = v == "half" && !HasHalf(cha, k) ? "on" : v;      // (all half: a garment without one stays on)
+                        if (State(cha, k) != vk) { Put(cha, k, vk); changed.Add(Keys[k]); }
+                    }
                     // all off: her accessories too but the hair's (as in the bath); all on: they come back
                     if (v == "off" && acc.Off == null) acc.Off = BathAccessories.Off(cha);
                     else if (v == "on" && acc.Off != null) { BathAccessories.Back(cha, acc.Off); acc.Off = null; }
@@ -69,12 +85,15 @@ namespace MuseStudio
                 }
                 int i = System.Array.IndexOf(Keys, kv.Key);
                 if (i < 0 || !worn.Contains(i)) { unknown.Add(kv.Key); continue; }
+                if (v == "half" && !HasHalf(cha, i)) { if (noHalf != null) noHalf.Add(kv.Key); continue; }     // (refused: no_half)
                 if (State(cha, i) != v) { Put(cha, i, v); changed.Add(kv.Key); }
             }
             return changed;
         }
 
-        // the panel's button: on -> half -> off -> on
+        // the panel's button: on -> half -> off -> on; a garment without a half state on <-> off
         public static string Next(string v) { return v == "on" ? "half" : v == "half" ? "off" : "on"; }
+
+        public static string Next(ChaControl cha, int k, string v) { return HasHalf(cha, k) ? Next(v) : v == "on" ? "off" : "on"; }
     }
 }

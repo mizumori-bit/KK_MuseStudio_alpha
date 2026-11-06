@@ -32,7 +32,13 @@ namespace MuseStudio
 
         public Dictionary<string, object> Doc { get { return doc; } }
 
-        float RateFactor() { return (float)Json.Num(doc, "multiplier", 1.0); }
+        // the data's multiplier x the user's setting (快感度の上がる速さ, PR #9 adopted)
+        float RateFactor()
+        {
+            var host = MuseStudioPlugin.Instance;
+            float user = host != null && host.GaugeSpeed != null ? host.GaugeSpeed.Value : 1f;
+            return (float)Json.Num(doc, "multiplier", 1.0) * user;
+        }
 
         // a touch's gain: area x kind x strength (a hold also x its seconds / 1.5, at most x3)
         public float TouchGain(string area, string kind, int strength, float seconds)

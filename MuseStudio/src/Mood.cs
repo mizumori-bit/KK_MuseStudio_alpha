@@ -102,6 +102,8 @@ namespace MuseStudio
         public void Add(string key, float amount, string cause)
         {
             if (!Values.ContainsKey(key) || amount == 0f) return;
+            // the arousal's rise x the user's setting (発情の上がる速さ, PR #9 adopted): time, touches, plays - not its fall
+            if (key == "arousal" && amount > 0f && h.ArousalSpeed != null) amount *= h.ArousalSpeed.Value;
             float v = Mathf.Clamp01(Values[key] + amount);
             Values[key] = v;
             string lv = LevelOf(key);
