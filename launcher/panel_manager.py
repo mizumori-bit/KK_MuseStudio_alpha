@@ -13,7 +13,7 @@ Start sequence (6.1):
 Resident (6.2): every hover_poll_ms the cursor is checked against the panel (inside: opaque; outside: the base opacity);
 a small control bar follows the panel (opacity slider 64-255, click-through toggle, show / hide, quit). Quit (the bar or
 the hotkey, default Ctrl+Alt+Q) restores the panel's attributes and ends only this manager unless stop_on_exit says more.
-Hover focus (hover_focus, off by default; the bar's ホバーで入力 turns it on and keeps it in panel_config.json): the cursor
+Hover focus (hover_focus, on by default - the owner's decision of 2026-11-06; the bar's ホバーでフォーカス turns it off / on and keeps it in panel_config.json): the cursor
 resting on the panel gives it the keyboard, leaving it gives the keyboard back to the window that had it (HoverFocus).
 Running it again while it runs changes nothing (a named mutex); components already up are reused, not started twice.
 
@@ -204,7 +204,9 @@ def mouse_buttons_down() -> bool:
 
 class HoverFocus:
     """The panel takes the keyboard while the cursor rests on it and gives it back when the cursor leaves (PR #19, the owner's
-    request; GPT's review: only when turned on, the user's own switch wins, never back to a window that is gone).
+    request; GPT's review: the user's own switch wins, never back to a window that is gone; on by default, the owner's decision).
+    A wheel turned within enter_s of coming onto the panel still reaches the game (accepted: a guard in the game was weighed
+    and left out - the owner's decision of 2026-11-06).
 
     - In: the cursor on the panel (or its bar) for enter_s, no mouse button held (a drag of the game's camera across it
       switches nothing), the panel shown and not click-through, at least cooldown_s after the last switch. The window that
@@ -562,7 +564,7 @@ class Manager:
 
     @property
     def hover_focus(self) -> bool:
-        return bool(self.cfg.get("hover_focus", False))
+        return bool(self.cfg.get("hover_focus", True))
 
     def set_hover_focus(self, on: bool) -> None:
         self.cfg["hover_focus"] = bool(on)
@@ -720,7 +722,7 @@ class ControlBar:
         tk.Checkbutton(f, text="ホバーで不透明", variable=self.ho, command=lambda: self.mgr.set_hover_opaque(self.ho.get()), bg=bg, fg=fg, selectcolor="#6c2951",
                        activebackground=bg, activeforeground=fg, font=("Yu Gothic UI", 9), bd=0, highlightthickness=0).pack(side="left", padx=(6, 0))
         self.hf = tk.BooleanVar(value=mgr.hover_focus)
-        tk.Checkbutton(f, text="ホバーで入力", variable=self.hf, command=lambda: self.mgr.set_hover_focus(self.hf.get()), bg=bg, fg=fg, selectcolor="#6c2951",
+        tk.Checkbutton(f, text="ホバーでフォーカス", variable=self.hf, command=lambda: self.mgr.set_hover_focus(self.hf.get()), bg=bg, fg=fg, selectcolor="#6c2951",
                        activebackground=bg, activeforeground=fg, font=("Yu Gothic UI", 9), bd=0, highlightthickness=0).pack(side="left", padx=(6, 0))
         self.closing = False
         self.root.after(int(mgr.cfg.get("hover_poll_ms", 100)), self._tick)
