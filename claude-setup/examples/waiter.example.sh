@@ -13,13 +13,14 @@
 #                 チャットに鍵そのものを書かない）
 #   FLAG_FILE     セッションの旗。本体の Muse が開始時に立て、終了時に下ろす
 #   WAITER_FROM_ID 前回処理し終えた最後のイベント ID。張り直しのときに渡すと、
-#                 張り直しの間に届いた未処理イベントから再開できる（下記）
+#                 張り直しの間に届いた未処理イベントから再開できる（下記）。
+#                 値としての 0 も再開位置として扱う（0 より新しいものを全部拾う）。
+#                 未指定のときだけ、初回用に現在分を基準線にする
 set -uo pipefail
 
 BRIDGE_URL="${BRIDGE_URL:?ブリッジのURLを環境変数で渡してください}"
 TOKEN="${TOKEN:?鍵を環境変数で渡してください}"
 FLAG_FILE="${FLAG_FILE:-$HOME/musesession.flag}"
-FROM_ID="${WAITER_FROM_ID:-0}"
 POLL_SECONDS=1
 MAX_RUN=1800        # 寿命の上限（秒）。達したら再装填の合図を出して終わる
 UNREACH_LIMIT=900   # ブリッジに届かない状態がこの秒数続いたらセッション終了とみなす
@@ -34,14 +35,45 @@ fetch() { # $1=path（鍵を付けて叩く。認証済みの応答には起動�
     "$BRIDGE_URL$1" 2>/dev/null
 }
 
-# 節目イベントのうち、基準より新しいものを取り出す（$1=イベントJSON、$2=基準ID）
-fresh_events() {
-  printf '%s' "$1" | jq -c --argjson types "$NOTEWORTHY" --argjson from "$2" \
-    '[.events[] | select(.type as $t | $types | index($t)) | select(.id > $from)]' 2>/dev/null || echo '[]'
+# 基準（$1）より新しい節目イベントを探す。
+# /api/events は未確認イベントを古い順に、after より大きい ID だけ、
+# 1回に最大で limit 件（既定100・上限500）返す。先頭ページだけを見て
+# 手元で絞ると、対象外のイベント（touch 等）がページを埋めたときに
+# その先の節目イベントを取りこぼす。再開位置はリクエストの after に入れ、
+# 節目が見つからないページは最大 ID を after にして読み進める。
+# 戻り値：節目イベントの配列（JSON）。見つからなければ []
+scan_fresh() {
+  local after="$1" page fresh maxid
+  while :; do
+    page="$(fetch "/api/events?after=$after&limit=500" || true)"
+    [ -n "$page" ] || { echo '[]'; return; }
+    fresh="$(printf '%s' "$page" | jq -c --argjson types "$NOTEWORTHY" \
+      '[.events[] | select(.type as $t | $types | index($t))]' 2>/dev/null || echo '[]')"
+    if [ "$fresh" != "[]" ] && [ -n "$fresh" ]; then
+      echo "$fresh"; return
+    fi
+    maxid="$(printf '%s' "$page" | jq -r '[.events[].id] | max // 0' 2>/dev/null || echo 0)"
+    if [ "$maxid" -le "$after" ]; then
+      echo '[]'; return
+    fi
+    after="$maxid"
+  done
 }
-max_noteworthy_id() {
-  printf '%s' "$1" | jq -r --argjson types "$NOTEWORTHY" \
-    '[.events[] | select(.type as $t | $types | index($t)) | .id] | max // 0' 2>/dev/null || echo 0
+
+# 現在届いている節目イベントの最大 ID（初回の基準線用）。同じく読み進める
+scan_max_noteworthy() {
+  local after=0 page maxid nmax best=0
+  while :; do
+    page="$(fetch "/api/events?after=$after&limit=500" || true)"
+    [ -n "$page" ] || break
+    nmax="$(printf '%s' "$page" | jq -r --argjson types "$NOTEWORTHY" \
+      '[.events[] | select(.type as $t | $types | index($t)) | .id] | max // 0' 2>/dev/null || echo 0)"
+    if [ "$nmax" -gt "$best" ]; then best="$nmax"; fi
+    maxid="$(printf '%s' "$page" | jq -r '[.events[].id] | max // 0' 2>/dev/null || echo 0)"
+    if [ "$maxid" -le "$after" ]; then break; fi
+    after="$maxid"
+  done
+  echo "$best"
 }
 
 [ -f "$FLAG_FILE" ] || { echo '{"waiter":"no_session"}'; exit 0; }
@@ -51,16 +83,13 @@ UNREACH=0
 APPGONE=0
 
 # 基準（これより新しい節目イベントで起きる）：
-# - WAITER_FROM_ID が渡されていれば、それが「前回処理し終えた最後の ID」。
+# - WAITER_FROM_ID が渡されていれば（値が 0 でも）、それが再開位置。
 #   張った時点で既に届いている未処理イベントも、最初の読みで拾う。
-# - 渡されていなければ、張った時点で届いている分を基準線にする（初回用）。
-WATERMARK="$FROM_ID"
-if [ "$WATERMARK" -le 0 ]; then
-  EVENTS_JSON="$(fetch /api/events || true)"
-  if [ -n "$EVENTS_JSON" ]; then
-    WATERMARK="$(max_noteworthy_id "$EVENTS_JSON")"
-  fi
-fi
+# - 未指定なら、張った時点で届いている分を基準線にする（初回用）。
+case "${WAITER_FROM_ID-}" in
+  ''|*[!0-9]*) WATERMARK="$(scan_max_noteworthy)" ;;
+  *)           WATERMARK="$WAITER_FROM_ID" ;;
+esac
 
 while :; do
   NOW="$(date +%s)"
@@ -99,15 +128,13 @@ while :; do
   fi
   # 基準より新しい節目のイベントがあれば、その内容を出して終わる（＝本体が起きる）。
   # 出力の last_id は、そのバッチで一番大きい ID。呼び出し側は、バッチを処理し
-  # 終えたら、その last_id を次に張るときの WAITER_FROM_ID に渡す。
-  EVENTS_JSON="$(fetch /api/events || true)"
-  if [ -n "$EVENTS_JSON" ]; then
-    FRESH="$(fresh_events "$EVENTS_JSON" "$WATERMARK")"
-    if [ "$FRESH" != "[]" ] && [ -n "$FRESH" ]; then
-      LAST="$(printf '%s' "$FRESH" | jq -r '[.[].id] | max // 0' 2>/dev/null || echo 0)"
-      jq -nc --argjson events "$FRESH" --argjson last "$LAST" '{waiter:"events", events:$events, last_id:$last}'
-      exit 0
-    fi
+  # 終えたら、その last_id を次に張るときの WAITER_FROM_ID に渡す。バッチの先に
+  # 残っている分は、次の張り直しでその ID から拾われる。
+  FRESH="$(scan_fresh "$WATERMARK")"
+  if [ "$FRESH" != "[]" ] && [ -n "$FRESH" ]; then
+    LAST="$(printf '%s' "$FRESH" | jq -r '[.[].id] | max // 0' 2>/dev/null || echo 0)"
+    jq -nc --argjson events "$FRESH" --argjson last "$LAST" '{waiter:"events", events:$events, last_id:$last}'
+    exit 0
   fi
   sleep "$POLL_SECONDS"
 done
