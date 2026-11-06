@@ -358,9 +358,12 @@ namespace MuseStudio
                     HIK.SetMaleHeight(mb, Mathf.Clamp(MuseStudioPlugin.Instance.YourHeight.Value, 0.35f, 0.85f));
                 maleRatio = mb != null ? HIK.HeightRatio(mb) : 1f;
                 maleBase = mb != null ? (HIK.Find(mb.objBodyBone.transform, "cm_J_dan101_00") ?? HIK.Find(mb.objBodyBone.transform, "cf_j_kokan")) : null;
-                // (an AL play: no motion IK - the borrowed pose's IK data is for another motion; an aibu: none - no partner to fit to,
-                // and the original's foot targets, moved by the touch's drag, pulled her feet off the floor: the trial run of 2026-11-04)
-                if (Mode != 0 && (!Current.ContainsKey("ik") || !(Current["ik"] is bool) || (bool)Current["ik"]))
+                // (an AL play: no motion IK - the borrowed pose's IK data is for another motion. An aibu has it as the original does:
+                // its data - kha_f_NN, binary, so its text reads empty - pins her hands, feet, elbows and knees to her own animated
+                // pivots cf_pv_*, which keeps her feet on the floor while the body squirms; without it, "from the hips down she
+                // hangs" - the trial runs 5 to 7. The run of 2026-11-04 took it away when the drag, then crossing its whole box,
+                // moved those pivots; the drag now moves as the original's - AibuHands.Drag)
+                if (!Current.ContainsKey("ik") || !(Current["ik"] is bool) || (bool)Current["ik"])
                     IK.Begin(FemaleCha, HInfo.paramFemale.path.file, mb, HInfo.paramMale.path.file);
                 IK.Calc(Anal ? "A_" + LastState : LastState);
                 var host = MuseStudioPlugin.Instance;

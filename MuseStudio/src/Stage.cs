@@ -418,39 +418,70 @@ namespace MuseStudio
 
         bool ApplyFace(string label, bool restoring)
         {
-            var temp = Temporary(label);
-            // (put back after a reaction or her climax when its own time is over: what follows it, not a flash of it)
-            if (restoring && temp != null && tempLabel == label && Time.realtimeSinceStartup >= tempUntil) return ApplyFace(AfterTemporary(label), false);
+            // (put back after a reaction or her climax when its own time is over: the scene's default, not a flash of it)
+            if (restoring && tempLabel == label && Time.realtimeSinceStartup >= tempUntil) return ApplyFace(SceneDefault(), false);
             if (!ApplyCells(Json.Arr(Json.Obj(Json.Obj(faces, "labels"), label), "cells"))) return false;
             Emotion = label;
             Face = label;
             faceSerial++;
-            if (temp == null) { BaseFace = label; tempLabel = ""; }
-            else if (!(restoring && tempLabel == label))
+            if (!(restoring && tempLabel == label))
             {
                 tempLabel = label;
-                tempUntil = Time.realtimeSinceStartup + (float)Json.Num(temp, "seconds", 10.0);
+                tempUntil = Time.realtimeSinceStartup + FaceSeconds(label);
             }
             tempSerial = faceSerial;
             return true;
         }
 
-        // A label that does not stay (faces.json temporary; GPT's handoff of Alpha PR #1 - the trial run of 2026-11-06: her
-        // climax face from Muse's finish stayed, eyes shut, till the next package): its seconds after it was put on, it gives
-        // way to its "then" (a label - itself maybe temporary - or "": the last lasting label put on, BaseFace), unless another
-        // face came meanwhile - a newer label, a touch's or her climax's face: an old timer never puts its face over them. Put
-        // back after those (RestoreFace), it keeps its own end. Muse is not told (the state's emotion shows the face now).
-        public string BaseFace = "";       // the last lasting label put on
+        // Every face goes back by itself (faces.json "return"; GPT's handoff of Alpha PR #1 and PR #5 adopted - the trial runs
+        // 5 and 7: her climax face stayed, eyes shut, till the next package; then the user saw any last face stay on, and asked
+        // for each scene's default face to come back after its seconds): a label's seconds after it was put on (seconds per
+        // label, else default_seconds - the stronger the face, the sooner), the face becomes the default of the scene she is in
+        // then (defaults: talk / play - by her gauge - / afterglow / outing / match); the default itself stays. Another face
+        // meanwhile - a newer label, a touch's or her climax's face - wins: an old timer never puts its face over it. Put back
+        // after those (RestoreFace), a label keeps its own end. Muse is not told (the state's emotion shows the face now).
         string tempLabel = "";
         float tempUntil = -1f;
         int faceSerial, tempSerial;
 
-        Dictionary<string, object> Temporary(string label) { return Json.Obj(Json.Obj(faces, "temporary"), label); }
+        Dictionary<string, object> FaceReturn { get { return Json.Obj(faces, "return"); } }
 
-        string AfterTemporary(string label)
+        float FaceSeconds(string label)
         {
-            string then = Json.Str(Temporary(label), "then", "");
-            return then.Length > 0 ? then : BaseFace.Length > 0 ? BaseFace : Json.Str(cfg, "start_face", "service_smile");
+            var r = FaceReturn;
+            var per = Json.Obj(r, "seconds");
+            return (float)(per != null && per.ContainsKey(label) ? Json.Num(per, label) : Json.Num(r, "default_seconds", 20.0));
+        }
+
+        // the scene she is in now, and its default face
+        public string FaceScene
+        {
+            get
+            {
+                var h = MuseStudioPlugin.Instance;
+                if (h.Match.Active) return "match";
+                if (h.Outing.Out) return "outing";
+                if (h.Gauge.Phase == "afterglow") return "afterglow";
+                return h.Play.Active ? "play" : "talk";
+            }
+        }
+
+        public string SceneDefault()
+        {
+            var d = Json.Obj(FaceReturn, "defaults");
+            object v;
+            if (d == null || !d.TryGetValue(FaceScene, out v) || v == null) return Json.Str(cfg, "package_end_face", "service_smile");
+            if (v is string) return (string)v;
+            // [[from gauge, label], ...]: the last whose from her gauge has reached
+            string label = Json.Str(cfg, "package_end_face", "service_smile");
+            var rows = v as List<object>;
+            if (rows != null)
+                foreach (var row in rows)
+                {
+                    var rr = row as List<object>;
+                    if (rr != null && rr.Count >= 2 && MuseStudioPlugin.Instance.Gauge.Value >= Convert.ToSingle(rr[0])) label = Convert.ToString(rr[1]);
+                }
+            return label;
         }
 
         public float TemporaryLeft { get { return tempLabel.Length > 0 ? tempUntil - Time.realtimeSinceStartup : -1f; } }      // (checks)
@@ -461,9 +492,11 @@ namespace MuseStudio
         {
             if (tempLabel.Length == 0 || Heroine == null || Time.realtimeSinceStartup < tempUntil) return;
             if (tempSerial != faceSerial || Face != tempLabel) return;       // (another face on it now: when that one is put back)
-            string was = tempLabel;
+            string was = tempLabel, to = SceneDefault();
             tempLabel = "";
-            if (!ApplyFace(AfterTemporary(was), false)) ApplyFace("neutral", false);
+            if (to == was) return;                                          // (the scene's default already: it stays)
+            if (!ApplyFace(to, false)) ApplyFace("neutral", false);
+            if (Face == to) tempLabel = "";                                 // (a default stays: no timer of its own)
         }
 
         // A face preset by name (a touch's face in a play, the climax, the afterglow); the emotion stays Muse's label.

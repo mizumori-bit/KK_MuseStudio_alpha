@@ -1,5 +1,5 @@
 {
- "_note": "Emotion label (MUSE_GUIDE.md 3.1) -> the original's face parameters (ChaControl): eyebrow / eyes / mouth pattern, their open max, eyes_look (-1 keeps it), cheek, highlight, tears, blink. From the Godot app's emotion_map.json + face_presets.json (tools/derive_data.py). temporary: a label that does not stay (GPT's handoff of Alpha PR #1, the trial run of 2026-11-06: her climax face stayed with her eyes shut till the next package) - seconds after it was put on, it gives way to then (a label; \"\": the last lasting face put on), unless another face came meanwhile; put back after a reaction or her climax, it keeps its own end.",
+ "_note": "Emotion label (MUSE_GUIDE.md 3.1) -> the original's face parameters (ChaControl): eyebrow / eyes / mouth pattern, their open max, eyes_look (-1 keeps it), cheek, highlight, tears, blink. From the Godot app's emotion_map.json + face_presets.json (tools/derive_data.py). return: every face goes back by itself (GPT's handoffs of Alpha PR #1 and PR #5; the trial runs 5 and 7: a face stayed till the next package) - its seconds after it was put on (seconds per label, else default_seconds; the stronger the face, the sooner), it becomes the default of the scene she is in then (defaults: talk, play - [[from gauge, label], ...] by her gauge - afterglow, outing, match); the default stays. Another face meanwhile (a newer label, a touch's, her climax's) wins over the old timer; put back after those, a label keeps its own end. Provisional: replace freely.",
  "columns": [
   "eyebrow",
   "eyes",
@@ -336,14 +336,32 @@
    "TRUE"
   ]
  },
- "temporary": {
-  "ecstasy": {
-   "seconds": 8.0,
-   "then": "afterglow"
+ "return": {
+  "seconds": {
+   "ecstasy": 8.0,
+   "afterglow": 30.0,
+   "desire": 15.0,
+   "aroused": 15.0,
+   "flushed": 12.0,
+   "teasing": 12.0,
+   "stern": 12.0
   },
-  "afterglow": {
-   "seconds": 30.0,
-   "then": ""
+  "default_seconds": 20.0,
+  "defaults": {
+   "talk": "service_smile",
+   "play": [
+    [
+     0,
+     "flushed"
+    ],
+    [
+     0.5,
+     "aroused"
+    ]
+   ],
+   "afterglow": "afterglow",
+   "outing": "neutral",
+   "match": "neutral"
   }
  }
 }

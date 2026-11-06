@@ -1,5 +1,5 @@
 {
- "_note": "The female pleasure gauge (stage 3, MUSE_GUIDE.md 3.6), 0..1. touch: gain per touch = area x kind x strength (a hold let go before it counted as one also x its seconds / 1.5, at most x3); a still hold counts while it is held (Touch.HoldGain, the trial run of 2026-11-06): once it is a hold, one hold's worth at strength 1, then each second the worth at its strength / hold_worth_seconds - nothing more when it is let go. scene: gain per second while that scene key plays, x the intensity factor. Without any gain for decay_after seconds the gauge falls by decay per second. milestones: an event the first time the gauge passes each (again only after it fell rearm below the mark). climax at 1.0: the climax event, then afterglow_seconds in which the gauge does not rise, starting from after_value. multiplier: the overall rate; personality: per personality number (the creation's list), a rate factor - game balance stays data (the user's direction: the current settings are not a premise of the structure). Provisional: replace freely. A scene raises the gauge only while its block is being presented (text out, voice over, then scene_grace_seconds; at most scene_block_max_seconds per block), never while the block waits for a tap.",
+ "_note": "The female pleasure gauge (stage 3, MUSE_GUIDE.md 3.6), 0..1. touch: gain per touch = area x kind x strength. A tap is counted when it is let go (x1). A press counts while it lasts, a still hold and a stroke alike (Touch.PressGain, the trial runs of 2026-11-06): once it is a hold (hold_seconds) or a stroke (stroke_pixels moved), one touch's worth of that kind at strength 1, then each second the worth at its strength now (a hold's by its time, a stroke's by its speed) / press_worth_seconds - nothing more when it is let go. scene: gain per second while that scene key plays, x the intensity factor. Without any gain for decay_after seconds the gauge falls by decay per second. milestones: an event the first time the gauge passes each (again only after it fell rearm below the mark). climax at 1.0: the climax event, then afterglow_seconds in which the gauge does not rise, starting from after_value. multiplier: the overall rate; personality: per personality number (the creation's list), a rate factor - game balance stays data (the user's direction: the current settings are not a premise of the structure). Provisional: replace freely. A scene raises the gauge only while its block is being presented (text out, voice over, then scene_grace_seconds; at most scene_block_max_seconds per block), never while the block waits for a tap.",
  "touch": {
   "area": {
    "head": 0.004,
@@ -24,7 +24,7 @@
    1.5,
    2.0
   ],
-  "hold_worth_seconds": 1.5
+  "press_worth_seconds": 1.5
  },
  "scene": {
   "rate": {
