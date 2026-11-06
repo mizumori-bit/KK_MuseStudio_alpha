@@ -998,6 +998,7 @@ namespace MuseStudio
             if (stage.Partner != null) { if (MuseStudioPlugin.Instance.Match.Active) Strapon.Off(stage.Partner.charInfo); else Strapon.Forget(stage.Partner.charInfo); }
             if (PenisAim != 0) { Penetration.Target(MaleBody != null ? MaleBody.charInfo : null, Penetration.Off); PenisAim = 0; }
             Dan.Stop();
+            Rest.Stop();
             bool matchOn = MuseStudioPlugin.Instance.Match.Active;
             if (matchOn) MuseStudioPlugin.Instance.Match.UndoFuta();
             if (!matchOn) stage.RemovePartner();
@@ -1044,6 +1045,7 @@ namespace MuseStudio
         // the penis of the male part along her (Penetration): the insertion's way in, a mouth service's mouth
         public int PenisAim = 0;
         public readonly DanLook Dan = new DanLook();      // (the original's aim where BetterPenetration has none: DanLook)
+        public readonly DanRest Rest = new DanRest();     // (the female part's penis laid up along its belly: DanRest)
         void AimPenis()
         {
             var mb = MaleBody != null ? MaleBody.charInfo : null;
@@ -1056,6 +1058,11 @@ namespace MuseStudio
             aimUntil = Time.realtimeSinceStartup + 5f;          // (its controller gets ready a few frames after the body comes)
             PenisAim = Penetration.Target(mb, aim) ? aim : 0;
             Dan.Start(mb, FemaleCha, HInfo);
+            // the body in the female part with a penis shown (the user's male body reversed, her futanari penis when she receives):
+            // in an insertion it would run into the other body - laid up along its own belly
+            var fc = FemaleCha;
+            if (Group == "sonyu" && fc != null && fc != mb && fc.fileStatus.visibleSonAlways) Rest.Start(fc);
+            else Rest.Stop();
         }
 
         // HSceneProc.SetClothStateStartMotion: the position's numFemaleUpperCloth / LowerCloth through the original's

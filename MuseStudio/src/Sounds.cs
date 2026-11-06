@@ -45,8 +45,25 @@ namespace MuseStudio
             return e != null && Play(Manager.Sound.Type.GameSE2D, Json.Str(e, "bundle"), Json.Str(e, "asset")) != null;
         }
 
-        // the place changes: the door (the original moves through doors), then the new map's ambience
-        public void Moving() { Effect(Json.Str(Doc, "location_change", "")); }
+        // the place changes: the door as the original chooses it (sounds.json location_change: its events open a school room's
+        // sliding door, a hinged one elsewhere; its free moves through gates play nothing) - entering a room its door opens,
+        // going out to a doorless place the left room's door closes, between doorless places nothing; then the new map's ambience
+        public string Moving(string from, string to)
+        {
+            var lc = Json.Obj(Doc, "location_change");
+            if (lc == null) { var one = Json.Str(Doc, "location_change", ""); if (one.Length > 0) Effect(one); return one; }
+            var doors = Json.Obj(lc, "doors");
+            var rooms = Json.Obj(lc, "rooms");
+            string kTo = Json.Str(rooms, to ?? "", null), kFrom = Json.Str(rooms, from ?? "", null);
+            string key = null;
+            if (kTo != null) { var d = Json.Arr(doors, kTo); if (d != null && d.Count > 0) key = d[0] as string; }
+            else if (kFrom != null) { var d = Json.Arr(doors, kFrom); if (d != null && d.Count > 1) key = d[1] as string; }
+            if (key != null) Effect(key);
+            LastMoveEffect = key ?? "";
+            return key;
+        }
+
+        public string LastMoveEffect = "";      // (checks) the effect the last place change chose ("" none)
 
         public void Entered(string location)
         {

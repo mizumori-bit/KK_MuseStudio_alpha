@@ -527,30 +527,39 @@ namespace MuseStudio
             float y = Screen.height - footer + 12f * s, bh = 30f * s;
             string pickedName = "";
             foreach (var c in chooserCards) if (c.Key == picked) pickedName = c.Value;
-            // (the buttons from the right edge - start, the personas' list, the identities' list - and the hint in what is left of
-            // the row, else on the line above; a screen too narrow: the two lists' buttons on a row of their own. GPT's re-review
-            // of #33: at 1280 x 1024 they overlapped)
+            // (the buttons together from the left edge - start, the identities' list, the personas' list - and the hint in what is
+            // left of the row on the right, else on the line above; a screen too narrow: the two lists' buttons on a row of their
+            // own. PR #12 adopted, the user's note: 「このカードで始める」 at the right edge lay under the Muse panel's window, the
+            // launcher's app-mode browser on the screen's right. GPT's re-review of #33: at 1280 x 1024 nothing may overlap)
             const string hint = "人物・性格は、カードの上の「ID 設定」「性格設定」で";
             float fgap = 10f * s, wStart = 240f * s, wList = 220f * s;
-            float xStart = Screen.width - m - wStart, xPersona = xStart - fgap - wList, xId = xPersona - fgap - wList;
-            bool wrap = xId < m, hintHere = !wrap && xId - fgap - m >= 260f * s;
+            float usable = Mathf.Max(Screen.width * 0.5f, Screen.width - m - PanelRoom);       // (the Muse panel's window: the screen's right)
+            float xStart = m, xId = xStart + wStart + fgap, xPersona = xId + wList + fgap, right = xPersona + wList;
+            bool wrap = right > usable, hintHere = !wrap && usable - (right + fgap) >= 260f * s;
             string top = picked == null ? "カードをクリックして選びます（選んだだけでは読み込みません）" : "選んだカード：" + pickedName + (hintHere ? "" : "　" + hint);
-            GUI.Label(new Rect(m, y, Screen.width - 2 * m, lh), top, small);
+            GUI.Label(new Rect(m, y, usable - m, lh), top, small);
             y += lh + 6f * s;
-            if (hintHere && picked != null) GUI.Label(new Rect(m, y, xId - fgap - m, bh), hint, small);
+            if (hintHere && picked != null) GUI.Label(new Rect(right + fgap, y, usable - right - fgap, bh), hint, small);
             GUI.enabled = picked != null && !Modal && LinkKind.Length == 0;
+            Buttons["このカードで始める"] = new Rect(xStart, y, wStart, bh);
             if (GUI.Button(new Rect(xStart, y, wStart, bh), "このカードで始める", button)) host.Launch.Confirm(picked, "user");
             if (wrap) { y += bh + 6f * s; xId = m; xPersona = m + wList + fgap; }
             GUI.enabled = !Modal && LinkKind.Length == 0;
+            Buttons["アイデンティティリスト編集"] = new Rect(xId, y, wList, bh);
+            Buttons["性格引き当てリスト編集"] = new Rect(xPersona, y, wList, bh);
             if (GUI.Button(new Rect(xId, y, wList, bh), "アイデンティティリスト編集", button)) editIdentities = true;
             if (GUI.Button(new Rect(xPersona, y, wList, bh), "性格引き当てリスト編集", button)) editPersonas = true;
             GUI.enabled = true;
             y += bh + 8f * s;
             GUI.enabled = !Modal;
-            bool auto = GUI.Toggle(new Rect(m, y, Screen.width - 2 * m, lh), host.AutoStartLast.Value, " 次回から、前回のキャラで自動的に始める（外すときは設定から）");
+            bool auto = GUI.Toggle(new Rect(m, y, usable - m, lh), host.AutoStartLast.Value, " 次回から、前回のキャラで自動的に始める（外すときは設定から）");
             GUI.enabled = true;
             if (auto != host.AutoStartLast.Value) host.AutoStartLast.Value = auto;
         }
+
+        // the room the Muse panel's window takes on the screen's right (the launcher's panel: 400 px wide, on the right, at the
+        // bottom of the work area - panel_config.example.json), kept clear by the chooser's footer
+        public const float PanelRoom = 420f;
 
         // ---- the persons (numbers issued here) and the registered personas (numbers from the Muse side's ledger) ----
 

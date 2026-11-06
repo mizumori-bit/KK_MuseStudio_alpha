@@ -105,7 +105,7 @@ namespace MuseStudio
             if (rooms.Has(key))
             {
                 // a room kept in the scene: instant (Studio's own map, if one is in, goes)
-                if (Ready && key != Location) MuseStudioPlugin.Instance.Sounds.Moving();
+                if (Ready && key != Location) MuseStudioPlugin.Instance.Sounds.Moving(Location, key);
                 if (map.no != -1) { map.ReleaseMap(); yield return null; }
                 rooms.Show(key);
                 yield return null;
@@ -113,7 +113,7 @@ namespace MuseStudio
             else if (map.no != no)
             {
                 rooms.Show(null);
-                if (Ready) MuseStudioPlugin.Instance.Sounds.Moving();      // the door (not at the start)
+                if (Ready) MuseStudioPlugin.Instance.Sounds.Moving(Location, key);      // the door (not at the start)
                 Singleton<Studio.Studio>.Instance.AddMap(no, true, false, true);
                 float t0 = Time.realtimeSinceStartup;
                 yield return null;

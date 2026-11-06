@@ -73,4 +73,65 @@ namespace MuseStudio
             danBase = null;
         }
     }
+
+    // The penis of the body in the female part (the user's male body in a reversed play, her futanari penis when she receives):
+    // nobody aims it - the original has no such body - and as the motion leaves it, it points out of the crotch into the other
+    // body (a cowgirl's rider sits on the other's crotch: its penis ran 20 cm into her belly, so it looked missing - PR #12 (8),
+    // the user's report). Laid up along its own belly instead (most of the way from where it points to the body's spine), each
+    // frame right before the cameras draw (after the animation, the IK and BetterPenetration); put back when the play ends.
+    public class DanRest
+    {
+        Transform root, kokan, spine;
+        Quaternion rest;
+        bool hooked;
+        public bool On { get { return root != null; } }
+        public float Up = 0.8f;           // (how far towards the spine: 0 as it was, 1 along the spine)
+
+        public void Start(ChaControl cha)
+        {
+            Stop();
+            if (cha == null || cha.objBodyBone == null) return;
+            root = HIK.Find(cha.objBodyBone.transform, "cm_J_dan100_00");
+            kokan = HIK.Find(cha.objBodyBone.transform, "cf_j_kokan") ?? HIK.Find(cha.objBodyBone.transform, "cf_j_waist02");
+            spine = HIK.Find(cha.objBodyBone.transform, "cf_j_spine02");
+            if (root == null || kokan == null || spine == null) { root = null; return; }
+            rest = root.localRotation;
+            if (!hooked) { Camera.onPreCull += PreCull; hooked = true; }
+        }
+
+        public void Stop()
+        {
+            if (root != null) root.localRotation = rest;
+            root = null;
+            if (hooked) { Camera.onPreCull -= PreCull; hooked = false; }
+        }
+
+        void PreCull(Camera cam)
+        {
+            if (root == null) return;
+            if (!root.gameObject.activeInHierarchy) return;
+            root.localRotation = rest;
+            var tip = root.childCount > 0 ? Deepest(root) : null;
+            if (tip == null) return;
+            Vector3 now = (tip.position - root.position).normalized, up = (spine.position - kokan.position).normalized;
+            if (now.sqrMagnitude < 0.5f || up.sqrMagnitude < 0.5f) return;
+            Vector3 want = Vector3.Slerp(now, up, Up);
+            root.rotation = Quaternion.FromToRotation(now, want) * root.rotation;
+        }
+
+        public Vector3 DirForCheck { get { var tip = root != null ? Deepest(root) : null; return tip != null ? (tip.position - root.position).normalized : Vector3.zero; } }
+        public Vector3 UpForCheck { get { return root != null ? (spine.position - kokan.position).normalized : Vector3.zero; } }
+
+        static Transform Deepest(Transform t)
+        {
+            while (t.childCount > 0)
+            {
+                Transform next = null;
+                for (int i = 0; i < t.childCount; i++) if (t.GetChild(i).name.StartsWith("cm_J_dan")) { next = t.GetChild(i); break; }
+                if (next == null) break;
+                t = next;
+            }
+            return t;
+        }
+    }
 }
