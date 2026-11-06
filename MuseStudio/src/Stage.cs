@@ -424,6 +424,7 @@ namespace MuseStudio
             Emotion = label;
             Face = label;
             faceSerial++;
+            if (!restoring) faceAppliedAt = Time.realtimeSinceStartup;
             if (!(restoring && tempLabel == label))
             {
                 tempLabel = label;
@@ -488,8 +489,77 @@ namespace MuseStudio
 
         internal void EndTemporaryForCheck() { if (tempLabel.Length > 0) tempUntil = Time.realtimeSinceStartup; }
 
+        // A face is not carried over into another scene (PR #9 adopted: the timers alone kept the last face too long): when the
+        // scene changes - the talk into a play and back, an outing, a match - the face becomes the new scene's default; within a
+        // scene it stays (the timers only help). A face given just before the change (boundary_grace_seconds: a block that sets
+        // her face and starts the play) is the new scene's own and stays; her climax's faces and the afterglow keep their own
+        // course (a change to or from the afterglow, a touch's or her climax's face on her: left alone).
+        string faceSceneWas = "";
+        float faceAppliedAt = -9f;
+
+        void SceneFaceTick()
+        {
+            string now = FaceScene;
+            if (faceSceneWas.Length == 0) { faceSceneWas = now; return; }
+            if (now == faceSceneWas) return;
+            string was = faceSceneWas;
+            faceSceneWas = now;
+            SceneGaze();                                                    // (the look of the scene before: not carried over)
+            if (now == "afterglow" || Heroine == null) return;              // (her climax's own faces)
+            bool appFace = AppFace;
+            if (appFace && AppFacePending) return;                          // (a reaction's / her climax's face that puts its own back)
+            if (was == "afterglow" && !appFace) return;                     // (the face put back after her climax: kept)
+            if (!appFace && Time.realtimeSinceStartup - faceAppliedAt < (float)Json.Num(FaceReturn, "boundary_grace_seconds", 1.0)) return;
+            string to = SceneDefault();
+            if (Face == to) return;
+            ApplyFace(to, false);
+            if (Face == to) tempLabel = "";                                 // (a default stays: no timer of its own)
+            faceAppliedAt = -9f;                                            // (the app's own default: not a face given for the next scene)
+            SceneResets++;
+        }
+
+        public int SceneResets;                                             // (checks)
+
+        // The app's own faces - a touch's reaction (a preset in a play, the original talk's expression outside), her climax's and
+        // the afterglow's - put their face back themselves; when nothing will (the afterglow ended while a package was showing -
+        // in a play nearly always, its last line stays; a reaction over a reaction kept the first one's face as the one to put
+        // back) the face, her eyes' opening, blinking and look stayed on (the user's note, PR #9: "her eyes' opening too"). Left
+        // with nothing to put it back for app_face_seconds, it becomes the scene's default (eyes, blinking and look with it).
+        public bool AppFace { get { return Face.StartsWith("preset:") || Face.StartsWith("expr:"); } }
+
+        public bool AppFacePending
+        {
+            get
+            {
+                var host = MuseStudioPlugin.Instance;
+                return host.Touch.RestoreFace.Length > 0 || Climaxing || ReactUntil >= 0f || host.Gauge.Phase == "afterglow";
+            }
+        }
+
+        float appFaceSince = -1f;
+        public int AppFaceReturns;                                          // (checks)
+
+        internal void AgeAppFaceForCheck(float seconds) { if (appFaceSince >= 0f) appFaceSince -= seconds; }
+
+        void AppFaceTick()
+        {
+            if (Heroine == null || !AppFace) { appFaceSince = -1f; return; }
+            float now = Time.realtimeSinceStartup;
+            if (AppFacePending) { appFaceSince = now; return; }
+            if (appFaceSince < 0f) { appFaceSince = now; return; }
+            if (now - appFaceSince < (float)Json.Num(FaceReturn, "app_face_seconds", 3.0)) return;
+            appFaceSince = -1f;
+            string to = SceneDefault();
+            if (!ApplyFace(to, false)) ApplyFace("neutral", false);
+            if (Face == to) tempLabel = "";
+            faceAppliedAt = -9f;
+            SceneGaze();
+            AppFaceReturns++;
+        }
+
         void TempFaceTick()
         {
+            AppFaceTick();
             if (tempLabel.Length == 0 || Heroine == null || Time.realtimeSinceStartup < tempUntil) return;
             if (tempSerial != faceSerial || Face != tempLabel) return;       // (another face on it now: when that one is put back)
             string was = tempLabel, to = SceneDefault();
@@ -497,6 +567,22 @@ namespace MuseStudio
             if (to == was) return;                                          // (the scene's default already: it stays)
             if (!ApplyFace(to, false)) ApplyFace("neutral", false);
             if (Face == to) tempLabel = "";                                 // (a default stays: no timer of its own)
+            faceAppliedAt = -9f;
+            SceneGaze();
+        }
+
+        // Her look as the scene's own when its face comes back - a scene's change, a face's time over, a reaction's or her
+        // climax's face put back (the user's note, PR #9: her look, like her face, was carried over - a touch's reaction looks
+        // away or ahead, and the look stayed after it): in the talk her eyes at the user again (pattern 1 at the camera; the
+        // neck is Look's). In a play the position's (HEyeNeck); out on her own and in a match their own.
+        public int GazeResets;                                              // (checks)
+
+        public void SceneGaze()
+        {
+            var host = MuseStudioPlugin.Instance;
+            if (Heroine == null || Cha == null || Camera.main == null || host.Play.Active || host.Outing.Out || host.Match.Active || ReactUntil >= 0f || Climaxing) return;
+            if (Cha.eyeLookCtrl != null && Cha.eyeLookCtrl.target != Camera.main.transform) Cha.eyeLookCtrl.target = Camera.main.transform;
+            if (Cha.fileStatus.eyesLookPtn != 1) { Heroine.ChangeLookEyesPtn(1); GazeResets++; }
         }
 
         // A face preset by name (a touch's face in a play, the climax, the afterglow); the emotion stays Muse's label.
@@ -516,7 +602,7 @@ namespace MuseStudio
         {
             if (string.IsNullOrEmpty(face)) return;
             if (face.StartsWith("preset:")) ApplyPreset(face.Substring(7));
-            else if (!face.StartsWith("expr:")) ApplyFace(face, true);
+            else if (!face.StartsWith("expr:")) { ApplyFace(face, true); SceneGaze(); }     // (a reaction's look not kept either)
         }
 
         // The original's face parameters (the expression table's columns: eyebrow / eyes / mouth pattern, their open max,
@@ -901,6 +987,7 @@ namespace MuseStudio
         {
             WalkTick(Time.deltaTime);
             BlushTick(Time.deltaTime);
+            SceneFaceTick();
             TempFaceTick();
             if (Heroine != null && !MuseStudioPlugin.Instance.Play.Active && !Walking && Heroine.animeSpeed != speedTarget)
                 Heroine.animeSpeed = Mathf.MoveTowards(Heroine.animeSpeed, speedTarget, Mathf.Max(speedRate, 0.01f) * Time.deltaTime);

@@ -2019,6 +2019,184 @@ namespace MuseStudio
             Check("Muse's play start with a move to another room while a play goes on: neither - the play and the room as they were (with_move, the location with_start; GPT's review of PR #3)",
                   msWithMove, msWithMoveWhy);
             Check("Muse's play start after a move in its own block of the same package: the move, then the start on the number seen before the package", msSplit, msSplitWhy);
+
+            // ---- PR #9 adopted (2026-11-06) ----
+            // the motion IK reaches her bones (Studio keeps the solver's mappings at 0: it was solved and never applied - her feet
+            // followed her hips): in the standing aibu with her crotch held, her ankles stay on their targets
+            if (pc.Active) pc.End("check");
+            yield return Wait(0.4f);
+            string ikErr = pc.Begin("aibu_00", "check", "here");
+            yield return Wait(1.0f);
+            h.Hands.MouseOffForCheck = true;
+            tc.PressForCheck("crotch", "");
+            yield return Until(() => h.Hands.Ctrl == "drag", 6f);
+            var ikLeg = Bone(st.Cha, "cf_j_leg03_L");
+            Transform ikTgt = null;
+            foreach (var t in st.Cha.GetComponentsInChildren<Transform>(true)) if (t.name == "cf_t_leg_L") { ikTgt = t; break; }
+            float ikOff = 0f, ikMoved = 0f;
+            Vector3 ikFirst = Vector3.zero;
+            bool ikStarted = false;
+            float ikT0 = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - ikT0 < 2f)
+            {
+                yield return new WaitForEndOfFrame();
+                if (ikTgt == null) break;
+                var lp = st.Cha.transform.InverseTransformPoint(ikLeg.position);
+                if (!ikStarted) { ikFirst = lp; ikStarted = true; }
+                ikMoved = Mathf.Max(ikMoved, (lp - ikFirst).magnitude);
+                ikOff = Mathf.Max(ikOff, (ikLeg.position - ikTgt.position).magnitude);
+            }
+            float ikMap = pc.IK.LegMapping;
+            // (the drag speeds the hand up as the mouse moves: HFlag.SpeedUpClickItemAibu)
+            float spd0 = h.Hands.SpeedItemForCheck;
+            h.Hands.MoveForCheck(new Vector2(30f, 0f));
+            float spd1 = h.Hands.SpeedItemForCheck;
+            tc.Hold = false;
+            h.Hands.MouseOffForCheck = false;
+            yield return Wait(0.5f);
+            Check("motion IK reaches her bones: the solver's leg mappings 1 in a play; her crotch held, her ankle stays on its target (the user's note: her legs hung from her hips)",
+                  ikErr == "" && ikTgt != null && ikMap > 0.99f && ikOff < 0.01f && ikMoved < 0.01f,
+                  string.Format("{0} mapping {1:F2} off {2:F3} moved {3:F3}", ikErr, ikMap, ikOff, ikMoved));
+            Check("aibu: a drag speeds the hand up as the mouse moves (30 px: +0.3, the original's SpeedUpClickItemAibu)", spd1 - spd0 > 0.29f || spd1 >= 1.49f,
+                  string.Format("{0:F2} -> {1:F2}", spd0, spd1));
+            pc.End("check");
+            yield return Wait(0.6f);
+            bool ikBack = true;
+            foreach (var fbx in st.Cha.GetComponentsInChildren<RootMotion.FinalIK.FullBodyBipedIK>(true)) if (fbx.solver.leftLegMapping.weight > 0.01f) ikBack = false;
+            Check("motion IK: after the play Studio's mappings are back (0)", ikBack);
+
+            // touching while playing (the original's HHoushi / HSonyu call HandCtrl.Proc): in an insertion the user's hand goes on
+            // her breast; her crotch takes none while it is in (the play's own table, fileAibuEnableMotion), before it does
+            pc.WhoForCheck = Bodies("male", false, false);
+            var tpSpots = pc.Spots(pc.Row("sonyu_00"));
+            string tpErr = pc.Begin("sonyu_00", "check", tpSpots.Count > 0 ? tpSpots[0].Id : null);
+            yield return Wait(1.0f);
+            bool tpOn = h.Hands.OnNow, tpCrotchOut = h.Hands.AllowedForCheck("kokan");
+            tc.PressForCheck("chest", "L");
+            yield return Wait(0.4f);
+            var tpHand = h.Hands.ObjectOn("muneL");
+            bool tpHandOn = tpHand != null && tpHand.gameObject.activeInHierarchy;
+            tc.Hold = false;
+            yield return Wait(0.4f);
+            pc.Condom = false;
+            pc.Insert(0);
+            yield return Until(() => pc.Inserted, 8f);
+            yield return Wait(0.5f);
+            bool tpCrotchIn = h.Hands.AllowedForCheck("kokan"), tpChestIn = h.Hands.AllowedForCheck("muneL");
+            tc.PressForCheck("crotch", "");
+            yield return Wait(0.4f);
+            bool tpCrotchHand = h.Hands.ObjectOn("kokan") != null;
+            tc.Hold = false;
+            yield return Wait(0.3f);
+            h.Hands.DetachAll();
+            pc.End("check");
+            pc.WhoForCheck = null;
+            yield return Wait(0.6f);
+            Check("touching while playing: in an insertion the hand goes on her breast; her crotch takes it out, not in (the original's table)",
+                  tpErr == "" && tpOn && tpHandOn && tpCrotchOut && !tpCrotchIn && tpChestIn && !tpCrotchHand,
+                  string.Format("{0} on {1} hand {2} crotch out {3} in {4} chest in {5} crotch hand {6}", tpErr, tpOn, tpHandOn, tpCrotchOut, tpCrotchIn, tpChestIn, tpCrotchHand));
+
+            // her shoes: no half state - the panel's 靴 goes on <-> off; Muse's half for them is refused (no_half)
+            bool shWorn = Clothes.Worn(st.Cha).Contains(7);
+            string shNext = Clothes.Next(st.Cha, 7, "on");
+            int shRef0 = Refusals("clothes", "no_half");
+            if (shWorn) h.ChangeClothes(D("co_shoes", "half"), "muse");
+            yield return Wait(0.5f);
+            bool shRefused = !shWorn || Refusals("clothes", "no_half") == shRef0 + 1;
+            if (shWorn) h.ChangeClothes(D("co_shoes", shNext), "user");
+            yield return Wait(0.3f);
+            string shState = shWorn ? Clothes.State(st.Cha, 7) : "-";
+            if (shWorn) h.ChangeClothes(D("co_shoes", "on"), "user");
+            Check("clothes: her shoes have no half state - the panel's 靴 takes them off in one press; Muse's half is refused (no_half)",
+                  shWorn && !Clothes.HasHalf(st.Cha, 7) && shNext == "off" && shState == "off" && shRefused, "worn " + shWorn + " next " + shNext + " state " + shState + " refused " + shRefused);
+
+            // a face is not carried into another scene: the talk's face becomes the play's default as a play starts; a face given
+            // just before the start (a block setting her face and starting the play) stays
+            tc.PackageFace();
+            h.Gauge.Value = 0.1f;
+            st.ApplyFace("teasing");
+            yield return Wait(1.3f);
+            int fbResets0 = st.SceneResets;
+            pc.Begin("aibu_00", "check", "here");
+            yield return null;
+            yield return null;
+            string fbPlay = st.Face;
+            pc.End("check");
+            yield return null;
+            yield return null;
+            string fbBack = st.Face;
+            yield return Wait(1.3f);
+            st.ApplyFace("desire");
+            pc.Begin("aibu_00", "check", "here");
+            yield return null;
+            yield return null;
+            string fbGiven = st.Face;
+            pc.End("check");
+            yield return Wait(0.5f);
+            st.ApplyFace("service_smile");
+            Check("faces: a face is not carried into another scene - teasing in the talk becomes the play's default (flushed) as it starts, the talk's (service_smile) as it ends; one given just before the start stays",
+                  fbPlay == "flushed" && fbBack == "service_smile" && fbGiven == "desire" && st.SceneResets >= fbResets0 + 2, fbPlay + " / " + fbBack + " / " + fbGiven);
+
+            // her look is not carried over either (the user's note): a look away left by a touch's reaction comes back to the user
+            // (pattern 1) as its face is put back; a look left from before a play comes back to the user as the play ends
+            st.Heroine.ChangeLookEyesPtn(2);
+            st.RestoreFace("gentle");
+            int gzAfterReaction = st.Cha.fileStatus.eyesLookPtn;
+            st.Heroine.ChangeLookEyesPtn(2);
+            pc.Begin("aibu_00", "check", "here");
+            yield return Wait(0.6f);
+            pc.End("check");
+            yield return null;
+            yield return null;
+            int gzAfterPlay = st.Cha.fileStatus.eyesLookPtn;
+            yield return Wait(0.4f);
+            st.ApplyFace("service_smile");
+            Check("faces: her look is not carried over either - after a touch's reaction and after a play her eyes are at the user again (pattern 1; the user's note)",
+                  gzAfterReaction == 1 && gzAfterPlay == 1, "after the reaction " + gzAfterReaction + " after the play " + gzAfterPlay);
+            // an app's own face nothing will put back (her climax's, eyes shut and not blinking) becomes the scene's default after
+            // app_face_seconds - her eyes open and blinking again, at the user (the user's note: her eyes' opening too)
+            tc.PackageFace();
+            st.ApplyPreset("ecstasy");
+            st.Heroine.ChangeLookEyesPtn(2);
+            yield return null;
+            string afShown = st.Face;
+            st.AgeAppFaceForCheck(5f);
+            yield return null;
+            yield return null;
+            yield return null;
+            string afBack = st.Face;
+            bool afBlink = st.Cha.fileStatus.eyesBlink;
+            int afLook = st.Cha.fileStatus.eyesLookPtn;
+            Check("faces: an app's own face nothing puts back (her climax's: eyes shut, no blinking) becomes the scene's default by itself - eyes blinking, at the user",
+                  afShown == "preset:ecstasy" && afBack == "service_smile" && afBlink && afLook == 1, afShown + " -> " + afBack + " blink " + afBlink + " look " + afLook);
+
+            // the speeds the user sets (快感度・発情の上がる速さ) and Muse told of a real change when the settings close
+            float gsWas = h.GaugeSpeed.Value, asWas = h.ArousalSpeed.Value;
+            h.Gauge.Value = 0.1f;
+            h.GaugeSpeed.Value = 2f;
+            h.Gauge.Add(0.01f, D("source", "check"));
+            float gsAdded = h.Gauge.Value - 0.1f;
+            float arSpeedWas = h.Mood.Values.ContainsKey("arousal") ? h.Mood.Values["arousal"] : -1f;
+            h.ArousalSpeed.Value = 2f;
+            h.Mood.Add("arousal", 0.01f, "touch");
+            float arSpeedAdded = h.Mood.Values.ContainsKey("arousal") ? h.Mood.Values["arousal"] - arSpeedWas : -1f;
+            h.GaugeSpeed.Value = gsWas;
+            h.ArousalSpeed.Value = asWas;
+            h.SettingsOpenedForCheck();
+            h.GaugeSpeed.Value = 1.5f;
+            int scBefore = EventCount("settings_changed");
+            var scChanged = h.SettingsClosed();
+            yield return Wait(0.6f);
+            var scEv = LastEvent("settings_changed");
+            h.SettingsOpenedForCheck();
+            var scNone = h.SettingsClosed();             // (nothing changed meanwhile: nothing told)
+            h.GaugeSpeed.Value = gsWas;
+            yield return Wait(0.4f);
+            Check("settings: the pleasure and arousal speeds multiply their rises (2: twice); closing the settings tells Muse only what changed (settings_changed), nothing when nothing did",
+                  Mathf.Abs(gsAdded - 0.02f) < 0.0005f && (arSpeedWas < 0f || arSpeedWas > 0.98f || Mathf.Abs(arSpeedAdded - 0.02f) < 0.0005f)
+                  && scChanged.Count == 1 && scChanged.ContainsKey("gauge_speed") && EventCount("settings_changed") == scBefore + 1
+                  && Json.Has(Json.Obj(scEv, "changed"), "gauge_speed") && !Json.Has(Json.Obj(scEv, "changed"), "arousal_speed") && scNone.Count == 0,
+                  string.Format("gauge +{0:F4} arousal +{1:F4} changed {2} event {3}", gsAdded, arSpeedAdded, scChanged.Count, Json.Write(scEv)));
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));
             Check("Muse's play start: aimed, a new request, the serial Muse saw, the room and the spot - it starts (play_started source muse with the request and the serial), the block's pace on it",
                   msStarted, msStartedWhy);

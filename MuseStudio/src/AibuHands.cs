@@ -197,7 +197,44 @@ namespace MuseStudio
 
         // ---- the items chosen ----
 
-        public bool OnNow { get { var pc = h.Play; return pc != null && pc.Active && pc.Mode == 0 && !pc.Reversed && pc.HInfo != null && Cha != null; } }
+        // the aibu, and a service and an insertion as the original's HHoushi / HSonyu (their Proc calls HandCtrl.Proc: the user's
+        // hands and toys on her during them too - PR #9 adopted, "touching while playing"); not reversed (her in the male part),
+        // not her masturbation or the lesbian plays (the original gives them no hands). Which area takes them in which state is
+        // the play's own table (Allowed).
+        public bool OnNow { get { var pc = h.Play; return pc != null && pc.Active && (pc.Mode == 0 || pc.Mode == 1 || pc.Mode == 2) && !pc.Reversed && pc.HInfo != null && Cha != null; } }
+
+        // HandCtrl.LoadMotionEnableState: per state of the play, which areas take the user's hand - h/list
+        // paramFemale.fileAibuEnableMotion (AibuEnableState: mouth, the breasts, the crotch, the anal, the hips); e.g. an
+        // insertion's crotch not while it is in. Read when the play's motion changes; no table: the aibu as before, another
+        // play none (a borrowed AL motion).
+        HSceneProc.AnimationListInfo enableOf;
+        readonly Dictionary<string, bool[]> enable = new Dictionary<string, bool[]>();     // state -> [mouth, bustL, bustR, kokan, anal, hipL, hipR]
+        static readonly int[] EnableColumn = { 1, 2, 3, 4, 5, 6 };                       // HandCtrl's area index -> the table's column (0: the mouth)
+
+        bool Allowed(int column)
+        {
+            var hi = h.Play.HInfo;
+            if (!ReferenceEquals(hi, enableOf))
+            {
+                enableOf = hi;
+                enable.Clear();
+                string file = hi != null ? hi.paramFemale.fileAibuEnableMotion : "";
+                if (!string.IsNullOrEmpty(file))
+                    try
+                    {
+                        foreach (var es in GlobalMethod.LoadAllFolder<AibuEnableState>("h/list/", file, null, null))
+                            foreach (var p in es.param)
+                                enable[p.AnimationName] = new[] { p.Mouth, p.Bust_L, p.Bust_R, p.Kokan, p.Anal, p.Hip_L, p.Hip_R };
+                    }
+                    catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: touch table " + file + ": " + e.Message); }
+            }
+            if (enable.Count == 0) return h.Play.Mode == 0;
+            bool[] row;
+            if (!enable.TryGetValue(h.Play.LastState ?? "", out row) && !enable.TryGetValue(h.Play.StateKey, out row)) return true;     // (a state it does not name)
+            return column >= 0 && column < row.Length && row[column];
+        }
+
+        public bool AllowedForCheck(string areaName) { int ai = Array.IndexOf(AreaNames, areaName); return ai >= 0 && Allowed(EnableColumn[ai]); }     // (checks)
 
         // HandCtrl.GetClothState: the crotch / the anal covered 0, else 2 (the breasts always 2)
         int Cloth(int ai) { return (ai == 2 || ai == 3) && Cha.IsKokanHide() ? 0 : 2; }
@@ -355,6 +392,7 @@ namespace MuseStudio
             On a;
             if (!attached.TryGetValue(ai, out a)) return;
             var anim = Cha != null ? Cha.animBody : null;
+            BustForce(ai, Vector3.zero);
             foreach (var l in a.Body) if (anim != null) anim.SetLayerWeight(l, 0f);
             if (a.I.Obj != null)
             {
@@ -443,9 +481,10 @@ namespace MuseStudio
         // a new press on a touch area (HandCtrl.OnCollision -> SetItem, JudgeProc)
         void Press(string area, string side)
         {
-            if (area == Json.Str(cfg, "kiss_area", "cheek") && slots[2] < 0) { StartKiss(); return; }
+            if (area == Json.Str(cfg, "kiss_area", "cheek") && slots[2] < 0) { if (Allowed(0)) StartKiss(); return; }
             if (!AreaOf.ContainsKey(area)) return;
             int ai = AreaIndex(area, side);
+            if (!Allowed(EnableColumn[ai])) return;              // (the play's table: not in this state - e.g. the crotch while it is in)
             if (Ctrl == "click" && attached.ContainsKey(ai)) { more = true; SpeedUp(); return; }
             string kind = Chosen(area);
             if (kind.Length == 0 || !Attach(ai, kind)) return;
@@ -459,7 +498,24 @@ namespace MuseStudio
             ctrlArea = ai;
             pressT = 0f;
             more = false;
-            xy[ai] = new Vector2(0.5f, 0.5f);
+            xy[ai] = DragStart(ai);
+        }
+
+        // HandCtrl.SetDragStartLayer: a drag of type 2 (the breasts: a force on their sway) starts from nothing, of types 1 / 3
+        // (an X / Y in 0..1) from the middle
+        Vector2 DragStart(int ai)
+        {
+            On a;
+            return attached.TryGetValue(ai, out a) && a.L.DragType == 2 ? Vector2.zero : new Vector2(0.5f, 0.5f);
+        }
+
+        // the force on a breast's sway (HandCtrl.DragAction, drag type 2: dictDynamicBoneBust[...].Force) - back to nothing when
+        // the drag ends (the original leaves it till the next drag; here she does not stay pushed)
+        void BustForce(int ai, Vector3 force)
+        {
+            if (ai > 1 || Cha == null) return;
+            var db = Cha.getDynamicBoneBust(ai == 0 ? ChaInfo.DynamicBoneKind.BreastL : ChaInfo.DynamicBoneKind.BreastR);
+            if (db != null) db.Force = force;
         }
 
         void SpeedUp() { speedItem = Mathf.Min((float)Json.Num(cfg, "speed_max", 1.5), speedItem + (float)Json.Num(cfg, "speed_per_press", 0.25)); }
@@ -467,6 +523,7 @@ namespace MuseStudio
         // HandCtrl.FinishAction: the actions off, the rest layers stay
         void Finish()
         {
+            if (ctrlArea >= 0) BustForce(ctrlArea, Vector3.zero);
             All(0);
             Restart();
             Ctrl = "";
@@ -533,11 +590,38 @@ namespace MuseStudio
                 xyKiss = new Vector2(Mathf.Clamp01(xyKiss.x + deltaPx.x / px), Mathf.Clamp01(xyKiss.y + deltaPx.y / px));
                 return;
             }
-            float speed = (float)Json.Num(cfg, "drag_speed", 0.0001), len = (float)Json.Num(cfg, "drag_force_length", 1.0);
+            // the hand's speed by the movement (HFlag.SpeedUpClickItemAibu with the drag's length - the mouse axes, pixels x 0.1 -
+            // x rateDragSpeedUpItem 0.1, at most speedMaxAibuItem): the faster the mouse, the faster the hand (PR #9 adopted, "the
+            // hand follows the mouse" - before only each press sped it up)
+            float axes = deltaPx.magnitude * (float)Json.Num(cfg, "mouse_axis", 0.1);
+            speedItem = Mathf.Min((float)Json.Num(cfg, "speed_max", 1.5), speedItem + axes * (float)Json.Num(cfg, "drag_speed_up", 0.1));
+            float len = (float)Json.Num(cfg, "drag_force_length", 1.0);
+            On on;
+            if (attached.TryGetValue(ai, out on) && on.L.DragType == 2)
+            {
+                // a breast: the movement (the original's speedDynamicBoneMove 0.001 x the axes) adds to a force within forceLength,
+                // her breast's sway pushed that way (the screen's direction in the world)
+                Vector2 f = Vector2.ClampMagnitude(xy[ai] + deltaPx * (float)Json.Num(cfg, "bust_force_speed", 0.0001), len);
+                xy[ai] = f;
+                var cam = Camera.main;
+                if (cam != null) BustForce(ai, cam.transform.TransformDirection(new Vector3(f.x, f.y, 0f)));
+                return;
+            }
+            float speed = (float)Json.Num(cfg, "drag_speed", 0.0001);
             Vector2 c = Vector2.ClampMagnitude(xy[ai] * 2f - Vector2.one + deltaPx * speed, len);
             Vector2 p = c * 0.5f + new Vector2(0.5f, 0.5f);
             xy[ai] = p;
             foreach (var kv in attached) if (kv.Key != ai && kv.Value.L.DragType == 3) xy[kv.Key] = p;
+        }
+
+        public float SpeedItemForCheck { get { return speedItem; } }      // (checks)
+        public float BustForceForCheck
+        {
+            get
+            {
+                var db = Cha != null ? Cha.getDynamicBoneBust(ChaInfo.DynamicBoneKind.BreastL) : null;
+                return db != null ? db.Force.magnitude : -1f;
+            }
         }
 
         // (checks) the drag's X / Y of an area by its HandCtrl name (muneL, kokan, ...)
@@ -575,6 +659,7 @@ namespace MuseStudio
                 return;
             }
             if (!Ensure()) return;
+            foreach (var ai in new List<int>(attached.Keys)) if (!Allowed(EnableColumn[ai])) Detach(ai);
             var t = h.Touch;
             string pressing = t.Pressing;
             Vector2 mouse = Input.mousePosition;
@@ -591,7 +676,7 @@ namespace MuseStudio
                     {
                         All(2);
                         Ctrl = "drag";
-                        if (ctrlArea >= 0) xy[ctrlArea] = new Vector2(0.5f, 0.5f);
+                        if (ctrlArea >= 0) xy[ctrlArea] = DragStart(ctrlArea);
                     }
                     else if (more) { more = false; pressT = 0f; Restart(); DragSe(); }
                     else Finish();

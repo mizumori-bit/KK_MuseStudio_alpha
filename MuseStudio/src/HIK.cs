@@ -21,7 +21,23 @@ namespace MuseStudio
             public bool WasEnabled;
             public Transform[] Targets = new Transform[4], Bends = new Transform[4];
             public float[] PosW = new float[4], RotW = new float[4], BendW = new float[4];
+            public float[] MapW = new float[5];
+            public IKSolver.UpdateDelegate Keep;
         }
+
+        // The solver's mappings - how much of what it solves reaches the arms, the legs and the spine's twist. Studio keeps them
+        // at 0 (its own IK mode drives them), so the original's motion IK was solved every frame and never reached her bones:
+        // her feet followed her hips instead of their targets ("her legs hang from her hips, the soles lose the floor" - the
+        // user's note, PR #9) and the hands never reached their partner's bones. For the play they are 1, as the original's
+        // (FinalIK's defaults), kept so before each solve; Studio's come back afterwards.
+        static float[] Mappings(IKSolverFullBodyBiped s) { return new[] { s.leftArmMapping.weight, s.rightArmMapping.weight, s.leftLegMapping.weight, s.rightLegMapping.weight, s.spineMapping.twistWeight }; }
+
+        static void SetMappings(IKSolverFullBodyBiped s, float[] w)
+        {
+            s.leftArmMapping.weight = w[0]; s.rightArmMapping.weight = w[1]; s.leftLegMapping.weight = w[2]; s.rightLegMapping.weight = w[3]; s.spineMapping.twistWeight = w[4];
+        }
+
+        static readonly float[] Full = { 1f, 1f, 1f, 1f, 1f };
         static readonly string[] TargetNames = { "cf_t_hand_L", "cf_t_hand_R", "cf_t_leg_L", "cf_t_leg_R" };
         static readonly string[] BendNames = { "cf_t_elbo_L", "cf_t_elbo_R", "cf_t_knee_L", "cf_t_knee_R" };
         readonly List<Body> bodies = new List<Body>();
@@ -53,6 +69,11 @@ namespace MuseStudio
                     if (byName.TryGetValue(TargetNames[i], out t)) eff[i].target = t;
                     if (byName.TryGetValue(BendNames[i], out t)) bends[i].bendGoal = t;
                 }
+                b.MapW = Mappings(fb.solver);
+                var solver = fb.solver;
+                b.Keep = () => SetMappings(solver, Full);
+                SetMappings(solver, Full);
+                solver.OnPreUpdate += b.Keep;
                 b.M = new MotionIK(cha, null);
                 if (!string.IsNullOrEmpty(pair.Value))
                 {
@@ -69,6 +90,9 @@ namespace MuseStudio
         public bool On { get { return bodies.Count > 0; } }
 
         public bool Enabled { get { foreach (var b in bodies) if (b.M.enabled) return true; return false; } }
+
+        // (checks) the female part's solver's leg mappings now
+        public float LegMapping { get { return bodies.Count > 0 && bodies[0].Fb != null ? Mathf.Min(bodies[0].Fb.solver.leftLegMapping.weight, bodies[0].Fb.solver.rightLegMapping.weight) : -1f; } }
 
         // a state starts (HActionBase.SetPlay: every body's MotionIK.Calc of the state)
         public void Calc(string state)
@@ -93,6 +117,8 @@ namespace MuseStudio
                 }
                 catch (Exception) { }
                 if (b.Fb == null) continue;
+                if (b.Keep != null) b.Fb.solver.OnPreUpdate -= b.Keep;
+                SetMappings(b.Fb.solver, b.MapW);
                 var eff = Effectors(b.Fb.solver);
                 var bends = BendsOf(b.Fb.solver);
                 for (int i = 0; i < 4; i++)
