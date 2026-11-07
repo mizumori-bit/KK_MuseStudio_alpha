@@ -76,6 +76,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from irodori_client import IrodoriClient, IrodoriError  # noqa: E402
 import kk_card  # noqa: E402
+import muse_listener  # noqa: E402
 
 BLOCK_TYPES = {"dialogue", "sound"}
 CHOICE_KINDS = {"stance", "state_check", "situation"}
@@ -147,6 +148,9 @@ def load_config(path: Path) -> dict:
 # bridge's own tests only). GET /health answers without a token, but only that the bridge is alive. And every request's Host
 # must be this PC's own name (127.0.0.1 / localhost / [::1]) or one "allowed_hosts" lists (the tailnet name Tailscale's
 # serve passes on): a foreign name pointed here (DNS rebinding) is refused whether or not the request looks like a browser's.
+# Muse's own listener (muse_listener.py, PR #31): where Muse's vault cannot put the real key on the tailnet's way, Muse's
+# requests come to a port of their own on this PC's tailnet address, are let in by the sending machine (Tailscale's
+# whois of the real TCP sender) and reach this bridge with the real Muse token put in on this PC.
 
 ROLES = ("muse", "app")
 _MUSE = {("GET", "/api/events"), ("POST", "/api/events/ack"), ("POST", "/api/packages"), ("GET", "/api/packages/status"), ("GET", "/api/state"),
@@ -1772,6 +1776,8 @@ def main() -> int:
     ap.add_argument("--print-token", choices=ROLES, help="print this role's token (made if missing) and quit")
     ap.add_argument("--new-tokens", action="store_true",
                     help="replace both tokens with new ones (a running bridge and the app take them; the old ones stop working) and quit")
+    ap.add_argument("--list-machines", action="store_true",
+                    help="list this PC's tailnet machines with their StableID (for muse_listener.machine) and quit")
     args = ap.parse_args()
     conf = Path(args.config)
     if not conf.is_file() and conf == HERE / "bridge_config.json" and (HERE / "bridge_config.example.json").is_file():
@@ -1786,6 +1792,9 @@ def main() -> int:
     if args.print_token:
         print(load_tokens(cfg["_tokens_file"])[args.print_token])
         return 0
+    if args.list_machines:
+        cli = (cfg.get("muse_listener") or {}).get("tailscale") or muse_listener.DEFAULT_TAILSCALE
+        return muse_listener.list_machines([str(x) for x in (cli if isinstance(cli, list) else [cli])])
     cfg["_test"] = args.test
     port = args.port or int(cfg.get("port", 18765))
     host = str(cfg.get("host", "127.0.0.1"))
@@ -1798,11 +1807,14 @@ def main() -> int:
         return 2
     sys.stderr.write(f"[bridge] listening on http://{host}:{port}/  irodori={state.irodori.base if state.irodori.enabled else 'off'}  "
                      f"web_root={cfg['_web_root']}  auth={'required' if state.auth else 'off'}\n")
+    listener = muse_listener.start(cfg, state, port, host_allowed, MAX_BODY)     # (Muse's own port - PR #31; None: not asked)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if listener is not None:
+            listener.shutdown()
         server.server_close()
     return 0
 
