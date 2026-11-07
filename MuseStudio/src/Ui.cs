@@ -350,9 +350,12 @@ namespace MuseStudio
             if (clock == null || !Mathf.Approximately(clockFor, s))
             {
                 clockFor = s;
-                clock = new GUIStyle(box) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.RoundToInt(18 * s) };
+                // (no padding, no clipping: the box's own padding left the digits' lower part cut off - the user's note of
+                // 2026-11-07)
+                clock = new GUIStyle(box) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.RoundToInt(18 * s),
+                    padding = new RectOffset(0, 0, 0, 0), clipping = TextClipping.Overflow };
             }
-            var r = new Rect(Away(12f * s, 150f * s), 46f * s, 150f * s, 28f * s);
+            var r = new Rect(Away(12f * s, 150f * s), 46f * s, 150f * s, 30f * s);
             ClockShown = DateTime.Now.ToString("HH:mm");
             drawing.Add(r);
             GUI.Box(r, ClockShown, clock);

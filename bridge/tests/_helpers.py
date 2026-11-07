@@ -16,9 +16,10 @@ import bridge as _bridge  # noqa: E402
 
 
 class Bridge:
-    def __init__(self, port: int, extra: dict | None = None, test: bool = False):
+    def __init__(self, port: int, extra: dict | None = None, test: bool = False, log: bool = False):
         self.port = port
         self.tmp = Path(tempfile.mkdtemp(prefix="bridge_test_"))
+        self.log = self.tmp / "bridge.log" if log else None          # (its log kept to read: log=True)
         cfg = json.loads((ROOT / "bridge/bridge_config.example.json").read_text(encoding="utf-8"))
         for k in ("web_root", "static_root", "kkdata_root", "audio_cache_dir", "voice_catalog", "characters_dir"):
             cfg[k] = str((ROOT / "bridge" / cfg[k]).resolve())
@@ -32,7 +33,10 @@ class Bridge:
         self._start()
 
     def _start(self):
-        self.proc = subprocess.Popen(self.args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        err = open(self.log, "a", encoding="utf-8") if self.log else subprocess.DEVNULL
+        self.proc = subprocess.Popen(self.args, stdout=subprocess.DEVNULL, stderr=err)
+        if self.log:
+            err.close()
         for _ in range(100):
             try:
                 urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=1)

@@ -69,6 +69,7 @@ FAILED_WHOIS_SECONDS = 5.0      # a failed lookup is not asked again for this lo
 WHOIS_AT_ONCE = 2               # `tailscale whois` processes at a time; a lookup that waits longer than 5 s is refused
 READ_SECONDS = 20.0             # a connection's request (headers and body) must have come within this; else it is cut
 MAX_CONNECTIONS = 16            # connections served at once; past it a new one is closed at once
+SLOW_SECONDS = 5.0              # the bridge's answer slower than this is written in the log
 TAILNET_RANGE = ipaddress.ip_network("100.64.0.0/10")    # (IPv4 only: the listener listens on this PC's tailnet IPv4)
 LIMITS = {"port": (int, 1, 65535, 18767), "whois_ttl": (float, 0.0, 3600.0, 60.0),       # (setting: type, min, max, default)
           "read_seconds": (float, 1.0, 120.0, READ_SECONDS), "max_connections": (int, 1, 256, MAX_CONNECTIONS)}
@@ -351,7 +352,16 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
             self.deadline.start()
 
         def _cut(self):
-            # (the request did not come in time: the connection is closed under the reader)
+            # (the request did not come in time: the connection is closed under the reader - and written in the log: its
+            # sender sees its connection end with no answer. 2026-11-07: Muse's GET /api/state ended so, after 20 s, with
+            # nothing in the log to tell why)
+            cmd = getattr(self, "command", None)
+            what = f"{cmd} {str(getattr(self, 'path', '') or '').split('?', 1)[0]}" if cmd else "(its request line had not come)"
+            hdrs = getattr(self, "headers", None)
+            length = hdrs.get("Content-Length") if hdrs is not None else None
+            state.log_refusal("muse_listener_cut", f"[bridge] {time.strftime('%H:%M:%S')} muse listener cut a request not complete in {read_seconds:g} s: "
+                                                   f"{what} - while {getattr(self, 'stage', 'reading its headers')}"
+                                                   f"{f' (Content-Length {length})' if length else ''}\n")
             try:
                 self.connection.shutdown(socket.SHUT_RDWR)
             except OSError:
@@ -389,6 +399,7 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
                 return self._refuse(403, "browser", "a web page may not use Muse's listener")
             if not host_allowed(h.get_all("Host"), cfg):
                 return self._refuse(403, "host", "this Host is not one of the bridge's names (bridge_config.json allowed_hosts)")
+            self.stage = "looking up the sending machine (tailscale whois)"
             sid = whois.machine(self.client_address[0])
             if sid is None:
                 return self._refuse(403, "unverified", "the sending machine could not be looked up")
@@ -406,10 +417,14 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
                 return self._refuse(400, "length", "a bad Content-Length")
             if n > max_body:
                 return self._refuse(413, "too_large", f"the body passes {max_body} bytes")
-            body = self.rfile.read(n) if n > 0 else None
-            if body is not None and len(body) < n:
-                return                                    # (cut before the whole body came)
+            body = None
+            if self.command not in ("GET", "HEAD"):       # (the bridge's ways to read take no body: a length on one is not waited for)
+                self.stage = "reading its body"
+                body = self.rfile.read(n) if n > 0 else None
+                if body is not None and len(body) < n:
+                    return                                # (cut before the whole body came: logged by the cut)
             self.deadline.cancel()
+            t0 = time.monotonic()
             fwd = {"Host": f"127.0.0.1:{bridge_port}", "Authorization": "Bearer " + state.tokens_now()["muse"]}
             for k in ("Content-Type", "Accept"):
                 if h.get(k):
@@ -422,6 +437,10 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
                 c.close()
             except OSError:
                 return self._refuse(502, "bridge", "the bridge did not answer")
+            took = time.monotonic() - t0
+            if took >= SLOW_SECONDS:                      # (a slow answer is written: the sender may have stopped waiting)
+                state.log_refusal("muse_listener_slow", f"[bridge] {time.strftime('%H:%M:%S')} muse listener: {self.command} "
+                                                        f"{self.path.split('?', 1)[0]} took {took:.1f} s at the bridge ({r.status})\n")
             self.send_response(r.status)
             for k in PASS_BACK:
                 v = r.getheader(k)
