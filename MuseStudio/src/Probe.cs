@@ -41,6 +41,8 @@ namespace MuseStudio
             if (room.StartsWith("touchenable:")) { yield return TouchEnable(room.Substring(12)); yield break; }
             if (room == "shoes") { yield return ShoesTry(); yield break; }
             if (room == "pushup") { yield return PushupTry(); yield break; }
+            if (room == "mouth") { yield return MouthTry(); yield break; }
+            if (room == "mouth2") { yield return Mouth2Try(); yield break; }
             if (room.StartsWith("aibuuser:")) { yield return AibuUser(room.Substring(9)); yield break; }
             if (room == "gropehand") { yield return GropeHand(); yield break; }
             if (room == "ikfight") { yield return IkFight(); yield break; }
@@ -1096,6 +1098,221 @@ namespace MuseStudio
                 catch (Exception e) { return "error " + (e.InnerException ?? e).Message; }
             }
             return "no " + name;
+        }
+
+        // --muse-probe=mouth (PR #46 §6, PR #47: the mouth with the words, openness only): the original's mouth controls - the
+        // character's mouth / voice / lip members, the face blend shape (fbsCtrl) and its mouth control (MouthCtrl: open min /
+        // max, fixed rate, open rate) - then the openness driven a while by each way found (the voice value, the mouth's open
+        // rate), under her face now and under one with a small open max, and whether the character puts it back each frame
+        IEnumerator MouthTry()
+        {
+            yield return new WaitForSeconds(2f);
+            var cha = h.Stage.Cha;
+            const System.Reflection.BindingFlags A = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
+            for (var t = cha.GetType(); t != null && t != typeof(MonoBehaviour); t = t.BaseType)
+                foreach (var m in t.GetMembers(A))
+                {
+                    string n = m.Name.ToLowerInvariant();
+                    if (n.Contains("mouth") || n.Contains("voice") || n.Contains("lip") || n.Contains("fbs") || n.Contains("tongue"))
+                        lines.AppendLine("CHA " + t.Name + " " + m.MemberType + " " + m);
+                }
+            object fbs = MemberOf(cha, "fbsCtrl");
+            lines.AppendLine("fbsCtrl " + (fbs != null ? fbs.GetType().FullName : "none"));
+            if (fbs != null)
+                for (var t = fbs.GetType(); t != null && t != typeof(MonoBehaviour); t = t.BaseType)
+                    foreach (var m in t.GetMembers(A)) lines.AppendLine("FBS " + t.Name + " " + m.MemberType + " " + m);
+            object mouth = fbs != null ? MemberOf(fbs, "MouthCtrl") : null;
+            lines.AppendLine("MouthCtrl " + (mouth != null ? mouth.GetType().FullName : "none"));
+            if (mouth != null)
+                for (var t = mouth.GetType(); t != null && t != typeof(object); t = t.BaseType)
+                    foreach (var m in t.GetMembers(A)) lines.AppendLine("MOUTH " + t.Name + " " + m.MemberType + " " + m);
+            lines.AppendLine("status: mouthPtn " + cha.fileStatus.mouthPtn + " mouthOpenMax " + cha.fileStatus.mouthOpenMax + " mouthFixed " + cha.fileStatus.mouthFixed);
+            MouthValues("start", mouth);
+            // the voice value (FaceBlendShape's), set each frame for a second
+            var setVoice = fbs != null ? FindMethod(fbs.GetType(), "voice") : null;
+            lines.AppendLine("voice setter: " + (setVoice != null ? setVoice.ToString() : "none"));
+            foreach (float max in new[] { 1f, 0.3f })
+            {
+                cha.ChangeMouthOpenMax(max);
+                cha.ChangeMouthFixed(false);
+                yield return null;
+                MouthValues("open max " + max + " before", mouth);
+                if (setVoice != null)
+                {
+                    float until = Time.realtimeSinceStartup + 1f;
+                    var seen = new List<string>();
+                    while (Time.realtimeSinceStartup < until)
+                    {
+                        try { setVoice.Invoke(fbs, new object[] { 1f }); } catch (Exception e) { seen.Add("error " + (e.InnerException ?? e).Message); break; }
+                        yield return new WaitForEndOfFrame();
+                        seen.Add(MouthNow(mouth));
+                    }
+                    lines.AppendLine("voice 1 each frame, open max " + max + ": " + string.Join(" | ", seen.GetRange(Math.Max(0, seen.Count - 3), Math.Min(3, seen.Count)).ToArray()));
+                    yield return new WaitForSeconds(0.5f);
+                    MouthValues("voice no longer set, open max " + max, mouth);
+                }
+                // the mouth's open rate itself, set each frame
+                var rate = mouth != null ? FindSetter(mouth.GetType(), "openrate") : null;
+                lines.AppendLine("open rate setter: " + (rate != null ? rate.ToString() : "none"));
+                if (rate != null)
+                {
+                    float until = Time.realtimeSinceStartup + 1f;
+                    var seen = new List<string>();
+                    while (Time.realtimeSinceStartup < until)
+                    {
+                        try { rate.Invoke(mouth, new object[] { 1f }); } catch (Exception e) { seen.Add("error " + (e.InnerException ?? e).Message); break; }
+                        yield return new WaitForEndOfFrame();
+                        seen.Add(MouthNow(mouth));
+                    }
+                    lines.AppendLine("open rate 1 each frame, open max " + max + ": " + string.Join(" | ", seen.GetRange(Math.Max(0, seen.Count - 3), Math.Min(3, seen.Count)).ToArray()));
+                }
+            }
+            // a fixed mouth: whether either way still moves it
+            cha.ChangeMouthOpenMax(0.6f);
+            cha.ChangeMouthFixed(true);
+            yield return null;
+            MouthValues("fixed at 0.6", mouth);
+            if (setVoice != null)
+            {
+                for (int i = 0; i < 20; i++) { setVoice.Invoke(fbs, new object[] { 0f }); yield return new WaitForEndOfFrame(); }
+                MouthValues("fixed, voice 0 for 20 frames", mouth);
+            }
+            cha.ChangeMouthFixed(false);
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        static object MemberOf(object o, string name)
+        {
+            for (var t = o.GetType(); t != null; t = t.BaseType)
+            {
+                var p = t.GetProperty(name, PF | System.Reflection.BindingFlags.DeclaredOnly);
+                if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(o, null);
+                var f = t.GetField(name, PF | System.Reflection.BindingFlags.DeclaredOnly);
+                if (f != null) return f.GetValue(o);
+            }
+            return null;
+        }
+
+        static System.Reflection.MethodInfo FindMethod(Type t, string part)
+        {
+            foreach (var m in t.GetMethods(PF))
+                if (m.Name.ToLowerInvariant().Contains(part) && m.Name.StartsWith("Set") && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(float)) return m;
+            return null;
+        }
+
+        static System.Reflection.MethodInfo FindSetter(Type t, string part)
+        {
+            foreach (var m in t.GetMethods(PF))
+                if (m.Name.ToLowerInvariant().Replace("_", "").Contains(part) && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(float)) return m;
+            return null;
+        }
+
+        // the mouth control's numbers now (each float / int / bool field)
+        static string MouthNow(object mouth)
+        {
+            if (mouth == null) return "-";
+            var parts = new List<string>();
+            for (var t = mouth.GetType(); t != null && t != typeof(object); t = t.BaseType)
+                foreach (var f in t.GetFields(PF | System.Reflection.BindingFlags.DeclaredOnly))
+                    if (f.FieldType == typeof(float) || f.FieldType == typeof(int) || f.FieldType == typeof(bool))
+                        parts.Add(f.Name + "=" + Convert.ToString(f.GetValue(mouth), System.Globalization.CultureInfo.InvariantCulture));
+            return string.Join(" ", parts.ToArray());
+        }
+
+        void MouthValues(string when, object mouth) { lines.AppendLine(when + ": " + MouthNow(mouth)); }
+
+        // --muse-probe=mouth2: the voice value set where the original sets it (a postfix on ChaControl.UpdateBlendShapeVoice),
+        // and Studio's own mouth settings on the character (its lip sync, its mouth opening) - whether the mouth follows: fixed
+        // as it starts, unfixed, a 4 Hz open / close; two small pictures of her face (shut, open)
+        static float probeVoice = -1f;
+        static int voiceCalls;
+
+        static void AfterVoiceForProbe(ChaControl __instance)
+        {
+            voiceCalls++;
+            if (probeVoice >= 0f && __instance.fbsCtrl != null) __instance.fbsCtrl.SetVoiceVaule(probeVoice);
+        }
+
+        IEnumerator Mouth2Try()
+        {
+            yield return new WaitForSeconds(2f);
+            var oci = h.Stage.Heroine;
+            var cha = h.Stage.Cha;
+            const System.Reflection.BindingFlags A = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly;
+            foreach (var t in new[] { oci.GetType(), oci.oiCharInfo.GetType() })
+                for (var u = t; u != null && u != typeof(object); u = u.BaseType)
+                    foreach (var m in u.GetMembers(A))
+                    {
+                        string n = m.Name.ToLowerInvariant();
+                        if (n.Contains("mouth") || n.Contains("lip") || n.Contains("voice")) lines.AppendLine("STUDIO " + u.Name + " " + m.MemberType + " " + m);
+                    }
+            lines.AppendLine("oiCharInfo lipSync " + MemberOf(oci.oiCharInfo, "lipSync") + " mouthOpen " + MemberOf(oci.oiCharInfo, "mouthOpen"));
+            var harmony = new HarmonyLib.Harmony("musestudio.probe.mouth");
+            harmony.Patch(HarmonyLib.AccessTools.Method(typeof(ChaControl), "UpdateBlendShapeVoice"), null, new HarmonyLib.HarmonyMethod(typeof(Probe), "AfterVoiceForProbe"));
+            var mouth = cha.mouthCtrl;
+            voiceCalls = 0;
+            yield return new WaitForSeconds(1f);
+            lines.AppendLine("UpdateBlendShapeVoice calls in 1 s: " + voiceCalls + " (frames " + (int)(1f / Mathf.Max(Time.smoothDeltaTime, 1e-4f)) + "/s)");
+            lines.AppendLine("start: " + MouthNow(mouth));
+            probeVoice = 1f;
+            yield return new WaitForSeconds(0.5f);
+            lines.AppendLine("voice 1 as it starts (fixed?): " + MouthNow(mouth));
+            cha.ChangeMouthFixed(false);
+            yield return new WaitForSeconds(0.5f);
+            lines.AppendLine("voice 1, unfixed: " + MouthNow(mouth));
+            yield return FaceShot("mouth_open.png");
+            probeVoice = 0f;
+            yield return new WaitForSeconds(0.5f);
+            lines.AppendLine("voice 0, unfixed: " + MouthNow(mouth));
+            yield return FaceShot("mouth_shut.png");
+            // a 4 Hz open / close: the open rate read at each frame's end
+            var seen = new List<string>();
+            float t0 = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - t0 < 1f)
+            {
+                float t = Time.realtimeSinceStartup - t0;
+                probeVoice = Mathf.Repeat(t * 4f, 1f) < 0.5f ? 1f : 0f;
+                yield return new WaitForEndOfFrame();
+                var f = mouth.GetType().GetField("openRate", PF);
+                seen.Add(t.ToString("F2") + ":" + probeVoice + "->" + (f != null ? Convert.ToSingle(f.GetValue(mouth)).ToString("F2") : "?"));
+            }
+            lines.AppendLine("4 Hz: " + string.Join(" ", seen.ToArray()));
+            // her face's open max small: the opening scaled
+            cha.ChangeMouthOpenMax(0.3f);
+            probeVoice = 1f;
+            yield return new WaitForSeconds(0.5f);
+            lines.AppendLine("open max 0.3, voice 1: " + MouthNow(mouth));
+            // Studio's lip sync off / on (the character's own setting) and its mouth opening
+            var lipOff = oci.GetType().GetMethod("ChangeLipSync", PF);
+            if (lipOff != null)
+            {
+                lipOff.Invoke(oci, new object[] { false });
+                yield return new WaitForSeconds(0.5f);
+                lines.AppendLine("Studio lip sync off, voice 1: " + MouthNow(mouth));
+                lipOff.Invoke(oci, new object[] { true });
+                yield return new WaitForSeconds(0.5f);
+                lines.AppendLine("Studio lip sync on, voice 1: " + MouthNow(mouth));
+            }
+            probeVoice = -1f;
+            harmony.UnpatchSelf();
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        IEnumerator FaceShot(string name)
+        {
+            var cha = h.Stage.Cha;
+            var head = HIK.Find(cha.objBodyBone.transform, "cf_j_head").position + Vector3.up * 0.06f;
+            yield return Shot(head + cha.transform.forward * 0.45f, head, 30f, name);
         }
 
         IEnumerator ShoesTry()
