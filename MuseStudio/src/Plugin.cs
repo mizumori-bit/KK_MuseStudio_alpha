@@ -20,6 +20,7 @@ namespace MuseStudio
     [BepInPlugin(GUID, "MuseStudio", Version)]
     [BepInProcess("CharaStudio")]
     [BepInDependency(KKAPI.KoikatuAPI.GUID)]
+    [BepInDependency("keelhauled.hideallui", BepInDependency.DependencyFlags.SoftDependency)]      // (loaded first when there: StudioKeys keeps its Space off the stage)
     public class MuseStudioPlugin : BaseUnityPlugin
     {
         public const string GUID = "metamuse.musestudio";

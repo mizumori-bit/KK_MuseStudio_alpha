@@ -523,6 +523,21 @@ namespace MuseStudio
             bool menuShown = false;
             foreach (var c in UnityEngine.Object.FindObjectsOfType<Canvas>()) if (c.name == "Canvas Main Menu" && c.gameObject.activeInHierarchy) menuShown = true;
             Check("Studio's UI and its guide objects hidden", st.StudioUiHidden && !menuShown && !Singleton<Studio.Studio>.Instance.workInfo.visibleAxis);
+            // HideAllUI's Space (its own flag, flipped each press: the second press set Studio's canvases on over the stage - the
+            // user's finding of 2026-11-07) does nothing on the stage: its toggle twice, Studio's UI still hidden
+            {
+                var haCore = HarmonyLib.AccessTools.TypeByName("HideAllUI.HideAllUICore");
+                var haHandler = haCore != null ? HarmonyLib.AccessTools.Field(haCore, "currentUIHandler") : null;
+                object haNow = haHandler != null ? haHandler.GetValue(null) : null;
+                int haBlocked0 = StudioKeys.HideAllUiBlocked;
+                if (haNow != null)
+                    for (int k = 0; k < 2; k++) HarmonyLib.AccessTools.Method(haNow.GetType(), "ToggleUI").Invoke(haNow, null);
+                yield return null;
+                if (haNow == null) Note("HideAllUI: not here (nothing to keep off the stage)");
+                else Check("Studio's UI: HideAllUI's Space (its toggle, twice) does nothing on the stage - Studio's UI still hidden",
+                           StudioKeys.HideAllUiKept && StudioKeys.HideAllUiBlocked == haBlocked0 + 2 && !st.StudioCanvasShown() && st.StudioUiHidden,
+                           "kept " + StudioKeys.HideAllUiKept + " blocked " + (StudioKeys.HideAllUiBlocked - haBlocked0) + " shown " + st.StudioCanvasShown());
+            }
             var idle = Json.Arr(Json.Obj(Json.Obj(Data.Load("scenes.json"), "scenes"), "idle"), "anime");
             var ai = st.Heroine.oiCharInfo.animeInfo;
             int f0 = Blend.Faded;
@@ -4057,7 +4072,7 @@ namespace MuseStudio
             yield return RealInput.Key(0x20);
             yield return Wait(0.4f);
             Note("match UI: Space seen by Unity " + (MuseStudioPlugin.SpaceSeen - space0) + " time(s)");
-            Check("match UI (real keys): Space advances the words", !bp.Busy || bp.Text != "よろしくね。",
+            Check("match UI (real keys): Space advances the words - Studio's UI still hidden (HideAllUI's Space kept off the stage)", (!bp.Busy || bp.Text != "よろしくね。") && !st.StudioCanvasShown(),
                   bp.Text + " " + RealInput.LastError + " typing " + Ui.Typing + " (control " + GUIUtility.keyboardControl + ") revealing " + bp.Revealing + " modal " + h.UiForCheck.Modal);
             bp.Advance(true);
             // the phases: Muse moves on to the negotiation; its limit (1 turn each here) moves on to sex by itself
