@@ -13,6 +13,7 @@ from __future__ import annotations
 import glob
 import os
 import shutil
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,9 @@ def csc() -> list[str]:
     return ["dotnet", sdks[-1]]
 
 
+BEPINEX_REFUSES = ["=", "\n", "\t", "\\", '"', "'", "[", "]"]     # (BepInEx's ConfigDefinition: in a section or a key)
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     managed = GAME / "CharaStudio_Data" / "Managed"
@@ -40,6 +44,16 @@ def main() -> int:
     refs += [GAME / "BepInEx" / "core" / n for n in ("BepInEx.dll", "0Harmony.dll")]
     refs += [GAME / "BepInEx" / "plugins" / n for n in PLUGIN_REFS]
     srcs = sorted((ROOT / "src").glob("*.cs"))
+    # (a setting's section or key with a character BepInEx refuses throws in the plugin's Awake - the plugin then does
+    # nothing at all, silently: 2026-11-07, an apostrophe in a key)
+    bad = []
+    for s in srcs:
+        for m in re.finditer(r'Config\.Bind\(\s*"([^"]*)"\s*,\s*"([^"]*)"', s.read_text(encoding="utf-8")):
+            for part in m.groups():
+                if any(c in part for c in BEPINEX_REFUSES):
+                    bad.append(f"{s.name}: {part!r}")
+    if bad:
+        sys.exit("build: a setting's section or key has a character BepInEx refuses (= tab newline backslash quotes [ ]): " + "; ".join(bad))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     cmd = csc() + ["-nologo", "-noconfig", "-nostdlib+", "-target:library", "-langversion:7.3", "-optimize+", "-debug-",
                    "-warn:4", "-nowarn:1701,1702", f"-out:{OUT}"] + [f"-r:{r}" for r in refs] + [str(s) for s in srcs]

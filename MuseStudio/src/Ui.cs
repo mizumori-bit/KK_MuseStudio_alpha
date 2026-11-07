@@ -1254,6 +1254,8 @@ namespace MuseStudio
             if (CoordinateNote.Length > 0) GUILayout.Label(CoordinateNote, small);
         }
 
+        public bool AllRooms;             // (the 場所 menu: every registered room, not only the usual ones)
+
         void DrawLocations(Rect r, float s)
         {
             float lh = 26f * s;
@@ -1266,10 +1268,26 @@ namespace MuseStudio
                 ed.Toggle(!ed.On);
                 menu = "";
             }
-            scroll = GUILayout.BeginScrollView(scroll);
-            foreach (var key in host.Stage.LocationKeys())
+            // the usual rooms (the kept ones), or every registered room (PR #46 §4.1: loaded when one goes there)
+            int total = host.Places != null ? host.Places.Count : 0;
+            if (total > 0 && GUILayout.Button(AllRooms ? "いつもの部屋だけ" : "全部の部屋（" + total + "）", button, GUILayout.Height(lh)))
             {
+                AllRooms = !AllRooms;
+                scroll = Vector2.zero;
+            }
+            scroll = GUILayout.BeginScrollView(scroll);
+            var usual = new List<string>(host.Stage.LocationKeys());
+            bool apartTold = false;
+            foreach (var key in AllRooms ? host.Stage.AllLocationKeys() : usual)
+            {
+                // (all of them: the kept rooms - the home - first, a line before the rest)
+                if (AllRooms && !apartTold && !usual.Contains(key))
+                {
+                    apartTold = true;
+                    GUILayout.Label("── ほかの部屋（行くときに読み込み） ──", small);
+                }
                 string nm = Json.Str(host.Stage.LocationInfo(key), "name", key);
+                if (host.Rooms.Loading(key)) nm += "（読み込み中）";
                 if (key == host.Presence.HerRoom && key != host.Stage.Location) nm += "（彼女がいる）";
                 if (key == host.Stage.Location) nm = "● " + nm;
                 if (GUILayout.Button(nm, button, GUILayout.Height(lh)))

@@ -41,6 +41,7 @@
 !/bridge/muse_match.py
 !/bridge/muse_listener.py
 !/bridge/labels.py
+!/bridge/room_labels.json
 !/bridge/static/
 !/bridge/tests/
 !/bridge/bridge_config.example.json

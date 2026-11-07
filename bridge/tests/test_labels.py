@@ -78,6 +78,25 @@ class Labels(unittest.TestCase):
         code, ans = b.call("POST", "/api/labels/rooms", {"id": "myroom", "text": "x"}, role="muse")
         self.assertEqual((code, ans["reason"]), (409, "not_listed"), "rooms are not listed by the app yet")
 
+    def test_b2_rooms_listed_by_the_catalog(self):
+        # (contract 1.31: the app's catalog lists every room - its id, a mod's with colons - and the room labels open)
+        b = self.b
+        cat = {"version": 1, "plays": [], "rooms": [{"id": "orig:0", "key": "myroom", "name": "主人公の部屋", "hash": "r0", "usual": True},
+                                                    {"id": "mod:com.example.Map.Room:7501", "key": "mod:com.example.Map.Room:7501", "name": "Room", "hash": "r1", "usual": False}]}
+        self.assertEqual(b.call("POST", "/api/catalog", cat, role="app")[0], 200)
+        code, ans = b.call("POST", "/api/labels/rooms", {"id": "mod:com.example.Map.Room:7501", "text": "ホテルのスイート。ふたりで過ごす夜に"}, role="muse")
+        self.assertEqual((code, ans["rev"]), (200, 1))
+        view = b.call("GET", "/api/labels/rooms", role="muse")[1]
+        self.assertTrue(view["listed"])
+        self.assertEqual(view["unlabeled"], [])
+        # (PR #46 §4.3) the original's room came with its label written beforehand (the repository's bridge/room_labels.json)
+        pre = view["labels"]["orig:0"]
+        self.assertEqual((pre["by"], pre["rev"]), ("preset", 1))
+        self.assertIn("自室", pre["text"])
+        self.assertEqual(b.call("POST", "/api/labels/rooms", {"id": "orig:0", "text": "ふたりの部屋", "rev": 1}, role="muse")[0], 200, "Muse may write over a preset")
+        self.assertEqual(b.call("GET", "/api/labels/rooms", role="muse")[1]["labels"]["orig:0"]["by"], "muse")
+        self.assertEqual(b.call("POST", "/api/labels/rooms", {"id": "myroom", "text": "x"}, role="muse")[0], 404, "the key is not the id")
+
     def test_c_the_users_own_label_is_kept(self):
         d = Path(tempfile.mkdtemp(prefix="labels_user_"))
         f = d / "labels.json"

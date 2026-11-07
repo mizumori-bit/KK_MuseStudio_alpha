@@ -43,6 +43,7 @@ namespace MuseStudio
             if (room == "pushup") { yield return PushupTry(); yield break; }
             if (room == "mouth") { yield return MouthTry(); yield break; }
             if (room == "mouth2") { yield return Mouth2Try(); yield break; }
+            if (room.StartsWith("maps")) { yield return MapsTry(room.Length > 5 ? room.Substring(5) : "8"); yield break; }
             if (room.StartsWith("aibuuser:")) { yield return AibuUser(room.Substring(9)); yield break; }
             if (room == "gropehand") { yield return GropeHand(); yield break; }
             if (room == "ikfight") { yield return IkFight(); yield break; }
@@ -1313,6 +1314,168 @@ namespace MuseStudio
             var cha = h.Stage.Cha;
             var head = HIK.Find(cha.objBodyBone.transform, "cf_j_head").position + Vector3.up * 0.06f;
             yield return Shot(head + cha.transform.forward * 0.45f, head, 30f, name);
+        }
+
+        // --muse-probe=maps (PR #46 §4.1, PR #47: the rooms registered at start-up): Studio's map list (number, name, bundle,
+        // scene); the sideloader's studio resolution entries for the mod maps (their GUID and original slot: the rooms' stable
+        // ids, D3); the game's own map list (map/list/mapinfo: its numbers name the H points' prefabs) matched to Studio's by
+        // the scene; then the lazy load measured: rooms not kept loaded one after another beside the scene as Rooms.Load does
+        // (seconds, private memory after each), then unloaded (the memory after) - the limit's first numbers
+        IEnumerator MapsTry(string arg)
+        {
+            yield return new WaitForSeconds(2f);
+            var maps = Singleton<Studio.Info>.Instance.dicMapLoadInfo;
+            var sbm = new StringBuilder();
+            int mods = 0;
+            foreach (var kv in maps)
+            {
+                var m = kv.Value;
+                if (kv.Key >= 100000000) mods++;
+                sbm.AppendLine("MAP\t" + kv.Key + "\t" + m.name + "\t" + m.bundlePath + "\t" + m.fileName + "\t" + Fields(m));
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "maps.txt"), sbm.ToString());
+            lines.AppendLine("studio maps " + maps.Count + " (numbers from 100000000: " + mods + ")");
+            // the sideloader's studio entries
+            Type uar = null;
+            foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) if (uar == null) uar = a.GetType("Sideloader.AutoResolver.UniversalAutoResolver");
+            var studio = uar != null ? (MemberOfType(uar, "LoadedStudioResolutionInfo") as System.Collections.IEnumerable) : null;
+            int n = 0, mapsHit = 0;
+            var sbs = new StringBuilder();
+            if (studio != null)
+                foreach (var info in studio)
+                {
+                    n++;
+                    var t = info.GetType();
+                    int local = Convert.ToInt32(MemberOfAny(info, "LocalSlot") ?? -1);
+                    bool isMap = maps.ContainsKey(local);
+                    if (n <= 3 || isMap)
+                    {
+                        var parts = new List<string>();
+                        foreach (var f in t.GetFields(PF)) parts.Add(f.Name + "=" + Convert.ToString(f.GetValue(info)));
+                        foreach (var p in t.GetProperties(PF)) if (p.GetIndexParameters().Length == 0) { try { parts.Add(p.Name + "=" + Convert.ToString(p.GetValue(info, null))); } catch (Exception) { } }
+                        sbs.AppendLine((isMap ? "MAPRES\t" : "RES\t") + string.Join(" ", parts.ToArray()) + (isMap ? "\tname=" + maps[local].name : ""));
+                    }
+                    if (isMap) mapsHit++;
+                }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "resolve.txt"), sbs.ToString());
+            lines.AppendLine("sideloader studio entries " + n + ", whose LocalSlot is a Studio map number " + mapsHit + " (type " + (studio != null ? studio.GetType().FullName : "none") + ")");
+            // the game's map list
+            Type mi = null;
+            foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) { var t = a.GetType("MapInfo"); if (t != null && mi == null) mi = t; }
+            lines.AppendLine("MapInfo type " + (mi != null ? mi.FullName : "none"));
+            var sbg = new StringBuilder();
+            var gameByScene = new Dictionary<string, int>();
+            if (mi != null)
+            {
+                List<string> bundles = null;
+                try { bundles = CommonLib.GetAssetBundleNameListFromPath("map/list/mapinfo/", true); } catch (Exception e) { lines.AppendLine("mapinfo list: " + e.Message); }
+                lines.AppendLine("mapinfo bundles " + (bundles != null ? bundles.Count : -1));
+                if (bundles != null)
+                    foreach (var bundle in bundles)
+                    {
+                        UnityEngine.Object[] assets = null;
+                        try { assets = AssetBundleManager.LoadAllAsset(bundle, mi, null).GetAllAssets<UnityEngine.Object>(); }
+                        catch (Exception e) { sbg.AppendLine("BUNDLE\t" + bundle + "\terror " + e.Message); continue; }
+                        foreach (var asset in assets ?? new UnityEngine.Object[0])
+                        {
+                            var param = MemberOfAny(asset, "param") as System.Collections.IEnumerable;
+                            if (param == null) continue;
+                            foreach (var p in param)
+                            {
+                                int no = Convert.ToInt32(MemberOfAny(p, "No") ?? -1);
+                                string ab = Convert.ToString(MemberOfAny(p, "AssetBundleName")), an = Convert.ToString(MemberOfAny(p, "AssetName"));
+                                sbg.AppendLine("GAME\t" + bundle + "\t" + no + "\t" + MemberOfAny(p, "MapName") + "\t" + ab + "\t" + an);
+                                gameByScene[(ab + "|" + an).ToLowerInvariant()] = no;
+                            }
+                        }
+                    }
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "gamemaps.txt"), sbg.ToString());
+            int matched = 0, withPoints = 0;
+            var sbx = new StringBuilder();
+            foreach (var kv in maps)
+            {
+                int g;
+                if (!gameByScene.TryGetValue((kv.Value.bundlePath + "|" + kv.Value.fileName).ToLowerInvariant(), out g)) continue;
+                matched++;
+                int pts = HData.Points(g).Count;
+                if (pts > 0) withPoints++;
+                sbx.AppendLine("MATCH\t" + kv.Key + "\t" + kv.Value.name + "\tgame " + g + "\tpoints " + pts);
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "matched.txt"), sbx.ToString());
+            lines.AppendLine("studio maps matched to a game map by the scene " + matched + ", with H points " + withPoints);
+            // the lazy load: arg = how many rooms (default 8), the largest first by nothing in particular - the list's order
+            // (arg: how many - "mods:N" the mod maps only)
+            bool modsOnly = arg.StartsWith("mods:");
+            int want = 8;
+            int.TryParse(modsOnly ? arg.Substring(5) : arg, out want);
+            var tried = new List<int>();
+            foreach (var kv in maps)
+            {
+                if (tried.Count >= want) break;
+                if (modsOnly && kv.Key < 100000000) continue;
+                if (!h.Rooms.HasMap(kv.Key) && kv.Key != Singleton<Studio.Map>.Instance.no) tried.Add(kv.Key);
+            }
+            long ws;
+            long mem0 = Rooms.MemoryMB(out ws);
+            lines.AppendLine("lazy: before " + mem0 + " MB private, " + ws + " MB working set; kept rooms " + string.Join(",", new List<string>(h.Rooms.Keys).ToArray()));
+            var loaded = new List<UnityEngine.SceneManagement.Scene>();
+            foreach (int no in tried)
+            {
+                var info = maps[no];
+                var before = new HashSet<int>();
+                for (int s = 0; s < UnityEngine.SceneManagement.SceneManager.sceneCount; s++) before.Add(UnityEngine.SceneManagement.SceneManager.GetSceneAt(s).GetHashCode());
+                float t0 = Time.realtimeSinceStartup;
+                try { AssetBundleManager.LoadLevel(info.bundlePath, info.fileName, true, info.manifest); }
+                catch (Exception e) { lines.AppendLine("lazy " + no + " error " + e.Message); continue; }
+                UnityEngine.SceneManagement.Scene sc = new UnityEngine.SceneManagement.Scene();
+                while (Time.realtimeSinceStartup - t0 < 60f)
+                {
+                    for (int s = 0; s < UnityEngine.SceneManagement.SceneManager.sceneCount; s++) { var c = UnityEngine.SceneManagement.SceneManager.GetSceneAt(s); if (!before.Contains(c.GetHashCode()) && c.isLoaded) sc = c; }
+                    if (sc.IsValid()) break;
+                    yield return null;
+                }
+                float took = Time.realtimeSinceStartup - t0;
+                if (sc.IsValid()) { foreach (var go in sc.GetRootGameObjects()) go.SetActive(false); loaded.Add(sc); }
+                yield return null;
+                long mem = Rooms.MemoryMB(out ws);
+                lines.AppendLine(string.Format("lazy {0} {1}: {2:F2} s, {3} MB private (+{4}), {5} MB working set", no, info.name, took, mem, mem - mem0, ws));
+            }
+            long memAll = Rooms.MemoryMB(out ws);
+            foreach (var sc in loaded) { var op = UnityEngine.SceneManagement.SceneManager.UnloadSceneAsync(sc); while (op != null && !op.isDone) yield return null; }
+            var un = Resources.UnloadUnusedAssets();
+            while (!un.isDone) yield return null;
+            GC.Collect();
+            yield return new WaitForSeconds(1f);
+            long memAfter = Rooms.MemoryMB(out ws);
+            lines.AppendLine(string.Format("lazy: {0} loaded {1} MB, unloaded {2} MB ({3} MB working set)", loaded.Count, memAll, memAfter, ws));
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        static object MemberOfType(Type t, string name)
+        {
+            const System.Reflection.BindingFlags S = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+            var p = t.GetProperty(name, S);
+            if (p != null) return p.GetValue(null, null);
+            var f = t.GetField(name, S);
+            return f != null ? f.GetValue(null) : null;
+        }
+
+        static object MemberOfAny(object o, string name)
+        {
+            if (o == null) return null;
+            for (var t = o.GetType(); t != null; t = t.BaseType)
+            {
+                var f = t.GetField(name, PF | System.Reflection.BindingFlags.DeclaredOnly);
+                if (f != null) return f.GetValue(o);
+                var p = t.GetProperty(name, PF | System.Reflection.BindingFlags.DeclaredOnly);
+                if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(o, null);
+            }
+            return null;
         }
 
         IEnumerator ShoesTry()

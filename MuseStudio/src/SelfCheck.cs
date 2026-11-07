@@ -3634,25 +3634,73 @@ namespace MuseStudio
             bp.Advance(true);
             yield return Wait(0.5f);
 
-            // a block's location: only the kept rooms are places (a Studio map beside them shows broken lightmaps)
+            // (PR #46 §4.1) every Studio map registered at start-up (ids: the original's number, a mod's GUID and number in it), the
+            // ones new to this PC told (rooms_added), the kept rooms - the home - first in every list (the user's note of
+            // 2026-11-07); a block's location to a room not kept: loaded beside the others then, its features told
+            // (room_features), shown; a room by its id; a place there is not refused (unknown_location); past the extra rooms
+            // kept loaded, the one used longest ago let go
             string fromLoc = st.Location;
+            var places = h.Places;
+            var rgMy = places.ByKey("myroom");
+            var rgGirls = places.ByKey("girls_room");
+            int rgMaps = Singleton<Info>.Instance.dicMapLoadInfo.Count;
+            var rgAll = st.AllLocationKeys();
+            var rgUsual = new List<string>(st.LocationKeys());
+            bool rgFirst = rgUsual.Count > 0 && rgAll.Count >= rgUsual.Count;
+            for (int i = 0; rgFirst && i < rgUsual.Count; i++) if (rgAll[i] != rgUsual[i]) rgFirst = false;
+            var rgAdded = LastEvent("rooms_added");
+            var rgCat = Json.Arr(Json.Obj(Json.Parse(Http("GET", "/api/catalog", null)), "catalog"), "rooms") ?? new List<object>();
+            bool rgCatFirst = rgCat.Count == places.Count;
+            for (int i = 0; rgCatFirst && i < rgUsual.Count; i++) rgCatFirst = Json.Str(rgCat[i], "key") == rgUsual[i] && rgCat[i] is Dictionary<string, object> && (bool)((Dictionary<string, object>)rgCat[i])["usual"];
+            bool rgReg = places.Count == rgMaps && rgMy != null && rgMy.Id == "orig:0" && rgGirls != null && rgGirls.Id.StartsWith("mod:") && !rgGirls.Id.StartsWith("mod:?:")
+                         && places.AddedAtStart == places.Count && (Json.Arr(rgAdded, "rooms") ?? new List<object>()).Count == places.Count
+                         && rgAll.Count == places.Count && rgFirst && rgCatFirst && !rgUsual.Contains("love_hotel");
+            Check("rooms: every Studio map registered (the original's by number, a mod's by its GUID and number), told as added, the kept rooms first in the lists and the catalog",
+                  rgReg, string.Format("{0}/{1} maps, myroom {2}, girls_room {3}, added {4}, first {5}, catalog {6}/{7}, usual {8}", places.Count, rgMaps,
+                  rgMy != null ? rgMy.Id : "-", rgGirls != null ? rgGirls.Id : "-", places.AddedAtStart, rgFirst, rgCat.Count, rgCatFirst, string.Join(",", rgUsual.ToArray())));
+            // a room not kept: loaded on the move, its features told, then the block
             Send(With(Line("ホテルへ。"), "location", "love_hotel"));
-            yield return Until(() => bp.Busy && bp.Text == "ホテルへ。", 15f);
+            yield return Until(() => bp.Busy && bp.Text == "ホテルへ。" && st.Location == "love_hotel", 20f);
             yield return Wait(0.8f);
-            var lr = LastEvent("block_refused");
-            Check("block: a location not kept in the scene is refused (block_refused not_kept) and the block shows where she is", st.Location == fromLoc
-                  && Json.Str(lr, "field") == "location" && Json.Str(lr, "reason") == "not_kept" && bp.Text == "ホテルへ。", st.Location + " " + Json.Write(lr));
+            var rgFeat = LastEvent("room_features");
+            bool rgLazy = st.Location == "love_hotel" && h.Rooms.Has("love_hotel") && !h.Rooms.IsKept("love_hotel") && st.Spots.Count > 1
+                          && Json.Str(Json.Obj(rgFeat, "room"), "key") == "love_hotel" && (Json.Arr(rgFeat, "places") ?? new List<object>()).Count > 0;
+            yield return Shot("04_love_hotel.png");
             bp.Advance(true);
             yield return Wait(0.5f);
+            // a place there is not
+            Send(With(Line("どこにもない部屋へ。"), "location", "nowhere_room"));
+            yield return Until(() => bp.Busy && bp.Text == "どこにもない部屋へ。", 15f);
+            yield return Wait(0.6f);
+            var lr = LastEvent("block_refused");
+            bool rgUnknown = Json.Str(lr, "field") == "location" && Json.Str(lr, "reason") == "unknown_location" && st.Location == "love_hotel";
+            bp.Advance(true);
+            yield return Wait(0.5f);
+            // a room by its id (one of the original's maps no one curated), with one extra room kept loaded: the hotel let go
+            var rgAuto = places.All.Find(e => !e.Curated && e.Id.StartsWith("orig:") && !h.Rooms.Has(e.Key));
+            int rgExtra0 = h.ExtraRooms.Value, rgUnloaded0 = h.Rooms.Unloaded;
+            h.ExtraRooms.Value = 1;
+            Send(With(Line("別の部屋へ。"), "location", rgAuto != null ? rgAuto.Id : "-"));
+            yield return Until(() => bp.Busy && bp.Text == "別の部屋へ。" && rgAuto != null && st.Location == rgAuto.Key, 20f);
+            yield return Until(() => h.Rooms.Unloaded > rgUnloaded0, 10f);
+            yield return Wait(0.5f);
+            bool rgById = rgAuto != null && st.Location == rgAuto.Key && h.Rooms.Has(rgAuto.Key) && rgAuto.Features != null;
+            bool rgTrim = !h.Rooms.Has("love_hotel") && h.Rooms.Unloaded == rgUnloaded0 + 1;
+            bp.Advance(true);
+            yield return Wait(0.5f);
+            Check("rooms: a room not kept loaded on the move (its features told, its spots), one by its id; an unknown place refused; past the extra rooms kept loaded the one used longest ago let go",
+                  rgLazy && rgUnknown && rgById && rgTrim, string.Format("lazy {0} ({1} spots, {2:F2} s, {3}) unknown {4} ({5}) by id {6} ({7}) trim {8} (unloaded {9})", rgLazy, st.Spots.Count,
+                  h.Rooms.LastLazySeconds, Json.Write(rgFeat), rgUnknown, Json.Write(lr), rgById, rgAuto != null ? rgAuto.Id : "-", rgTrim, h.Rooms.Unloaded - rgUnloaded0));
             Send(With(Line("わたしの部屋へ。"), "location", "girls_room"));
             yield return Until(() => st.Location == "girls_room" && bp.Text == "わたしの部屋へ。", 20f);
             Check("block: its location (a kept room) moves there first, then shows", st.Location == "girls_room" && bp.Text == "わたしの部屋へ。", st.Location);
+            h.ExtraRooms.Value = rgExtra0;
             yield return Wait(1.0f);
             yield return Shot("04_girls_room.png");
             bp.Advance(true);
             yield return Wait(1f);
             var keys = new List<string>(st.LocationKeys());
-            Check("locations: the places are the kept rooms (the menu lists them only)", keys.Count == new List<string>(h.Rooms.Keys).Count && !keys.Contains("love_hotel"),
+            Check("locations: the usual places are the kept rooms (the menu's first list)", keys.Count == new List<string>(h.Rooms.Keys).Count && !keys.Contains("love_hotel"),
                   string.Join(",", keys.ToArray()));
             Check("events: location_changed from the package", EventTypes().Contains("location_changed"));
             Check("sound: the door when the place changes", h.Sounds.Log.Contains("se_door1_open"));

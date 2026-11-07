@@ -118,7 +118,15 @@ namespace MuseStudio
             opts = options;
             var def = Json.Obj(Json.Obj(h.Urges.Doc, "outings"), kind);
             string room = Json.Str(def, "room", "");
-            if (def == null || !h.Rooms.Has(room)) return "no_room";
+            if (def == null || !h.Stage.Reachable(room)) return "no_room";
+            if (!h.Rooms.Has(room))
+            {
+                // her outing's room not loaded (PR #46 §4.1): it comes in first, then she goes
+                if (goingWhenIn) return "busy";
+                goingWhenIn = true;
+                MuseStudioPlugin.Instance.StartCoroutine(GoWhenIn(kind, options, room));
+                return "";
+            }
             if (h.Play.Active) h.Play.End("action");
             h.Stage.StopWalk(false);
             Kind = kind;
@@ -150,6 +158,16 @@ namespace MuseStudio
             h.Bridge.Event("outing_started", started);
             MuseStudioPlugin.Log.LogInfo(string.Format("MuseStudio: outing {0} to {1} at {2} (landmark {3})", kind, room, pos, marked));
             return "";
+        }
+
+        bool goingWhenIn;
+
+        System.Collections.IEnumerator GoWhenIn(string kind, Dictionary<string, object> options, string room)
+        {
+            yield return h.Stage.EnsureRoom(room);
+            goingWhenIn = false;
+            if (h.Rooms.Has(room)) Go(kind, options);
+            else MuseStudioPlugin.Log.LogWarning("MuseStudio: outing " + kind + ": its room " + room + " could not be loaded");
         }
 
         // the original's peeping motions: the toilet In, Loop (her pee) till the time is up, Out; the shower's loop
