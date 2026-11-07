@@ -2361,6 +2361,28 @@ namespace MuseStudio
                 && Refusals("settings.arousal_speed", "user_changed") == mwUser0 + 1 && Mathf.Abs(h.ArousalSpeed.Value - (mwA + 0.5f)) < 0.001f;
             h.GaugeSpeed.Value = mwG;
             h.ArousalSpeed.Value = mwA;
+            // (GPT's re-review of #41) a request in the very frame the window closes: the closing is settled first - the user's
+            // value wins over the request that waited and over the new one (both user_changed), and the user's change is told as theirs
+            float cfG = h.GaugeSpeed.Value;
+            int cfUser0 = Refusals("settings.gauge_speed", "user_changed");
+            MuseStudioPlugin.SettingsShown = true;
+            yield return Wait(0.3f);
+            bool cfSeen = h.SettingsOpenSeenForCheck;
+            h.MuseSettings(D("gauge_speed", 1.5, "request", "chk-close-1"), mwAim);
+            h.GaugeSpeed.Value = 1.25f;                         // (the user, in the window)
+            MuseStudioPlugin.SettingsShown = false;
+            h.MuseSettings(D("gauge_speed", 2.0, "request", "chk-close-2"), mwAim);     // (the same frame as the closing)
+            yield return Wait(0.5f);
+            Dictionary<string, object> cfUserEv = null;
+            foreach (var e in AllEvents()) if (Json.Str(e, "type") == "settings_changed" && Json.Str(e, "by") == "user") cfUserEv = e as Dictionary<string, object>;
+            object cfTo = null;
+            var cfCh = Json.Obj(Json.Obj(cfUserEv, "changed"), "gauge_speed");
+            if (cfCh != null) cfCh.TryGetValue("to", out cfTo);
+            bool cfDone = cfSeen && Mathf.Abs(h.GaugeSpeed.Value - 1.25f) < 0.001f && Refusals("settings.gauge_speed", "user_changed") == cfUser0 + 2
+                && cfTo != null && Math.Abs(Convert.ToDouble(cfTo) - 1.25) < 0.001;
+            h.GaugeSpeed.Value = cfG;
+            Check("Muse's speeds in the frame the settings window closes: the user's value wins over the waiting and the new request (user_changed), told as the user's",
+                  cfDone, string.Format("seen {0} gauge {1:F2} user's to {2}", cfSeen, h.GaugeSpeed.Value, cfTo));
             Check("Muse's speeds while the settings window is open: every request waits and is done in order when it closes (none lost); the user's change there wins",
                   mwDone, string.Format("open {0} waiting {1} requests {2} gauge {3:F2}", mwOpen, mwWaiting, string.Join(",", mwReqs.ToArray()), h.GaugeSpeed.Value));
 
@@ -2459,6 +2481,33 @@ namespace MuseStudio
             Check("moods after the app was closed: a long time settles them (bladder low, arousal everyday, no urge from it); a short time hardly moves them; the same launch keeps them; an old record settles",
                   rsLong && rsShort && rsSame && rsOld,
                   string.Format("long {0:F2}/{1:F2} ({2}) short {3:F2}/{4:F2} same {5} old {6}", rsLA, rsLB, rsHow, rsSA, rsSB, rsSame, rsOld));
+            // (GPT's re-review of #41) a moods file that cannot be read is never written over: a broken one is copied aside first
+            // (the copy the same bytes, the file afresh); one held by another program is left as it is until it reads, then written
+            string mfDir = Path.Combine(Path.GetTempPath(), "musestudio_moods_" + DateTime.Now.Ticks);
+            Directory.CreateDirectory(mfDir);
+            string mfBroken = Path.Combine(mfDir, "broken.json");
+            string mfText = "{\"card:a.png\": {\"values\": {\"arousal\": 0.5}, \"saved\": 1}, \"card:b.png\": {\"val";
+            File.WriteAllText(mfBroken, mfText);
+            Mood.ForFileCheck(h, mfBroken);
+            var mfAside = Directory.GetFiles(mfDir, "broken.json.unreadable-*");
+            bool mfCopied = mfAside.Length == 1 && File.ReadAllText(mfAside[0]) == mfText && Json.Parse(File.ReadAllText(mfBroken)) is Dictionary<string, object>;
+            string mfHeldPath = Path.Combine(mfDir, "held.json");
+            string mfHeldText = "{\"card:a.png\": {\"values\": {\"arousal\": 0.5}, \"saved\": 1}}";
+            File.WriteAllText(mfHeldPath, mfHeldText);
+            bool mfKept, mfAfter;
+            using (var hold = new FileStream(mfHeldPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var mfm = Mood.ForFileCheck(h, mfHeldPath);
+                mfm.SaveForCheck("card:x.png");
+                hold.Close();
+                mfKept = mfm.HeldForCheck && File.ReadAllText(mfHeldPath) == mfHeldText;
+                mfm.SaveForCheck("card:x.png");
+                var mfDoc = Json.Parse(File.ReadAllText(mfHeldPath)) as Dictionary<string, object>;
+                mfAfter = mfDoc != null && mfDoc.ContainsKey("card:a.png") && mfDoc.ContainsKey("card:x.png") && !mfm.HeldForCheck;
+            }
+            try { Directory.Delete(mfDir, true); } catch (Exception) { }
+            Check("moods file: a broken one is copied aside before anything is written (the same bytes); one held by another program is left as it was, then written keeping its records",
+                  mfCopied && mfKept && mfAfter, string.Format("copied {0} kept {1} after {2}", mfCopied, mfKept, mfAfter));
             Check("moods after the app was closed: the app's own closed time counts, not the time since her save (saved 4 h ago, a 5-minute restart: hardly moved; 6 h closed in all: settled; a record from before, a 5-minute restart: hardly moved)",
                   rsBShort && rsBLong && rsBefore, string.Format("B {0:F2}/{1:F2} long {2} before {3}", rsBA, rsBB, rsBLong, rsBefore));
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));

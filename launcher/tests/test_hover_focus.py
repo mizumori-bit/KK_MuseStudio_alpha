@@ -97,6 +97,31 @@ class HoverFocusTicks(unittest.TestCase):
         self.assertNotIn("focused", out)
         self.assertEqual(self.fg, OTHER)
 
+    def test_back_in_right_after_its_own_restore(self):
+        # (GPT's re-review of #40) the panel gave the keyboard back, the cursor comes back before the next tick: not a switch
+        # of the user's - the panel takes it again after enter_s
+        self.ticks(True, 0.4)
+        self.assertEqual(self.fg, PANEL)
+        last = ""
+        for _ in range(40):                               # (out, tick by tick, until the very tick that gave it back)
+            last = self.f.tick(PANEL, False, True, False, self.now, (BAR,))
+            self.now += 0.05
+            if last == "restored":
+                break
+        self.assertEqual(last, "restored")
+        self.assertEqual(self.fg, GAME)
+        out = self.ticks(True, 0.6)                       # (back in at the next tick)
+        self.assertNotIn("held", out)
+        self.assertIn("focused", out)
+        self.assertEqual(self.fg, PANEL)
+
+    def test_a_switch_while_the_cursor_was_outside(self):
+        self.ticks(False, 0.2)
+        self.fg = OTHER                                   # (the user switched while the cursor was elsewhere)
+        out = self.ticks(True, 0.6)
+        self.assertNotIn("held", out)
+        self.assertIn("focused", out)
+
     def test_a_held_button_still_switches_nothing(self):
         out = self.ticks(True, 1.0, buttons=True)
         self.assertNotIn("focused", out)
