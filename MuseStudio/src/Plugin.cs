@@ -136,7 +136,7 @@ namespace MuseStudio
                 new ConfigurationManagerAttributes { Category = "舞台", DispName = "カメラの記憶を初期値に戻す", Order = -7, HideDefaultButton = true,
                     CustomDrawer = e => ResetButton("camera", "全部の部屋のカメラの記憶を消す", () => CameraMemory.ResetAll()) }));
             resetPlacesEntry = Config.Bind("Stage", "Reset position adjustments", "", new ConfigDescription(
-                "「この部屋の位置を調整」で直したプレイ位置・行動の位置・立ち位置・近付くの行き先を、全部の部屋で原作の位置に戻します。ボタンを 2 回押すと戻ります。", null,
+                "「この部屋の位置を調整」で直したプレイ位置・行動の位置・立ち位置・近付くの行き先を、全部の部屋で原作の位置（初期値）に戻します。「今の位置をデフォルトにする」で保存したデフォルトは残り、各位置の「デフォルトに戻す」で戻せます。ボタンを 2 回押すと戻ります。", null,
                 new ConfigurationManagerAttributes { Category = "舞台", DispName = "位置の調整を初期値に戻す", Order = -8, HideDefaultButton = true,
                     CustomDrawer = e => ResetButton("places", "全部の部屋の位置の調整を戻す", () => SpotEditor.ResetAll()) }));
             RoomKeys = Config.Bind("Stage", "Rooms", "myroom,girls_room,bathroom,home_toilet,bedroom", Ja("舞台", "最初から並べて置く部屋",

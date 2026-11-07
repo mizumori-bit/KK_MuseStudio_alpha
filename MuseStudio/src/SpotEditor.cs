@@ -18,12 +18,22 @@ namespace MuseStudio
     // (the approach: its place itself); the references are read with it (Stage.LoadSpots / SpotsIn / StandOf, Outing.Place,
     // Stage.StartWalk), and a play on the spot moves with it. Also the user's way out of a motion that misses its furniture
     // (the toilet paper the motion reaches for) and of a walk through it (the approach's place).
+    //
+    // Three layers (PR #46 §4.2, handed over in PR #47): the initial place (the original's - generated, no record), the
+    // user's default (「今の位置をデフォルトにする」: spots.json's defaults) and the current one (spots.json's rooms: what is
+    // used). 「デフォルトに戻す」 puts the default back (none saved: the initial place); 「初期化」 the initial place, the
+    // default kept. Edited is a record in either layer (not a place off the original's: a spot moved back by hand is still
+    // edited until it is put back). The play spots shown by their kind (plays.json's places: 床・ベッド, 椅子, 壁 ...): only
+    // that kind's markers; a spot of several kinds is one spot - the same marker under each, one place.
     public class SpotEditor
     {
         readonly string path;
-        readonly Dictionary<string, object> rooms;
+        readonly Dictionary<string, object> rooms;          // the current adjustments: room -> id -> {move, turn} (the approach: {pos, turn})
+        readonly Dictionary<string, object> defaults;       // the user's defaults, the same shape
         public bool On;
         public string Kind = "play";
+        public string Category = "";                        // the play spots' kind shown ("" every one, "other" none of the known)
+        public bool EditedOnly;                             // only the references with a record (current or default)
         public string Selected = "";
         public bool Dragging;
         readonly List<GameObject> markers = new List<GameObject>();
@@ -52,6 +62,7 @@ namespace MuseStudio
             try { if (File.Exists(path)) doc = Json.Parse(File.ReadAllText(path, Encoding.UTF8)) as Dictionary<string, object>; }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: spots " + path + ": " + e.Message); }
             rooms = Json.Obj(doc, "rooms") ?? new Dictionary<string, object>();
+            defaults = Json.Obj(doc, "defaults") ?? new Dictionary<string, object>();
         }
 
         static MuseStudioPlugin H { get { return MuseStudioPlugin.Instance; } }
@@ -69,6 +80,86 @@ namespace MuseStudio
         }
 
         public bool HasOffset(string room, string id) { return Json.Obj(Json.Obj(rooms, room), id) != null; }
+
+        public bool HasDefault(string room, string id) { return Json.Obj(Json.Obj(defaults, room), id) != null; }
+
+        // edited: a record in either layer (PR #46 §4.2 - the record, not whether it sits off the original's place)
+        public bool Edited(string room, string id) { return HasOffset(room, id) || HasDefault(room, id); }
+
+        static Dictionary<string, object> Copy(Dictionary<string, object> o)
+        {
+            var c = new Dictionary<string, object>();
+            foreach (var kv in o) c[kv.Key] = kv.Value is List<object> ? new List<object>((List<object>)kv.Value) : kv.Value;
+            return c;
+        }
+
+        static Dictionary<string, object> Room(Dictionary<string, object> layer, string room)
+        {
+            var r = Json.Obj(layer, room);
+            if (r == null) { r = new Dictionary<string, object>(); layer[room] = r; }
+            return r;
+        }
+
+        // a record's offset taken off a reference (sign -1) or put on it (+1)
+        static void Shift(Spot sp, Dictionary<string, object> o, float sign)
+        {
+            if (o == null) return;
+            var d = Json.Arr(o, "move");
+            if (d != null && d.Count >= 3) sp.Pos += sign * new Vector3(Convert.ToSingle(d[0]), Convert.ToSingle(d[1]), Convert.ToSingle(d[2]));
+            sp.Rot = Quaternion.Euler(0f, sign * (float)Json.Num(o, "turn", 0.0), 0f) * sp.Rot;
+        }
+
+        // 「今の位置をデフォルトにする」: the current place kept as the user's default (at the initial place - no record: the
+        // default goes, the initial place is the default again)
+        public void SaveDefault(Spot sp, string room = null)
+        {
+            if (sp == null) return;
+            room = room ?? H.Stage.Location;
+            var cur = Json.Obj(Json.Obj(rooms, room), sp.Id);
+            var d = Room(defaults, room);
+            if (cur == null)
+            {
+                d.Remove(sp.Id);
+                foreach (var a in sp.Aliases) d.Remove(a);
+            }
+            else
+            {
+                var c = Copy(cur);
+                d[sp.Id] = c;
+                foreach (var a in sp.Aliases) d[a] = c;
+            }
+            if (d.Count == 0) defaults.Remove(room);
+            Save();
+        }
+
+        // 「デフォルトに戻す」: the user's default as the current place again (none saved: the initial place - Reset)
+        public void BackToDefault(Spot sp, string room = null)
+        {
+            if (sp == null) return;
+            room = room ?? H.Stage.Location;
+            var def = Json.Obj(Json.Obj(defaults, room), sp.Id);
+            if (def == null) { Reset(sp, room); return; }
+            var r = Room(rooms, room);
+            var c = Copy(def);
+            if (sp.Id == ApproachId)
+            {
+                r[ApproachId] = c;
+                Save();
+                Vector3 pos;
+                float yaw;
+                ApproachIn(room, out pos, out yaw);
+                sp.Pos = pos;
+                sp.Rot = Quaternion.Euler(0f, yaw, 0f);
+                sp.Name = KindNames["approach"] + "の行き先";
+                return;
+            }
+            Shift(sp, Json.Obj(r, sp.Id), -1f);
+            Shift(sp, c, 1f);
+            r[sp.Id] = c;
+            foreach (var a in sp.Aliases) r[a] = c;
+            Save();
+            if (room == H.Stage.Location) Follow(sp);
+        }
 
         // the room's approach place, set by the user (false: none - she walks towards the camera)
         public bool ApproachIn(string room, out Vector3 pos, out float yaw)
@@ -114,7 +205,8 @@ namespace MuseStudio
             if (room == H.Stage.Location) Follow(sp);
         }
 
-        // a reference back to the original's place (the approach: towards the camera again)
+        // 「初期化」: a reference back to the original's place, its initial one (the approach: towards the camera again); the
+        // user's default stays (「デフォルトに戻す」 brings it back)
         public void Reset(Spot sp, string room = null)
         {
             room = room ?? H.Stage.Location;
@@ -141,7 +233,8 @@ namespace MuseStudio
         }
 
         // every room's adjustments back to the original's (the settings' button - the user's request, PR #23): the room's
-        // references read again, she stands where the original puts her
+        // references read again, she stands where the original puts her. The user's defaults stay (each 「デフォルトに戻す」
+        // brings its own back: PR #46 §4.2's layers - nothing the user saved goes by a reset)
         public void ResetAll()
         {
             rooms.Clear();
@@ -157,7 +250,7 @@ namespace MuseStudio
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
-                File.WriteAllText(path, Json.Write(new Dictionary<string, object> { { "rooms", rooms } }), new UTF8Encoding(false));
+                File.WriteAllText(path, Json.Write(new Dictionary<string, object> { { "rooms", rooms }, { "defaults", defaults } }), new UTF8Encoding(false));
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: spots " + path + ": " + e.Message); }
         }
@@ -224,6 +317,69 @@ namespace MuseStudio
             if (On) { Clear(); Build(); }
         }
 
+        // the play spots of one kind shown ("" every one): the user's choice, kept from room to room while the room has it
+        public void ShowCategory(string cat)
+        {
+            Category = cat ?? "";
+            categoryChosen = true;
+            Selected = "";
+            Dragging = false;
+            if (On) { Clear(); Build(); }
+        }
+
+        public void ShowEditedOnly(bool only)
+        {
+            EditedOnly = only;
+            Selected = "";
+            Dragging = false;
+            if (On) { Clear(); Build(); }
+        }
+
+        // ---- the play spots' kinds (plays.json's places: the original's H point categories by name) ----
+
+        public const string OtherCategory = "other";
+        bool categoryChosen;
+
+        internal void CategoryAsNewForCheck() { categoryChosen = false; Category = ""; }
+        Dictionary<string, object> places;                  // (read at a build: plays.json's places)
+        readonly List<KeyValuePair<string, string>> cats = new List<KeyValuePair<string, string>>();     // the room's: key -> name
+
+        static bool OfPlace(Spot sp, Dictionary<string, object> place)
+        {
+            foreach (var t in Json.Arr(place, "toggles") ?? new List<object>()) if (sp.Categories.Contains(Convert.ToInt32(t))) return true;
+            return false;
+        }
+
+        public bool InCategory(Spot sp, string cat)
+        {
+            if (string.IsNullOrEmpty(cat)) return true;
+            if (places == null) places = Json.Obj(Data.Load("plays.json"), "places");
+            if (cat == OtherCategory)
+            {
+                if (places != null) foreach (var kv in places) if (OfPlace(sp, kv.Value as Dictionary<string, object>)) return false;
+                return true;
+            }
+            return OfPlace(sp, Json.Obj(places, cat));
+        }
+
+        // (checks, the panel) the kinds this room's play spots have, in plays.json's order - then その他 for spots of none
+        public List<KeyValuePair<string, string>> CategoriesHere { get { return new List<KeyValuePair<string, string>>(cats); } }
+
+        void ReadCategories(List<Spot> spots)
+        {
+            places = Json.Obj(Data.Load("plays.json"), "places");
+            cats.Clear();
+            if (places != null)
+                foreach (var kv in places)
+                {
+                    var pl = kv.Value as Dictionary<string, object>;
+                    if (spots.Exists(sp => OfPlace(sp, pl))) cats.Add(new KeyValuePair<string, string>(kv.Key, Json.Str(pl, "name", kv.Key)));
+                }
+            if (spots.Exists(sp => InCategory(sp, OtherCategory))) cats.Add(new KeyValuePair<string, string>(OtherCategory, "その他"));
+            // (the first build: the room's first kind - not all at once, PR #46 §4.2; a kind this room lacks: its first)
+            if ((!categoryChosen || Category.Length > 0) && !cats.Exists(c => c.Key == Category)) Category = cats.Count > 0 ? cats[0].Key : "";
+        }
+
         void Clear()
         {
             foreach (var g in markers) if (g != null) UnityEngine.Object.Destroy(g);
@@ -251,7 +407,11 @@ namespace MuseStudio
 
         void Build()
         {
-            refs.AddRange(Refs(Kind));
+            string room = H.Stage.Location;
+            var all = Refs(Kind);
+            if (Kind == "play") ReadCategories(all);
+            foreach (var sp in all)
+                if ((Kind != "play" || InCategory(sp, Category)) && (!EditedOnly || Edited(room, sp.Id))) refs.Add(sp);
             // (a layer Studio's camera draws - the body's, as the hit shapes: the default layer is not drawn)
             var cha = H.Stage.Cha;
             int layer = cha != null && cha.objBody != null ? cha.objBody.layer : Mathf.Max(0, LayerMask.NameToLayer("Chara"));
@@ -390,64 +550,109 @@ namespace MuseStudio
 
         // ---- its panel (Ui: while on) ----
 
+        GUIStyle catStyle;
+
+        // a reference's layers by its name: adjusted (a current record), its default saved, at its default
+        string Marks(string room, Spot sp)
+        {
+            var cur = Json.Obj(Json.Obj(rooms, room), sp.Id);
+            var def = Json.Obj(Json.Obj(defaults, room), sp.Id);
+            if (cur != null && def != null) return Json.Write(cur) == Json.Write(def) ? "（デフォルトの位置）" : "（調整済み・デフォルトあり）";
+            return cur != null ? "（調整済み）" : def != null ? "（初期値・デフォルトあり）" : "";
+        }
+
         public void DrawGui(float s, GUIStyle box, GUIStyle button, GUIStyle small, List<Rect> drawing)
         {
             if (!On) return;
             var cam = Camera.main;
+            string room = H.Stage.Location;
             // each reference's name by its marker
             if (cam != null)
                 foreach (var sp in refs)
                 {
                     var p = cam.WorldToScreenPoint(sp.Pos);
                     if (p.z <= 0f) continue;
-                    string nm = (sp.Here ? "その場" : sp.Name) + (sp.Id != ApproachId && HasOffset(H.Stage.Location, sp.Id) ? "（調整済み）" : "");
-                    GUI.Label(new Rect(p.x + 12f * s, Screen.height - p.y - 10f * s, 260f * s, 22f * s), nm, small);
+                    string nm = (sp.Here ? "その場" : sp.Name) + Marks(room, sp);
+                    GUI.Label(new Rect(p.x + 12f * s, Screen.height - p.y - 10f * s, 300f * s, 22f * s), nm, small);
                 }
-            float w = 320f * s, lh = 26f * s, x = (Screen.width - w) * 0.5f, y = Screen.height - 9f * lh - 24f * s;
-            var area = new Rect(x - 8f * s, y - 6f * s, w + 16f * s, 8f * lh + 16f * s);
+            if (catStyle == null || catStyle.fontSize != small.fontSize) catStyle = new GUIStyle(button) { fontSize = small.fontSize, clipping = TextClipping.Clip, wordWrap = false };
+            var shownCats = new List<KeyValuePair<string, string>>(cats);
+            shownCats.Add(new KeyValuePair<string, string>("", "全部"));
+            int catRows = Kind == "play" ? (shownCats.Count + 2) / 3 : 0;
+            float w = 360f * s, lh = 26f * s, g = 4f * s, x = (Screen.width - w) * 0.5f;
+            float height = (9 + catRows) * (lh + g) - g, y = Screen.height - height - 24f * s;
+            var area = new Rect(x - 8f * s, y - 6f * s, w + 16f * s, height + 12f * s);
             drawing.Add(area);
             GUI.Box(area, GUIContent.none, box);
             // the kinds: one shown at a time, in its colour (the user's request, PR #23)
-            float wk = (w - 12f) / 4f;
+            float wk = (w - 3f * g) / 4f;
             for (int i = 0; i < Kinds.Length; i++)
             {
                 string k = Kinds[i];
                 var prev = GUI.backgroundColor;
                 if (k == Kind) GUI.backgroundColor = new Color(KindColors[k].r, KindColors[k].g, KindColors[k].b, 1f);
-                if (Btn(new Rect(x + i * (wk + 4f), y, wk, lh), KindNames[k], "kind " + k, button)) ShowKind(k);
+                if (Btn(new Rect(x + i * (wk + g), y, wk, lh), KindNames[k], "kind " + k, button)) ShowKind(k);
                 GUI.backgroundColor = prev;
             }
-            y += lh + 4f * s;
+            y += lh + g;
+            // the play spots' kinds: only the chosen one's markers (PR #46 §4.2), 全部 last
+            if (Kind == "play")
+            {
+                float wc = (w - 2f * g) / 3f;
+                for (int i = 0; i < shownCats.Count; i++)
+                {
+                    var c = shownCats[i];
+                    var prev = GUI.backgroundColor;
+                    if (c.Key == Category) GUI.backgroundColor = new Color(KindColors["play"].r, KindColors["play"].g, KindColors["play"].b, 1f);
+                    if (Btn(new Rect(x + (i % 3) * (wc + g), y + (i / 3) * (lh + g), wc, lh), c.Value, "cat " + (c.Key.Length > 0 ? c.Key : "all"), catStyle)) ShowCategory(c.Key);
+                    GUI.backgroundColor = prev;
+                }
+                y += catRows * (lh + g);
+            }
+            // only the edited ones (a record in either layer)
+            float w2 = (w - g) / 2f;
+            var prevE = GUI.backgroundColor;
+            if (EditedOnly) GUI.backgroundColor = new Color(1f, 0.9f, 0.3f, 1f);
+            if (Btn(new Rect(x, y, w2, lh), EditedOnly ? "編集したものだけ：入" : "編集したものだけ：切", "edited", button)) ShowEditedOnly(!EditedOnly);
+            GUI.backgroundColor = prevE;
+            GUI.Label(new Rect(x + w2 + g, y, w2, lh), "印 " + refs.Count + " か所", small);
+            y += lh + g;
             var sel = SelectedSpot;
-            string hint = refs.Count == 0 ? "この部屋には「" + KindNames[Kind] + "」がありません" : "印をドラッグ（床の上を動かす）";
-            GUI.Label(new Rect(x, y, w, lh), sel == null ? KindNames[Kind] + "：" + hint : "選択：" + (sel.Here ? "その場" : sel.Name), small);
-            y += lh;
+            string hint = refs.Count > 0 ? "印をドラッグ（床の上を動かす）"
+                          : EditedOnly ? "編集したものはありません" : "この部屋には「" + KindNames[Kind] + "」がありません";
+            GUI.Label(new Rect(x, y, w, lh), sel == null ? KindNames[Kind] + "：" + hint : "選択：" + (sel.Here ? "その場" : sel.Name) + Marks(room, sel), small);
+            y += lh + g;
             GUI.enabled = sel != null;
-            float w4 = (w - 12f) / 4f;
+            float w4 = (w - 3f * g) / 4f;
             // fine moves along the view's own left / right and forward / back (on the floor), 2 cm
             Vector3 right = cam != null ? Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized : Vector3.right;
             Vector3 fwd = Vector3.Cross(right, Vector3.up);      // (away from the camera: right x up, Unity's left-handed axes)
             if (Btn(new Rect(x, y, w4, lh), "← 2cm", "左", button)) Change(sel, -right * 0.02f, 0f);
-            if (Btn(new Rect(x + w4 + 4f, y, w4, lh), "→ 2cm", "右", button)) Change(sel, right * 0.02f, 0f);
-            if (Btn(new Rect(x + 2f * (w4 + 4f), y, w4, lh), "奥 2cm", "奥", button)) Change(sel, fwd * 0.02f, 0f);
-            if (Btn(new Rect(x + 3f * (w4 + 4f), y, w4, lh), "手前 2cm", "手前", button)) Change(sel, -fwd * 0.02f, 0f);
-            y += lh + 4f * s;
-            if (GUI.Button(new Rect(x, y, w4, lh), "左回り 15°", button)) Change(sel, Vector3.zero, -15f);
-            if (GUI.Button(new Rect(x + w4 + 4f, y, w4, lh), "左回り 3°", button)) Change(sel, Vector3.zero, -3f);
-            if (GUI.Button(new Rect(x + 2f * (w4 + 4f), y, w4, lh), "右回り 3°", button)) Change(sel, Vector3.zero, 3f);
-            if (GUI.Button(new Rect(x + 3f * (w4 + 4f), y, w4, lh), "右回り 15°", button)) Change(sel, Vector3.zero, 15f);
-            y += lh + 4f * s;
-            float w2 = (w - 4f) / 2f;
+            if (Btn(new Rect(x + w4 + g, y, w4, lh), "→ 2cm", "右", button)) Change(sel, right * 0.02f, 0f);
+            if (Btn(new Rect(x + 2f * (w4 + g), y, w4, lh), "奥 2cm", "奥", button)) Change(sel, fwd * 0.02f, 0f);
+            if (Btn(new Rect(x + 3f * (w4 + g), y, w4, lh), "手前 2cm", "手前", button)) Change(sel, -fwd * 0.02f, 0f);
+            y += lh + g;
+            if (Btn(new Rect(x, y, w4, lh), "左回り 15°", "左15", button)) Change(sel, Vector3.zero, -15f);
+            if (Btn(new Rect(x + w4 + g, y, w4, lh), "左回り 3°", "左3", button)) Change(sel, Vector3.zero, -3f);
+            if (Btn(new Rect(x + 2f * (w4 + g), y, w4, lh), "右回り 3°", "右3", button)) Change(sel, Vector3.zero, 3f);
+            if (Btn(new Rect(x + 3f * (w4 + g), y, w4, lh), "右回り 15°", "右15", button)) Change(sel, Vector3.zero, 15f);
+            y += lh + g;
             // (the approach's place: on her floor - a walk keeps her height; GPT's re-review of #30)
             GUI.enabled = sel != null && sel.Id != ApproachId;
             if (Btn(new Rect(x, y, w2, lh), sel != null && sel.Id == ApproachId ? "高さ：床のまま" : "上へ 1cm", "上", button)) Change(sel, Vector3.up * 0.01f, 0f);
-            if (Btn(new Rect(x + w2 + 4f, y, w2, lh), "下へ 1cm", "下", button)) Change(sel, Vector3.down * 0.01f, 0f);
-            y += lh + 4f * s;
-            GUI.enabled = sel != null && HasOffset(H.Stage.Location, sel.Id);
-            if (GUI.Button(new Rect(x, y, w, lh), sel != null && sel.Id == ApproachId ? "行き先を元に戻す（カメラへ向かう）" : "この位置を元に戻す", button)) Reset(sel);
+            if (Btn(new Rect(x + w2 + g, y, w2, lh), "下へ 1cm", "下", button)) Change(sel, Vector3.down * 0.01f, 0f);
+            y += lh + g;
+            // the layers (PR #46 §4.2): the current place kept as the default; the default back; the initial place back
+            GUI.enabled = sel != null;
+            if (Btn(new Rect(x, y, w, lh), "今の位置をデフォルトにする", "default save", button)) SaveDefault(sel);
+            y += lh + g;
+            GUI.enabled = sel != null && HasDefault(room, sel.Id);
+            if (Btn(new Rect(x, y, w2, lh), "デフォルトに戻す", "default back", button)) BackToDefault(sel);
+            GUI.enabled = sel != null && HasOffset(room, sel.Id);
+            if (Btn(new Rect(x + w2 + g, y, w2, lh), sel != null && sel.Id == ApproachId ? "初期化（カメラへ向かう）" : "初期化（原作の位置へ）", "init", catStyle)) Reset(sel);
             GUI.enabled = true;
-            y += lh + 4f * s;
-            if (GUI.Button(new Rect(x, y, w, lh), "編集を終える", button)) Toggle(false);
+            y += lh + g;
+            if (Btn(new Rect(x, y, w, lh), "編集を終える", "end", button)) Toggle(false);
         }
 
         bool Btn(Rect r, string label, string key, GUIStyle style)
