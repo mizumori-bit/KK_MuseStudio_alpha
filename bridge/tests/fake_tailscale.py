@@ -15,7 +15,7 @@ if args[:2] == ["whois", "--json"] and len(args) == 3:
         sys.exit(1)
     print(json.dumps({"Node": {"ID": 1, "StableID": sid, "Name": "x."}, "UserProfile": {}}))
     sys.exit(0)
-if args == ["ip", "-4"]:
+if args in (["ip", "-4"], ["ip"]):
     print(table.get("_self", ""))
     sys.exit(0)
 sys.exit(2)
