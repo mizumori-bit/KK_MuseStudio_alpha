@@ -55,6 +55,7 @@ namespace MuseStudio
         internal ConfigEntry<string> MatchNotice, MatchFormat;
         internal ConfigEntry<float> CamTurnSpeed, CamMoveSpeed, CamZoomSpeed;
         internal ConfigEntry<bool> CamInvertX, CamInvertY, CamInvertWheel, CamBothMove, CamWheelZoom, GazeAtYourBody, KeyHints, FullScreen;
+        internal ConfigEntry<bool> ShowClock;      // (PR #46 §8: the clock on the screen, on / off only)
         internal ConfigEntry<string> CamLeftDrag, CamRightDrag, CamMiddleDrag;
         internal readonly Dictionary<string, ConfigEntry<KeyboardShortcut>> CamKeys = new Dictionary<string, ConfigEntry<KeyboardShortcut>>();
 
@@ -120,6 +121,8 @@ namespace MuseStudio
             FullScreen.SettingChanged += (o, e) => { if (!Args.ContainsKey("check")) StartCoroutine(ScreenMode.Apply(FullScreen.Value)); };
             KeyHints = Config.Bind("Stage", "Key hints", true, Ja("舞台", "キー操作を画面に出す",
                 "入（既定）：今使えるキーボードの操作を、画面の上に小さく出し続けます（割り当てを変えたキーはその名前で）。", 3));
+            ShowClock = Config.Bind("Stage", "Clock", true, Ja("舞台", "時計を出す",
+                "入（既定）：画面の上（在席の表示の下）に、この PC の今の時刻を小さく出します。UI を隠すと、時計も隠れます。", 4));
             HitShapesKey = Config.Bind("Stage", "Show hit shapes", new KeyboardShortcut(KeyCode.F4), Ja("舞台", "おさわりの当たりの形を見せるキー", "彼女の体の、触って反応する部位の形を色付きで見せます（もう一度押すと消えます）。", 5));
             // the UI out of the way in one press (the user's request, PR #11): the menu's column, the key hints and the presence;
             // the words' box stays (the story)

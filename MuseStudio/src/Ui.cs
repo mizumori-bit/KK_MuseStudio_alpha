@@ -194,9 +194,10 @@ namespace MuseStudio
             {
                 DrawPanel(s);
                 DrawPresence(s);
+                DrawClock(s);
                 DrawKeyHints(s);
             }
-            else KeyHintsNow = "";
+            else { KeyHintsNow = ""; ClockShown = ""; }
             DrawHideButton(s);
             if (host.SpotEditor != null) host.SpotEditor.DrawGui(s, box, button, small, drawing);
             if (LinkKind.Length > 0) DrawLinkPicker(s);
@@ -336,6 +337,28 @@ namespace MuseStudio
             bool present = GUI.Toggle(r, pr.Present, pr.Present ? "● 在席" : "○ 離席中（押して在席）", button);
             if (present != pr.Present) pr.Toggle(present);
         }
+
+        // the clock (PR #46 §8, the owner's decision: on / off only - the setting 時計を出す, default on): this PC's time, small,
+        // under the presence; hidden with the UI
+        public string ClockShown = "";     // (checks) the time shown now, "" when none
+        GUIStyle clock;
+
+        void DrawClock(float s)
+        {
+            ClockShown = "";
+            if (host.ShowClock == null || !host.ShowClock.Value) return;
+            if (clock == null || !Mathf.Approximately(clockFor, s))
+            {
+                clockFor = s;
+                clock = new GUIStyle(box) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.RoundToInt(18 * s) };
+            }
+            var r = new Rect(Away(12f * s, 150f * s), 46f * s, 150f * s, 28f * s);
+            ClockShown = DateTime.Now.ToString("HH:mm");
+            drawing.Add(r);
+            GUI.Box(r, ClockShown, clock);
+        }
+
+        float clockFor = -1f;
 
         // ---- the chooser at the start (it waits: no character until one is chosen) ----
 
