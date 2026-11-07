@@ -40,6 +40,7 @@ namespace MuseStudio
             if (room.StartsWith("ikdata:")) { yield return IkData(room.Substring(7)); yield break; }
             if (room.StartsWith("touchenable:")) { yield return TouchEnable(room.Substring(12)); yield break; }
             if (room == "shoes") { yield return ShoesTry(); yield break; }
+            if (room == "pushup") { yield return PushupTry(); yield break; }
             if (room.StartsWith("aibuuser:")) { yield return AibuUser(room.Substring(9)); yield break; }
             if (room == "gropehand") { yield return GropeHand(); yield break; }
             if (room == "ikfight") { yield return IkFight(); yield break; }
@@ -967,6 +968,136 @@ namespace MuseStudio
 
         // her shoes (PR #9 adopted, "no way to take her shoes off"): the outfit's indoor (7) and outdoor (8) shoes, the shoes type
         // shown, whether 服 lists 靴, and the panel's change half / off / on - the states, the shoes' objects shown, pictures
+        // --muse-probe=pushup: the Push Up plugin (KK_Pushup) and a coordinate card worn (Coordinates.Wear): her nipple and areola
+        // depth (the body's shapes 13 and 11) and the plugin's bra / top data - at the start, the card saved here from what she
+        // wears as a coordinate saves itself outside the maker (only the sideloader's data) and as the maker saves it (each
+        // plugin's controller writing its coordinate data first), each worn (2026-11-07: the first turns Push Up off - its
+        // defaults for a card without its data - the nipples through the clothes; the second keeps it)
+        const System.Reflection.BindingFlags PF = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+
+        IEnumerator PushupTry()
+        {
+            yield return new WaitForSeconds(2f);
+            var cha = h.Stage.Cha;
+            lines.AppendLine("heroine " + cha.fileParam.fullname + " coordinate " + cha.fileStatus.coordinateType + " clothes " + string.Join(",", Array.ConvertAll(cha.fileStatus.clothesState, b => b.ToString())));
+            MonoBehaviour ctl = null;
+            foreach (var c in cha.GetComponents<MonoBehaviour>()) if (c != null && c.GetType().FullName.IndexOf("Pushup", StringComparison.OrdinalIgnoreCase) >= 0) ctl = c;
+            lines.AppendLine("controller " + (ctl != null ? ctl.GetType().FullName : "none"));
+            if (ctl != null)
+                foreach (var m in ctl.GetType().GetMembers(PF | System.Reflection.BindingFlags.DeclaredOnly))
+                    lines.AppendLine("  member " + m.MemberType + " " + m.Name);
+            PushupState("start", cha, ctl);
+            lines.AppendLine("chara ext: " + ExtKeys(cha.chaFile) + " | nowCoordinate ext: " + ExtKeys(cha.nowCoordinate));
+            // the card, saved as the check saves it
+            var co = h.Coords;
+            string dir = System.IO.Path.Combine(co.Folder, "_probe_" + DateTime.Now.Ticks);
+            Directory.CreateDirectory(dir);
+            string card = System.IO.Path.Combine(dir, "probe_outfit.png");
+            var now = cha.nowCoordinate;
+            byte[] png = now.pngData;
+            now.pngData = new Texture2D(8, 8).EncodeToPNG();
+            now.SaveFile(card);
+            now.pngData = png;
+            var back = new ChaFileCoordinate();
+            back.LoadFile(card);
+            lines.AppendLine("saved card ext: " + ExtKeys(back));
+            co.Scan();
+            string id = dir.Substring(co.Folder.Length).TrimStart('\\', '/').Replace('\\', '/') + "/probe_outfit.png";
+            // (a) the card saved as the maker saves it: each plugin's controller writes its coordinate data first
+            var withData = new ChaFileCoordinate();
+            withData.LoadFile(card);
+            var saved = new List<string>();
+            foreach (var c in cha.GetComponents<MonoBehaviour>())
+            {
+                if (c == null) continue;
+                for (var t = c.GetType(); t != null; t = t.BaseType)
+                    if (t.FullName == "KKAPI.Chara.CharaCustomFunctionController") { saved.Add(c.GetType().Name + " " + Invoke(c, "OnCoordinateBeingSaved", new object[] { withData })); break; }
+            }
+            string card2 = System.IO.Path.Combine(dir, "probe_outfit_data.png");
+            withData.SaveFile(card2);
+            var back2 = new ChaFileCoordinate();
+            back2.LoadFile(card2);
+            lines.AppendLine("saved by the controllers: " + string.Join("; ", saved.ToArray()));
+            lines.AppendLine("card with data ext: " + ExtKeys(back2));
+            co.Scan();
+            string id2 = dir.Substring(co.Folder.Length).TrimStart('\\', '/').Replace('\\', '/') + "/probe_outfit_data.png";
+            string err = co.Wear(id2, "user");
+            yield return new WaitForSeconds(1.0f);
+            PushupState("(a) the card with data worn '" + err + "'", cha, ctl);
+            // (b) the card without (saved as a coordinate saves itself, outside the maker): the plugin's own defaults
+            err = co.Wear(id, "user");
+            yield return new WaitForSeconds(1.0f);
+            PushupState("(b) the card without data worn '" + err + "'", cha, ctl);
+            // back as she was: the card with the data again
+            err = co.Wear(id2, "user");
+            yield return new WaitForSeconds(1.0f);
+            PushupState("the card with data again '" + err + "'", cha, ctl);
+            try { Directory.Delete(dir, true); } catch (Exception) { }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        void PushupState(string when, ChaControl cha, MonoBehaviour ctl)
+        {
+            var sb = new StringBuilder(when + ": file shape 11 " + cha.fileBody.shapeValueBody[11].ToString("F3") + " 13 " + cha.fileBody.shapeValueBody[13].ToString("F3")
+                                       + " | now 11 " + cha.GetShapeBodyValue(11).ToString("F3") + " 13 " + cha.GetShapeBodyValue(13).ToString("F3"));
+            if (ctl != null)
+                foreach (var name in new[] { "CurrentBraData", "CurrentTopData", "BaseData" })
+                {
+                    object d = null;
+                    var p = ctl.GetType().GetProperty(name, PF);
+                    if (p != null) d = p.GetValue(ctl, null);
+                    else { var f = ctl.GetType().GetField(name, PF); if (f != null) d = f.GetValue(ctl); }
+                    sb.Append(" | " + name + " " + Fields(d));
+                }
+            lines.AppendLine(sb.ToString());
+        }
+
+        static string Fields(object d)
+        {
+            if (d == null) return "null";
+            var parts = new List<string>();
+            foreach (var f in d.GetType().GetFields(PF)) if (f.FieldType == typeof(bool) || f.FieldType == typeof(float)) parts.Add(f.Name + "=" + Convert.ToString(f.GetValue(d), System.Globalization.CultureInfo.InvariantCulture));
+            foreach (var p in d.GetType().GetProperties(PF)) if ((p.PropertyType == typeof(bool) || p.PropertyType == typeof(float)) && p.GetIndexParameters().Length == 0)
+                parts.Add(p.Name + "=" + Convert.ToString(p.GetValue(d, null), System.Globalization.CultureInfo.InvariantCulture));
+            return "{" + string.Join(" ", parts.ToArray()) + "}";
+        }
+
+        static string ExtKeys(object file)
+        {
+            try
+            {
+                Type es = null;
+                foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) if (es == null) es = a.GetType("ExtensibleSaveFormat.ExtendedSave");
+                if (es == null) return "no ExtendedSave";
+                var m = es.GetMethod("GetAllExtendedData", new[] { file.GetType() });
+                if (m == null && file is ChaFileControl) m = es.GetMethod("GetAllExtendedData", new[] { typeof(ChaFile) });
+                if (m == null) return "no GetAllExtendedData(" + file.GetType().Name + ")";
+                var all = m.Invoke(null, new[] { file }) as System.Collections.IDictionary;
+                if (all == null) return "none";
+                var keys = new List<string>();
+                foreach (var k in all.Keys) keys.Add(Convert.ToString(k));
+                keys.Sort();
+                return string.Join(",", keys.ToArray());
+            }
+            catch (Exception e) { return "error " + e.Message; }
+        }
+
+        static string Invoke(object o, string name, object[] args)
+        {
+            if (o == null) return "no controller";
+            foreach (var m in o.GetType().GetMethods(PF))
+            {
+                if (m.Name != name || m.GetParameters().Length != args.Length) continue;
+                try { m.Invoke(o, args); return "ok " + m.DeclaringType.Name; }
+                catch (Exception e) { return "error " + (e.InnerException ?? e).Message; }
+            }
+            return "no " + name;
+        }
+
         IEnumerator ShoesTry()
         {
             yield return new WaitForSeconds(1.5f);

@@ -49,6 +49,7 @@ def main() -> int:
     cfg["auth"] = "required"                              # (the tokens, as a fresh install has them - this PC's may be off)
     cfg["tokens_file"] = str(tmp / "tokens.json")         # (the check's own: the game is told where)
     cfg["rate_limits"] = {"muse": [1000, 5000]}           # (the checks stand in for Muse every frame; the app's rate as it is)
+    cfg.pop("muse_listener", None)                        # (Muse's own port is the live bridge's, never a check's: 2026-11-07)
     (tmp / "bridge_config.json").write_text(json.dumps(cfg), encoding="utf-8")
     blog = open(tmp / "bridge.log", "w", encoding="utf-8")          # (the test bridge's own log: kept with --keep)
     bridge = subprocess.Popen([sys.executable, "-B", str(ROOT / "bridge/bridge.py"), "--config", str(tmp / "bridge_config.json"),

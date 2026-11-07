@@ -215,6 +215,15 @@ class StartConditions(unittest.TestCase):
     def test_loopback_in_the_tests(self):
         self.assertEqual(self.addr("127.0.0.1", "", True), ("127.0.0.1", None))
 
+    def test_a_test_bridge_never_takes_the_tailnet(self):
+        # (2026-11-07: the checks' bridge, started with this PC's settings, opened Muse's port while the live bridge was
+        # down - a request from Muse's machine reached it)
+        for given in ("", "100.101.1.1"):
+            with self.subTest(given=given):
+                address, why = self.addr(given, "100.101.1.1", True)
+                self.assertIsNone(address)
+                self.assertIn("loopback", why)
+
     def test_not_with_auth_off(self):
         class State:
             auth = False

@@ -142,6 +142,11 @@ def listen_address(lc: dict, cli: list, test: bool) -> tuple:
             return None, "address must be an IPv4 address (the listener is IPv4 only)"
         if a.is_loopback:
             return (given, None) if test else (None, "a loopback address is for the tests only")
+    if test:
+        # (a test bridge - the checks' (run_checks.py) and the tests' - never takes Muse's port on the tailnet: Muse's
+        # requests are the live bridge's. 2026-11-07: a check's bridge, with this PC's settings, opened it while the live
+        # bridge was down, and a request from Muse's machine reached it)
+        return None, "a test bridge (--test) listens on loopback only, never on the tailnet"
     own = tailnet_addresses(cli)
     if not own:
         return None, "this PC's tailnet address is unknown (Tailscale not running?)"
