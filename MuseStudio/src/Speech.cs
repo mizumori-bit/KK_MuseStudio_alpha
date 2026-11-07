@@ -14,9 +14,14 @@ namespace MuseStudio
     // beats, other letters as their own.
     //
     // The timeline (the owner's choice of 2026-11-07: the words come out at the pace she says them): beats at
-    // morae_per_second, each opening and closing the mouth; ー / ～ hold it open, っ a short shut beat, small kana go with the
-    // beat before; 、 and 。 (and ！ ？ …) close it for a pause; brackets and quotes come out with no time. The line's shown
-    // part follows the beats (a ruby's base shown in step with its reading) - BlockPlayer.Visible.
+    // morae_per_second; ー / ～ hold the sound, っ a short silent beat, small kana go with the beat before; 、 and 。 (and ！ ？ …)
+    // are silent for a pause; brackets and quotes come out with no time. The line's shown part follows the beats (a ruby's
+    // base shown in step with its reading) - BlockPlayer.Visible.
+    //
+    // What the mouth is given is a voice's loudness, as the original's lip sync reads it from a voice (the user's instruction
+    // of 2026-11-07: its speed and its blend as the original's - Mouth below): a beat's vowel loud (voice_peak), the consonant
+    // into the next a dip (voice_dip of it - the mouth not shut between the sounds of a word), ん lower (nasal_open), each beat
+    // a little louder or softer than the last (voice_vary); a pause and っ silent.
     public class Spoken
     {
         public string Display = "";
@@ -39,16 +44,22 @@ namespace MuseStudio
             return Mathf.Min(upto, Display.Length);
         }
 
-        // the mouth's opening at t (0..1 of the face's own open max)
+        public float Peak = 0.8f, Dip = 0.3f, Vary = 0.12f;      // (the speech settings: voice_peak, voice_dip, voice_vary)
+
+        // the voice's loudness at t (0..1, as the original's lip sync reads a voice - the mouth's open share of the face's own
+        // open range)
         public float OpenAt(float t)
         {
             if (t < 0f || t >= Seconds) return 0f;
-            foreach (var s in Steps)
+            for (int i = 0; i < Steps.Count; i++)
             {
+                var s = Steps[i];
                 if (t < s.Start || t >= s.Start + s.Length) continue;
                 if (s.Open <= 0f || s.Length <= 0f) return 0f;
                 float u = (t - s.Start) / s.Length;
-                return s.Hold ? s.Open * Mathf.Min(1f, u * 4f) : s.Open * Mathf.Sin(Mathf.PI * u);
+                float level = Mathf.Clamp01(Peak * s.Open * (1f + Vary * (((i * 37 + 11) % 17) / 8f - 1f)));
+                if (s.Hold) return level;                                        // (ー: the sound held)
+                return level * (Dip + (1f - Dip) * Mathf.Sqrt(Mathf.Sin(Mathf.PI * u)));   // (the vowel loud, the consonant into the next a dip)
             }
             return 0f;
         }
@@ -188,6 +199,9 @@ namespace MuseStudio
                 else add(end, 0f, 0f, false);                                                    // (♪ and the like: out at once)
             }
             sp.Seconds = t;
+            sp.Peak = (float)Json.Num(cfg, "voice_peak", 0.8);
+            sp.Dip = Mathf.Clamp01((float)Json.Num(cfg, "voice_dip", 0.3));
+            sp.Vary = Mathf.Clamp01((float)Json.Num(cfg, "voice_vary", 0.12));
             return sp;
         }
 
@@ -206,15 +220,21 @@ namespace MuseStudio
     }
 
     // Her mouth moved by the words: the original's own way for a voice - the face's voice value, set where the original
-    // sets it each frame (a postfix on ChaControl.UpdateBlendShapeVoice; without a voice it puts 0 there). Within her face's
-    // open max (a face with the mouth shut stays shut: the face's own). Studio keeps the mouth fixed at its own opening
-    // (FixedRate - its 口の開き): unfixed while she speaks, the same fixed value back when she stops (the face's mouth again).
+    // sets it each frame (a postfix on ChaControl.UpdateBlendShapeVoice; without a voice it puts 0 there). The loudness of
+    // the words' timeline goes through the original's own smoothing of a voice's loudness, frame by frame
+    // (FBSAssist.AudioAssist.GetAudioWaveValue: rising, the mean of it and the frame before's; falling, 0.2 of it and 0.8 of
+    // the frame before's - the user's instruction of 2026-11-07: the mouth's speed and its blend as the original's); the
+    // face takes it as the original does (FBSCtrlMouth.CalcBlend: the pattern's shut and open shapes in that share, within
+    // her face's open range - a face with the mouth shut stays shut; a new pattern blends in over 0.15 s). Studio keeps the
+    // mouth fixed at its own opening (FixedRate - its 口の開き): unfixed while she speaks and fixed back when she stops, as
+    // Studio does for a voice with lip sync (OCIChar.ChangeMouthOpen).
     public class Mouth
     {
         public static Mouth Instance;
         ChaControl target;
         float kept = -1f;                       // the fixed rate before the words (-1: not fixed)
-        public float Value;                     // 0..1 now
+        public float Value;                     // 0..1 now (the loudness)
+        float before;                           // the frame before's loudness (AudioAssist's beforeVolume)
         public bool Active { get { return target != null; } }
         public ChaControl Target { get { return target; } }
         public int Moves;                       // (checks) frames it set a value above 0
@@ -231,8 +251,10 @@ namespace MuseStudio
         {
             var m = Instance;
             if (m == null || m.target == null || !ReferenceEquals(__instance, m.target) || __instance.fbsCtrl == null) return;
-            __instance.fbsCtrl.SetVoiceVaule(m.Value);
-            if (m.Value > 0f) m.Moves++;
+            float v = m.Value, shown = v < m.before ? v * 0.2f + m.before * 0.8f : (v + m.before) * 0.5f;
+            m.before = v;
+            __instance.fbsCtrl.SetVoiceVaule(shown);
+            if (shown > 0f) m.Moves++;
         }
 
         public static float FixedOf(ChaControl cha) { return cha != null && cha.mouthCtrl != null && FixedRate != null ? (float)FixedRate.GetValue(cha.mouthCtrl) : -1f; }
@@ -262,6 +284,7 @@ namespace MuseStudio
             target = null;
             kept = -1f;
             Value = 0f;
+            before = 0f;
         }
     }
 }

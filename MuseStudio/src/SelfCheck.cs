@@ -1211,7 +1211,7 @@ namespace MuseStudio
                 float smBeat = 1f / (float)Json.Num(smCfg, "morae_per_second", 8.0);
                 var smLine = Speech.Line("きょう、ね。", smCfg);
                 bool smTimeline = smLine.Beats == 3 && Mathf.Abs(smLine.Seconds - (3f * smBeat + (float)Json.Num(smCfg, "pause_comma", 0.25) + (float)Json.Num(smCfg, "pause_period", 0.45))) < 1e-3f
-                                  && smLine.OpenAt(smBeat * 0.5f) > 0.9f && smLine.OpenAt(2f * smBeat + 0.1f) == 0f && smLine.VisibleAt(0f) >= 1 && smLine.VisibleAt(2f * smBeat + 0.01f) == 4;
+                                  && smLine.OpenAt(smBeat * 0.5f) > 0.5f && smLine.OpenAt(2f * smBeat + 0.1f) == 0f && smLine.VisibleAt(0f) >= 1 && smLine.VisibleAt(2f * smBeat + 0.01f) == 4;
                 var smRuby = Speech.Line("今日《きょう》", smCfg);
                 bool smRubyPace = smRuby.Display == "今日" && smRuby.Beats == 2 && smRuby.VisibleAt(0.01f) == 1 && smRuby.VisibleAt(smBeat + 0.01f) == 2;
                 // a line said
