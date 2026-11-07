@@ -337,6 +337,36 @@ class PlaceholderFailsClosed(unittest.TestCase):
             b.close()
 
 
+class Diagnosis(unittest.TestCase):
+    """bridge.py --log-muse-requests (2026-11-07: Muse's call way timed out, nothing in the log): every connection and
+    request written - the headers' names, never a value"""
+
+    def test_each_request_is_written_without_its_values(self):
+        lp = 18898
+        b = Bridge(18897, extra=listener_cfg(table_file({"127.0.0.1": MUSE}), lp), test=True, log=True, flags=["--log-muse-requests"])
+        try:
+            self.assertEqual(call(lp, "GET", "/api/state", headers={"X-Probe": "a-value-not-written"})[0], 200)
+            time.sleep(0.3)
+            log = b.log.read_text(encoding="utf-8", errors="replace")
+            self.assertIn("muse listener (diagnosis): a connection opened", log)
+            self.assertRegex(log, r"muse listener \(diagnosis\): got GET /api/state [0-9.]+ s after it opened \(headers: [^)]*Authorization[^)]*X-Probe")
+            self.assertRegex(log, r"muse listener \(diagnosis\): answered GET /api/state: 200, [0-9]+ bytes")
+            self.assertNotIn("a-value-not-written", log)
+            self.assertNotIn(PLACEHOLDER.split(" ", 1)[1], log)
+        finally:
+            b.close()
+
+    def test_not_written_without_the_option(self):
+        lp = 18900
+        b = Bridge(18899, extra=listener_cfg(table_file({"127.0.0.1": MUSE}), lp), test=True, log=True)
+        try:
+            self.assertEqual(call(lp, "GET", "/api/state")[0], 200)
+            time.sleep(0.3)
+            self.assertNotIn("(diagnosis)", b.log.read_text(encoding="utf-8", errors="replace"))
+        finally:
+            b.close()
+
+
 class ConnectionLimits(unittest.TestCase):
     """GPT's post-review 3: a request that does not come in time is cut; past max_connections a connection is closed at once"""
     LP = 18896
