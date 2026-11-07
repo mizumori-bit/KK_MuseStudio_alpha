@@ -1450,6 +1450,14 @@ namespace MuseStudio
 
         public bool StudioUiHidden { get { return hidden.Count > 0; } }
 
+        // (checks) any of Studio's canvases on now (whoever set it on)
+        public bool StudioCanvasShown()
+        {
+            foreach (var c in UnityEngine.Object.FindObjectsOfType<Canvas>())
+                if (Array.IndexOf(StudioCanvases, c.name) >= 0 && c.gameObject.activeInHierarchy) return true;
+            return false;
+        }
+
         static int Int(object v) { return (int)Convert.ToDouble(v is string ? double.Parse((string)v, System.Globalization.CultureInfo.InvariantCulture) : v); }
         static float Float(object v) { return (float)(v is string ? double.Parse((string)v, System.Globalization.CultureInfo.InvariantCulture) : Convert.ToDouble(v)); }
         static bool Bool(object v) { return v is bool ? (bool)v : string.Equals(Convert.ToString(v), "true", StringComparison.OrdinalIgnoreCase); }
