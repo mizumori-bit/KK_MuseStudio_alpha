@@ -104,6 +104,10 @@ namespace MuseStudio
 
         static Dictionary<string, object> Line(string text) { return new Dictionary<string, object> { { "type", "dialogue" }, { "text", text } }; }
 
+        // her mouth's opening now (FBSBase.openRate: what the voice value made of it)
+        static readonly System.Reflection.FieldInfo OpenRateField = HarmonyLib.AccessTools.Field(typeof(FBSBase), "openRate");
+        static float MouthOpenRate(ChaControl c) { return c != null && c.mouthCtrl != null && OpenRateField != null ? (float)OpenRateField.GetValue(c.mouthCtrl) : -1f; }
+
         // (the match) a creation made again after a change to its card - the checks' cases
         static string Recreate(string creation, Action<ChaFileControl> change)
         {
@@ -372,6 +376,8 @@ namespace MuseStudio
             Check("clock: on by default, this PC's time under the presence; the setting off hides it",
                   (ckShown == ckNow || ckShown == DateTime.Now.ToString("HH:mm")) && ckOff == "" && h.UiForCheck.ClockShown.Length == 5,
                   "shown '" + ckShown + "' now " + ckNow + " off '" + ckOff + "'");
+            bool smDefault = h.SpeakMouth.Value;
+            h.SpeakMouth.Value = false;        // (PR #46 §6: the checks' lines at the old pace - the mouth's own check turns it on)
             bp.SetAuto(false);                 // (the checks press for each block themselves)
             yield return Wait(1.5f);
             var locs = Data.Load("locations.json");
@@ -1180,6 +1186,78 @@ namespace MuseStudio
                   && BlockPlayer.Shown("（a）（b）") == "" && BlockPlayer.Shown("前（中）後") == "前後", shownInner + " / " + bp.Text);
             bp.Advance(true);
             yield return Wait(0.5f);
+
+            // (PR #46 §6) the words at the pace she says them, her mouth with them (the setting 口の動き, on by default - the
+            // checks' other lines at the old pace, their waits timed so): the ruby parsed (shown without its readings, a ruby in
+            // （） gone with them), the timeline's beats and pauses; a line coming out over its reading's time, her mouth opening
+            // within it (Studio's fixed mouth let go while she speaks) and as it was when it ends; a press shows it all and stops
+            // the mouth at once; the setting off - the old pace, no mouth
+            {
+                var smUnits = new List<Speech.Unit>();
+                string smDisp = Speech.Parse("今日《きょう》は｜東京駅《とうきょうえき》でＡＢＣ《えーびーしー》、ね《よ》？", smUnits);
+                bool smParse = smDisp == "今日は東京駅でＡＢＣ、ね？" && Speech.Display("前《あ") == "前《あ"
+                               && Speech.Display(BlockPlayer.Shown("前（心《こころ》）後")) == "前後"
+                               && smUnits.Exists(u => u.Reading == "きょう" && u.Start == 0 && u.Length == 2)
+                               && smUnits.Exists(u => u.Reading == "とうきょうえき" && u.Length == 3) && smUnits.Exists(u => u.Reading == "えーびーしー" && u.Length == 3)
+                               && !smUnits.Exists(u => u.Reading == "よ");
+                var smCfg = Json.Obj(st.Cfg, "speech");
+                float smBeat = 1f / (float)Json.Num(smCfg, "morae_per_second", 8.0);
+                var smLine = Speech.Line("きょう、ね。", smCfg);
+                bool smTimeline = smLine.Beats == 3 && Mathf.Abs(smLine.Seconds - (3f * smBeat + (float)Json.Num(smCfg, "pause_comma", 0.25) + (float)Json.Num(smCfg, "pause_period", 0.45))) < 1e-3f
+                                  && smLine.OpenAt(smBeat * 0.5f) > 0.9f && smLine.OpenAt(2f * smBeat + 0.1f) == 0f && smLine.VisibleAt(0f) >= 1 && smLine.VisibleAt(2f * smBeat + 0.01f) == 4;
+                var smRuby = Speech.Line("今日《きょう》", smCfg);
+                bool smRubyPace = smRuby.Display == "今日" && smRuby.Beats == 2 && smRuby.VisibleAt(0.01f) == 1 && smRuby.VisibleAt(smBeat + 0.01f) == 2;
+                // a line said
+                h.SpeakMouth.Value = true;
+                var smCha = st.Cha;
+                float smFixed0 = Mouth.FixedOf(smCha);
+                int smMoves0 = Mouth.Instance.Moves;
+                Send(Line("今日《きょう》は、いっしょに帰《かえ》ろうね。"));
+                yield return Until(() => bp.Busy && bp.Text.StartsWith("今日は"), 10f);
+                float smT0 = Time.realtimeSinceStartup;
+                string smText = bp.Text;
+                yield return Wait(0.3f);
+                int smPart = bp.Visible;
+                bool smFree = Mouth.FixedOf(smCha) < 0f && Mouth.Instance.Active && ReferenceEquals(Mouth.Instance.Target, smCha);
+                float smMax = 0f;
+                while (bp.Revealing && Time.realtimeSinceStartup - smT0 < 10f)
+                {
+                    smMax = Mathf.Max(smMax, MouthOpenRate(smCha));
+                    yield return null;
+                }
+                float smTook = Time.realtimeSinceStartup - smT0;
+                yield return Wait(0.8f);
+                bool smAfter = !Mouth.Instance.Active && Mathf.Abs(Mouth.FixedOf(smCha) - smFixed0) < 1e-4f && MouthOpenRate(smCha) < 0.05f;
+                bool smSaid = smText == "今日は、いっしょに帰ろうね。" && smPart > 0 && smPart < smText.Length && smTook >= 1.2f && smMax > 0.5f
+                              && Mouth.Instance.Moves > smMoves0 && smFree && smAfter;
+                bp.Advance(true);
+                yield return Wait(0.4f);
+                // a press while it comes out: all of it at once, the mouth stopped
+                Send(Line("もうひとつ、ながいセリフを、ゆっくり言うね。"));
+                yield return Until(() => bp.Busy && bp.Text.StartsWith("もうひとつ"), 10f);
+                yield return Wait(0.3f);
+                bool smPressWas = bp.Revealing && Mouth.Instance.Active;
+                bp.Advance();
+                yield return null;
+                yield return null;
+                yield return null;
+                bool smPress = smPressWas && !bp.Revealing && bp.Visible == bp.Text.Length && !Mouth.Instance.Active
+                               && Mathf.Abs(Mouth.FixedOf(smCha) - smFixed0) < 1e-4f && MouthOpenRate(smCha) < 0.05f;
+                bp.Advance(true);
+                yield return Wait(0.4f);
+                // the setting off: at once, no mouth
+                h.SpeakMouth.Value = false;
+                Send(Line("はやいね。"));
+                yield return Until(() => bp.Busy && bp.Text == "はやいね。", 10f);
+                yield return Wait(0.25f);
+                bool smOff = !bp.Revealing && !Mouth.Instance.Active;
+                bp.Advance(true);
+                yield return Wait(0.4f);
+                Check("mouth (PR #46 §6): on by default; ruby parsed (shown without readings, one in （） gone); beats and pauses; a line said at its reading's pace, her mouth open within it, Studio's fixed mouth back after; a press shows all and stops it; off - at once, no mouth",
+                      smDefault && smParse && smTimeline && smRubyPace && smSaid && smPress && smOff,
+                      string.Format("default {0} parse {1} '{2}' timeline {3} ({4} beats, {5:F3} s) ruby {6} said {7} ('{8}' part {9} took {10:F2} s max {11:F2} free {12} after {13} fixed0 {14}) press {15} off {16}",
+                                    smDefault, smParse, smDisp, smTimeline, smLine.Beats, smLine.Seconds, smRubyPace, smSaid, smText, smPart, smTook, smMax, smFree, smAfter, smFixed0, smPress, smOff));
+            }
 
             // an unknown label: shown anyway with the standard face, no event (MUSE_GUIDE.md 4)
             Send(With(Line("知らない表情。"), "emotion", D("label", "no_such_label")));

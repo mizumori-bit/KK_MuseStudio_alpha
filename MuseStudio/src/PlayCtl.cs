@@ -65,6 +65,17 @@ namespace MuseStudio
         float lastTouched = -100f;     // aibu: when the user last touched her
         string reacted = "";          // aibu: the part whose Touch state played (a touch on it again keeps its loop)
         public bool Kissing;
+
+        // her mouth (partner: the other body's - the match's opponent) in use: a kiss, a service with it - the words' mouth
+        // does not move then (PR #46 §6)
+        public bool MouthBusy(bool partner)
+        {
+            if (!Active) return false;
+            if (Kissing) return true;
+            string side = (partner ? !Reversed : Reversed) ? "player" : "character";
+            List<string> parts;
+            return Res != null && Res.Parts.TryGetValue(side, out parts) && parts != null && parts.Contains("mouth");
+        }
         string kissBack = "M";
         static readonly Dictionary<string, string> AibuTouch = new Dictionary<string, string> { { "chest", "M" }, { "crotch", "A" }, { "hips", "S" }, { "anal", "S" } };
         static readonly Dictionary<string, string> AibuLoop = new Dictionary<string, string> { { "M", "M_Idle" }, { "A", "A_Idle" }, { "S", "S_Idle" }, { "K", "K_Loop" } };

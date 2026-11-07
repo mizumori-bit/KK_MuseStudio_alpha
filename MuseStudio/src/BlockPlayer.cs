@@ -33,6 +33,9 @@ namespace MuseStudio
         bool revealAll;
         float waitLeft = -1f, monoWait = -1f;
         readonly float perChar, baseSec, revealCps, monoMin, monoMax, monoPerChar;
+        readonly Dictionary<string, object> speechCfg;     // (stage.json speech: the words' pace and the mouth's beats)
+        public Spoken Spoken;         // the block's words parsed (its ruby; null: a sound block)
+        public bool Speaking;         // its words come out at the pace she says them, her mouth with them (the setting 口の動き)
         public bool MonologueMoved;   // the monologue's own block moved her (not a change of the situation)
         public string Speaker = "self";   // the package's speaker (the match: "opponent" - the opponent's, forwarded by Muse)
 
@@ -53,6 +56,7 @@ namespace MuseStudio
             monoMin = (float)Json.Num(mono, "min_seconds", 10.0);
             monoMax = (float)Json.Num(mono, "max_seconds", 20.0);
             monoPerChar = (float)Json.Num(mono, "per_char", 0.15);
+            speechCfg = Json.Obj(h.Stage.Cfg, "speech") ?? new Dictionary<string, object>();
         }
 
         static bool IsMonologue(Dictionary<string, object> p)
@@ -114,7 +118,15 @@ namespace MuseStudio
         static float Now { get { return Time.realtimeSinceStartup; } }
 
         // the characters out so far (the text is revealed reveal_cps a second)
-        public int Visible { get { return revealAll || Moving ? Text.Length : Mathf.Min(Text.Length, (int)((Now - ShownAt) * revealCps * Pace)); } }
+        public int Visible
+        {
+            get
+            {
+                if (revealAll || Moving) return Text.Length;
+                if (Speaking && Spoken != null) return Spoken.VisibleAt((Now - ShownAt) * Pace);      // (at the pace she says it)
+                return Mathf.Min(Text.Length, (int)((Now - ShownAt) * revealCps * Pace));
+            }
+        }
 
         public int Pending { get { return pending.Count; } }
 
@@ -155,7 +167,11 @@ namespace MuseStudio
 
         public void Update(float dt)
         {
-            if (!h.Stage.Ready || h.Chars.Creating) return;        // the creation is open: Muse's packages wait
+            if (!h.Stage.Ready || h.Chars.Creating)                 // the creation is open: Muse's packages wait
+            {
+                if (Mouth.Instance != null && Mouth.Instance.Active) Mouth.Instance.Stop();
+                return;
+            }
             // a block that was only her inner thought: its effects are done, the next one at once
             if (skipEmpty && Busy && !Moving)
             {
@@ -189,6 +205,29 @@ namespace MuseStudio
                 waitLeft -= dt;
                 if (waitLeft < 0f) Advance(true);
             }
+            MouthTick();
+        }
+
+        // the speaker's mouth with the words (PR #46 §6): while the line is being said - not past its end, not once a press
+        // showed it all, not while the speaker's mouth is in use (a kiss, a service) or she is not on the stage; else the
+        // face's own mouth again
+        void MouthTick()
+        {
+            var m = Mouth.Instance;
+            if (m == null) return;
+            float t = (Now - ShownAt) * Pace;
+            ChaControl who = Busy && !Moving && Speaking && Spoken != null && !revealAll && t < Spoken.Seconds ? SpeakerCha() : null;
+            if (who == null) { if (m.Active) m.Stop(); return; }
+            m.Drive(who, Spoken.OpenAt(t));
+        }
+
+        ChaControl SpeakerCha()
+        {
+            var st = h.Stage;
+            if (Speaker == "opponent")
+                return h.Match.Active && st.Partner != null && !h.Play.MouthBusy(true) ? st.Partner.charInfo : null;
+            if (st.Heroine == null || h.Outing.Out || h.Presence.HerAt.Length > 0 || h.Play.MouthBusy(false)) return null;
+            return st.Cha;
         }
 
         // the user switched the character: what waits here was for the one before (the new one's tagged packages stay) -
@@ -435,13 +474,18 @@ namespace MuseStudio
         void Present(Dictionary<string, object> b)
         {
             IsSound = Json.Str(b, "type", "dialogue") == "sound";
-            Text = IsSound ? Json.Str(b, "text", "") : Shown(Json.Str(b, "text", ""));     // (a sound block's （） are its own: shown)
+            // (a sound block's （） are its own: shown; a dialogue's words: its inner thoughts gone, then its ruby - the one
+            // parse for her Muse's, the opponent's and a replay's: PR #46 §6)
+            Spoken = IsSound ? null : Speech.Line(Shown(Json.Str(b, "text", "")), speechCfg);
+            Text = IsSound ? Json.Str(b, "text", "") : Spoken.Display;
+            Speaking = Spoken != null && Text.Length > 0 && h.SpeakMouth != null && h.SpeakMouth.Value;
             if (Text.Length > 0) TellShown();
             skipEmpty = Text.Length == 0;          // (all of it her inner thought: its effects, no box)
             ShownAt = Now;
             presentedAt = -1f;
             revealAll = Text.Length == 0;
-            waitLeft = Auto ? (Text.Length * perChar + baseSec) / Pace : -1f;
+            // (said at her pace: the line took its reading's time - the base's wait after it, as after a voice)
+            waitLeft = Auto ? (Speaking ? (float)Json.Num(speechCfg, "after_seconds", baseSec) : Text.Length * perChar + baseSec) / Pace : -1f;
             monoWait = Monologue ? Mathf.Clamp(monoMin + Text.Length * monoPerChar, monoMin, monoMax) : -1f;
             h.Beat.Progress();
         }
