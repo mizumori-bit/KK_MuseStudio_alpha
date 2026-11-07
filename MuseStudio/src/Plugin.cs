@@ -395,6 +395,8 @@ namespace MuseStudio
             Dictionary<string, object> pkg;
             while (!Replay.Playing && (pkg = Bridge.NextPackage()) != null) Blocks.Enqueue(pkg);     // (a replay: Muse's wait)
             Chars.Tick();
+            SettingsTick();                // (before the blocks: the window closed this frame is settled - the user's changes, then
+                                           //  the requests that waited - before a request of this frame is looked at; GPT's re-review of #41)
             if (Input.GetKeyDown(KeyCode.Space)) SpaceSeen++;
             if (Blocks.Busy && !typing && (ui == null || !ui.Modal) && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))) Blocks.Advance();
             Blocks.Update(Time.deltaTime);
@@ -405,7 +407,6 @@ namespace MuseStudio
                 Touch.Tick();
             }
             else Touch.CursorOff();
-            SettingsTick();
             Stage.Tick();
             if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2)) Mood.Acted();
             Mood.Tick(Time.deltaTime);
@@ -545,6 +546,7 @@ namespace MuseStudio
         }
 
         internal void SettingsOpenedForCheck() { settingsAtOpen = SettingsInfo(); }
+        internal bool SettingsOpenSeenForCheck { get { return settingsAtOpen != null; } }
 
         // Muse's change of the speeds (a package's settings, PR #12 adopted - only when the user asked for it in the chat, Muse's
         // rule): checked - the package aimed at this launch and character, its request not seen before, known names, 0.25..4.0
@@ -581,7 +583,8 @@ namespace MuseStudio
                 want[kv.Key] = (float)Math.Round(v, 2);
             }
             if (want.Count == 0) return;
-            if (SettingsShown) { museSettingsWaiting.Add(new KeyValuePair<Dictionary<string, float>, string>(want, req)); return; }      // (after the window closes, in order)
+            // (after the window closes, in order; also while its closing is not settled yet - settingsAtOpen still held)
+            if (SettingsShown || settingsAtOpen != null) { museSettingsWaiting.Add(new KeyValuePair<Dictionary<string, float>, string>(want, req)); return; }
             ApplyMuseSettings(want, req, null);
         }
 

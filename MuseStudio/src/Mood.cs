@@ -43,7 +43,7 @@ namespace MuseStudio
             savePath = path;
             Doc = Data.Load("moods.json");
             idleSince = Now;
-            var app = Json.Obj(ReadAll(), AppKey);
+            var app = Json.Obj(ReadAll() ?? new Dictionary<string, object>(), AppKey);
             if (app != null && Json.Has(app, "alive"))
             {
                 lastGap = Math.Max(0.0, (Unix - Json.Num(app, "alive")) / 60.0);
@@ -63,12 +63,16 @@ namespace MuseStudio
             try
             {
                 var all = ReadAll();
+                if (all == null) return;               // (not readable: left as it is)
                 all[AppKey] = AppDoc();
-                Directory.CreateDirectory(Path.GetDirectoryName(savePath));
-                File.WriteAllText(savePath, Json.Write(all));
+                WriteWhole(Json.Write(all));
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); }
         }
+
+        // (checks) a moods file at another path: what the start does to it
+        public static Mood ForFileCheck(MuseStudioPlugin host, string path) { return new Mood(host, path); }
+        public void SaveForCheck(string id) { charId = id; Values["arousal"] = 0.3f; Save(); }
 
         // (checks) the app's closed time as if: the total and the last closed time (-1: not known)
         public void SetClosedForCheck(double total, double gap) { closedTotal = total; lastGap = gap; }
@@ -81,10 +85,51 @@ namespace MuseStudio
 
         static double Unix { get { return (DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds; } }
 
+        // The file as it is: missing - empty (the first start); there but not readable now (held by another program) - null, and
+        // nothing is written over it until it reads; not a moods file - copied aside first (moods.json.unreadable-<time>),
+        // then an empty one; no copy - null, left as it is (GPT's re-review of #41: a broken file became {} and the start's
+        // first write replaced the characters' records)
+        public bool HeldForCheck;          // (checks) the file is kept from being written
+        bool told;
+
         Dictionary<string, object> ReadAll()
         {
-            try { return File.Exists(savePath) ? Json.Parse(File.ReadAllText(savePath)) as Dictionary<string, object> ?? new Dictionary<string, object>() : new Dictionary<string, object>(); }
-            catch (Exception) { return new Dictionary<string, object>(); }
+            if (!File.Exists(savePath)) { HeldForCheck = false; return new Dictionary<string, object>(); }
+            string text;
+            try { text = File.ReadAllText(savePath); }
+            catch (Exception e) { Hold("could not be read (" + e.GetType().Name + ")"); return null; }
+            Dictionary<string, object> doc = null;
+            try { doc = Json.Parse(text) as Dictionary<string, object>; } catch (Exception) { doc = null; }
+            if (doc != null) { HeldForCheck = false; told = false; return doc; }
+            string aside = savePath + ".unreadable-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            try
+            {
+                File.Copy(savePath, aside, false);
+                WriteWhole("{}");
+                MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: the file was not a moods file - copied aside as " + Path.GetFileName(aside) + ", started afresh");
+                HeldForCheck = false;
+                return new Dictionary<string, object>();
+            }
+            catch (Exception e) { Hold("is not a moods file and could not be copied aside (" + e.GetType().Name + ")"); return null; }
+        }
+
+        void Hold(string why)
+        {
+            HeldForCheck = true;
+            if (told) return;
+            told = true;
+            MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: the file " + why + " - not written over (the moods of this launch are not kept until it reads)");
+        }
+
+        // a whole new file first, then put in its place: a write cut off leaves the old file as it was
+        void WriteWhole(string text)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(savePath));
+            string part = savePath + ".part";
+            File.WriteAllText(part, text);
+            if (!File.Exists(savePath)) { File.Move(part, savePath); return; }
+            try { File.Replace(part, savePath, null); }
+            catch (Exception) { File.Copy(part, savePath, true); File.Delete(part); }     // (no replace here: the whole file is written already)
         }
 
         // The character's moods as saved. While the app was closed she lived her day (PR #25, the owner's decision of
@@ -97,7 +142,7 @@ namespace MuseStudio
         public void LoadFor(string id)
         {
             if (charId.Length > 0) Save();
-            Apply(id, Json.Obj(ReadAll(), id));
+            Apply(id, Json.Obj(ReadAll() ?? new Dictionary<string, object>(), id));
         }
 
         public string ResumedForCheck = "";       // (checks) how the last load came back: "new" / "same_launch" / "after_closed <minutes>"
@@ -148,6 +193,7 @@ namespace MuseStudio
             try
             {
                 var all = ReadAll();
+                if (all == null) return;               // (not readable: left as it is)
                 var vals = new Dictionary<string, object>();
                 foreach (var kv in Values) vals[kv.Key] = Math.Round(kv.Value, 4);
                 var dn = new Dictionary<string, object>();
@@ -155,8 +201,7 @@ namespace MuseStudio
                 all[charId] = new Dictionary<string, object> { { "values", vals }, { "saved", Unix }, { "launch", Launch.Id }, { "done", dn },
                     { "closed_total", Math.Round(closedTotal, 3) } };
                 all[AppKey] = AppDoc();
-                Directory.CreateDirectory(Path.GetDirectoryName(savePath));
-                File.WriteAllText(savePath, Json.Write(all));
+                WriteWhole(Json.Write(all));
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); }
         }

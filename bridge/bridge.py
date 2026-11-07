@@ -101,6 +101,14 @@ MAX_EVENTS_FILE_BYTES = 64 * 1024 * 1024    # a saved feed bigger than this (one
 MAX_CHOICES = 200                      # the old choice queue (GET /api/choices); past it the oldest are dropped
 MAX_CHOICES_BYTES = 1024 * 1024        # that queue altogether; past it the oldest are dropped
 MAX_CHOICE_CHARS = {"session": 256, "kind": 64, "value": 4096}    # one choice's strings
+# what Muse and the app are told when a file of the bridge's cannot be used (GPT's re-review of #39: no path of this PC in an
+# answer - the bridge's log has the file and the system's message)
+PACKAGES_UNREAD = ("the package queue's file could not be read (another program may hold it): no package is taken until it can be "
+                   "(it is read again before each use; the file is kept as it is)")
+PACKAGES_GARBLED = "the package queue's file is not one and could not be copied aside: no package is taken until a person moves it away"
+EVENTS_UNREAD = "the event feed's file could not be read (another program may hold it): no event is taken until it can be"
+EVENTS_GARBLED = "the event feed's file is not a feed and could not be copied aside: no event is taken until a person moves it away"
+EVENTS_OVERSIZE = "the event feed's old file is too big and could not be kept aside: no event is taken until a person moves it away"
 MAX_EVENT_IDS = 4096           # the app's event ids remembered (a resent event is told apart; see add_app_event)
 # requests per sender (the security review's SEC-07, after SEC-01 told the senders apart): [per second, at once] - far above
 # use (Muse polls every few seconds; the app reports its state up to some 30 times a second in the checks); past it 429 with
@@ -744,9 +752,9 @@ class State:
             return
         except OSError as e:
             self.packages_unread = True
-            self.packages_frozen = (f"the package queue's file {f.name} could not be read ({e}): no package is taken until it can be "
-                                    f"(it is read again before each use; the file is kept as it is)")
-            sys.stderr.write(f"[bridge] {self.packages_frozen}\n")
+            self.packages_frozen = PACKAGES_UNREAD
+            sys.stderr.write(f"[bridge] the package queue's file {f} could not be read ({e}): no package is taken until it can be "
+                             f"(it is read again before each use; the file is kept as it is)\n")
             return
         try:
             doc = json.loads(text)
@@ -781,9 +789,9 @@ class State:
         try:
             shutil.copyfile(f, aside)
         except OSError as e:
-            self.packages_frozen = (f"the package queue's file {f.name} is not one ({err}) and could not be copied aside ({e}): kept as "
-                                    f"it is, and no package is taken - move it away, then start the bridge again")
-            sys.stderr.write(f"[bridge] {self.packages_frozen}\n")
+            self.packages_frozen = PACKAGES_GARBLED
+            sys.stderr.write(f"[bridge] the package queue's file {f} is not one ({err}) and could not be copied aside ({e}): kept as it is, "
+                             f"and no package is taken - move it away, then start the bridge again\n")
             return
         sys.stderr.write(f"[bridge] the package queue's file was not one ({err}): copied aside as {aside.name}, the queue starts empty\n")
 
@@ -961,9 +969,9 @@ class State:
                     shutil.copyfile(self.events_file, aside)
                     kept = "copied"
                 except OSError as e:
-                    self.events_frozen = (f"the event feed's file {self.events_file} ({size} bytes, past {MAX_EVENTS_FILE_BYTES}) could not be "
-                                          f"kept aside ({e}): left as it is, and no event is taken - move it away, then start the bridge again")
-                    sys.stderr.write(f"[bridge] {self.events_frozen}\n")
+                    self.events_frozen = EVENTS_OVERSIZE
+                    sys.stderr.write(f"[bridge] the event feed's file {self.events_file} ({size} bytes, past {MAX_EVENTS_FILE_BYTES}) could not be "
+                                     f"kept aside ({e}): left as it is, and no event is taken - move it away, then start the bridge again\n")
                     return
             self.next_event_id = int(time.time() * 1000)
             sys.stderr.write(f"[bridge] the event feed's file was {size} bytes (past {MAX_EVENTS_FILE_BYTES}): {kept} aside as {aside.name}, "
@@ -985,9 +993,9 @@ class State:
             return
         except OSError as e:
             self.events_unread = True
-            self.events_frozen = (f"the event feed's file {self.events_file} could not be read ({e}): no event is taken until it can be "
-                                  f"(it is read again before each use)")
-            sys.stderr.write(f"[bridge] {self.events_frozen}\n")
+            self.events_frozen = EVENTS_UNREAD
+            sys.stderr.write(f"[bridge] the event feed's file {self.events_file} could not be read ({e}): no event is taken until it can be "
+                             f"(it is read again before each use)\n")
             return
         self._take_feed(doc)
 
@@ -997,9 +1005,9 @@ class State:
         try:
             shutil.copyfile(self.events_file, aside)
         except OSError as e:
-            self.events_frozen = (f"the event feed's file {self.events_file} is not a feed ({err}) and could not be copied aside ({e}): left "
-                                  f"as it is, and no event is taken - move it away, then start the bridge again")
-            sys.stderr.write(f"[bridge] {self.events_frozen}\n")
+            self.events_frozen = EVENTS_GARBLED
+            sys.stderr.write(f"[bridge] the event feed's file {self.events_file} is not a feed ({err}) and could not be copied aside ({e}): left "
+                             f"as it is, and no event is taken - move it away, then start the bridge again\n")
             return
         self.events, self.event_sizes = [], {}
         self.next_event_id = int(time.time() * 1000)
@@ -1190,8 +1198,11 @@ class State:
     def character_now(self) -> str | None:
         # the app's character (its launch report, else its state): packages tagged for another are dropped
         with self.lock:
-            ch = self.launch.get("character") or (self.app_state or {}).get("character") or {}
-            return ch.get("id") if isinstance(ch, dict) else None
+            return self._character_now_locked()
+
+    def _character_now_locked(self) -> str | None:
+        ch = self.launch.get("character") or (self.app_state or {}).get("character") or {}
+        return ch.get("id") if isinstance(ch, dict) else None
 
     def drop_reason(self, pkg: dict) -> str:
         # (an untagged package: for the launch and the character of when the bridge took it - PR #24, GPT's point 3)
@@ -1600,15 +1611,14 @@ def make_handler(state: State):
                 body["_pid"] = key
                 body.pop("_launch_at", None)
                 body.pop("_character_at", None)
-                char_now = state.character_now()
                 stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(received)) + ".%03d" % (int(received * 1000) % 1000)
                 with state.lock:
+                    # (the store first - a file read again here brings back its launch and character - then this package's
+                    # stamps from that same moment, under the same lock: GPT's re-review of #39. Still not readable: the save
+                    # below refuses, and the package is not taken)
                     frozen = state.packages_ready_locked()
+                    char_now = state._character_now_locked()
                     seen = None if frozen else state.package_log.get(key)
-                if frozen:
-                    return self._json(503, {"accepted": False, "errors": [frozen + " - not taken: send it again later"]})
-                with state.lock:
-                    seen = state.package_log.get(key)
                     if seen is not None and key.startswith("h:") and received - seen.get("queued_ts", 0) > CONTENT_DUP_SECONDS \
                             and not any(q.get("_pid") == key for q in state.packages):
                         del state.package_log[key]          # (the same words long after: a new package)
@@ -1654,7 +1664,8 @@ def make_handler(state: State):
                     return self._json(429, {"accepted": False, "queue": full,
                                             "errors": [f"the queue is full ({MAX_PACKAGES} packages / {MAX_PACKAGES_BYTES} bytes): send again after the app has taken some"]})
                 if not saved:
-                    return self._json(503, {"accepted": False, "errors": ["the bridge could not keep the package (its file not written): not taken - send it again"]})
+                    why = frozen + " - not taken: send it again later" if frozen else "the bridge could not keep the package (its file not written): not taken - send it again"
+                    return self._json(503, {"accepted": False, "errors": [why]})
                 sys.stderr.write(f"[bridge] package accepted: session={body['session']} turn={body['turn']} queue={n}\n")
                 return self._json(200, {"accepted": True, "id": key, "queue": n, "received_ms": body["_received_ms"], "received": stamp})
             if path == "/api/packages/ack":
@@ -1678,7 +1689,8 @@ def make_handler(state: State):
                     try:
                         state._save_packages()
                     except OSError as e:
-                        return self._json(503, {"ok": False, "error": f"not saved: {e}"})
+                        sys.stderr.write(f"[bridge] the acks not saved: {e}\n")
+                        return self._json(503, {"ok": False, "error": state.packages_frozen or "not saved (the bridge's file could not be written)"})
                 return self._json(200, {"ok": True, "unknown": unknown})
             if path == "/api/choices":
                 errors = validate_choice(body)
@@ -1714,7 +1726,8 @@ def make_handler(state: State):
                 except TooLarge as e:
                     return self._json(413, {"accepted": False, "errors": [str(e)]})
                 except OSError as e:                     # (not saved: nothing shown, the app sends it again)
-                    return self._json(503, {"accepted": False, "errors": [f"the event feed could not be saved: {e}"]})
+                    sys.stderr.write(f"[bridge] the event not saved: {e}\n")
+                    return self._json(503, {"accepted": False, "errors": [state.events_frozen or "the event feed could not be saved (its file could not be written)"]})
                 sys.stderr.write(f"[bridge] event {eid}: {body['type']}{' (sent again: kept once)' if again else ''}\n")
                 with state.lock:
                     drop = state.faults["drop_after_save"] > 0
@@ -1759,7 +1772,8 @@ def make_handler(state: State):
                 try:
                     n = state.ack_events(set(ids), upto)
                 except OSError as e:
-                    return self._json(503, {"error": f"the event feed could not be saved: {e}"})
+                    sys.stderr.write(f"[bridge] the acks not saved: {e}\n")
+                    return self._json(503, {"error": state.events_frozen or "the event feed could not be saved (its file could not be written)"})
                 with state.lock:
                     return self._json(200, {"acked": n, "pending": len(state.events)})
             if path == "/api/state":

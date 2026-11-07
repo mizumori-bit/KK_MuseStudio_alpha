@@ -227,6 +227,7 @@ class HoverFocus:
         self.last_switch = -1e9
         self.held = False                    # (the user switched while the cursor was on the panel: until it leaves)
         self.last_fg = 0                     # (the foreground window's root at the last tick: a change is a switch)
+        self.was_over = False                # (the cursor on the panel at the last tick: a change counts only then)
         self.events: list[str] = []          # (tests) what each tick did, when it did something
 
     def reset(self) -> None:
@@ -246,9 +247,13 @@ class HoverFocus:
         fg = foreground()
         fg_root = root_of(fg)
         on_panel = fg_root == panel
-        changed = bool(fg_root) and bool(self.last_fg) and fg_root != self.last_fg
+        # a change of the foreground since the last tick, while the cursor stayed on the panel - not one this class made (its
+        # own switch sets last_fg to where it went), not one while the cursor was outside (GPT's re-review of #40: the
+        # panel's own restore, then a quick way back in, read as the user's switch and the panel stopped taking the keyboard)
+        changed = bool(fg_root) and bool(self.last_fg) and fg_root != self.last_fg and self.was_over and over
         if fg_root:
             self.last_fg = fg_root
+        self.was_over = bool(over)
         if self.switched and fg and not on_panel:
             self.reset()                      # (the user went elsewhere: theirs wins)
             self.held = bool(over)            # (and while the cursor stays: not taken back)
@@ -279,6 +284,7 @@ class HoverFocus:
             self.over_since = None
             if force_foreground(panel):
                 self.switched, self.prev, self.last_switch = True, prev, now
+                self.last_fg = panel                  # (this class's own switch: not the user's)
                 return self._note("focused")
             self.refused = True
             return self._note("refused")
@@ -299,7 +305,10 @@ class HoverFocus:
         if not prev or not user32.IsWindow(prev) or not user32.IsWindowVisible(prev) or user32.IsIconic(prev):
             return self._note("window_gone")
         self.last_switch = now
-        return self._note("restored" if force_foreground(prev) else "restore_refused")
+        if force_foreground(prev):
+            self.last_fg = root_of(prev) or prev      # (this class's own switch back: not the user's)
+            return self._note("restored")
+        return self._note("restore_refused")
 
 
 def process_command_lines(names: tuple[str, ...]) -> list[tuple[int, str]]:
