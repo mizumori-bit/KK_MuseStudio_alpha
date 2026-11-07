@@ -139,6 +139,38 @@
      "add": 0.35
     }
    }
+  },
+  "intoxication": {
+   "name": "酩酊",
+   "start": 0.0,
+   "per_minute": -0.006,
+   "away_minutes_max": 0,
+   "levels": [
+    [
+     0.0,
+     "しらふ"
+    ],
+    [
+     0.3,
+     "ほろ酔い"
+    ],
+    [
+     0.6,
+     "酔っている"
+    ],
+    [
+     0.85,
+     "ひどく酔っている"
+    ]
+   ],
+   "away": {
+    "settle_minutes": 60,
+    "toward": [
+     0.0,
+     0.0
+    ]
+   },
+   "_note": "PR #46 §7: from drinks only (items.json) - it comes in over the drink's minutes, then falls by itself (per_minute); while the app is closed it settles to sober. Shown in her cheeks and eyes (Stage); how she behaves is Muse's."
   }
  },
  "_note_musestudio": "MuseStudio's own moods (tools/derive_data.py MOODS_EXTRA): shower - after_play_per_second: added when a play ends, x its seconds at each pace's factor (not when it was a shower together); reset_by: the actions that set it to 0 (she showered); muse worked: after work like cleaning (Muse's call). No build-up by time."

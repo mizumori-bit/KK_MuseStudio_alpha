@@ -1266,11 +1266,163 @@ namespace MuseStudio
                                     smDefault, smParse, smDisp, smTimeline, smLine.Beats, smLine.Seconds, smRubyPace, smSaid, smText, smPart, smTook, smMax, smFree, smAfter, smFixed0, smPress, smOff));
             }
 
+
+            // (PR #46 §7) items and the budget: the initial stock (the shelf's, the user's and hers the same); the budget by
+            // running time alone, a part of an hour kept; not told to Muse unless the setting says so; his purchase; a gift done
+            // when she takes it (Muse's block; the same request once); her drink flowing into her moods, dulled by the dose
+            // before, never past the grade's cap; the setting forbidding Muse's items on him (checked as it is applied); his
+            // suggestion taken by her; the shelf filled once a date; the ledger in the moods' file; an effect not yet in after
+            // a closed app gone, kept in the same launch
+            {
+                var it = h.Items;
+                string her = h.CharacterId();
+                int perUnit = (int)Json.Num(it.Reward, "per_unit", 100), unit = (int)Json.Num(it.Reward, "unit_seconds", 3600);
+                bool itStart = it.Imported && it.Count("shelf", "beer") == 2 && it.Count("shelf", "coffee") == 2 && it.Count("user", "chocolate") == 1
+                               && it.Count(her, "chocolate") == 1 && it.Count(her, "beer") == 1 && it.Count("user", "beer") == 1;
+                // the budget: an hour less 2 s run, then 3 s - one unit in, 1 s kept; not told (the setting off)
+                int itB0 = it.Budget, itBudgetEv0 = EventCount("budget_added");
+                it.SetFractionForCheck(unit - 2);
+                it.Tick(3f);
+                bool itBudget = it.Budget == itB0 + perUnit && it.Fraction >= 0.9 && it.Fraction < 1.5;
+                yield return Wait(2.5f);         // (the state posted on a change, the events by the bridge's thread)
+                itBudget = itBudget && EventCount("budget_added") == itBudgetEv0;
+                var itState = Json.Obj(Json.Parse(Http("GET", "/api/state", null)), "items");
+                bool itHidden = itState != null && !itState.ContainsKey("budget");
+                h.TellBudget.Value = true;
+                yield return Wait(2.5f);
+                itState = Json.Obj(Json.Parse(Http("GET", "/api/state", null)), "items");
+                bool itShown = itState != null && (int)Json.Num(itState, "budget", -1) == it.Budget;
+                h.TellBudget.Value = false;
+                // his purchase; a dear one refused
+                it.SetBudgetForCheck(1000);
+                string itBuy = it.Buy("flowers"), itDear = it.Buy("aphrodisiac_3");
+                bool itBought = itBuy == "" && itDear == "budget" && it.Budget == 1000 - (int)Json.Num(it.ItemDef("flowers"), "price") && it.Count("user", "flowers") == 1;
+                // a gift: offered, done when she takes it (Muse's block), the same request once
+                int itOfferEv0 = EventCount("item_offered");
+                string itOffer = it.OfferToHer("flowers");
+                yield return Until(() => EventCount("item_offered") > itOfferEv0, 5f);
+                var itOffered = LastEvent("item_offered");
+                string itOfferId = Json.Str(itOffered, "offer", "");
+                bool itWaiting = itOffer == "" && itOfferId.Length > 0 && it.Count("user", "flowers") == 1 && it.Count(her, "flowers") == 0;
+                Send(With(Line("ありがとう。"), "item", D("request", "chk-item-1", "accept", itOfferId)));
+                yield return Until(() => bp.Busy && bp.Text == "ありがとう。", 10f);
+                yield return Wait(0.4f);
+                bp.Advance(true);
+                yield return Wait(0.4f);
+                var itGiven = LastEvent("item_given");
+                Send(With(Line("もう一度。"), "item", D("request", "chk-item-1", "accept", itOfferId)));      // (a resend: done once)
+                yield return Until(() => bp.Busy && bp.Text == "もう一度。", 10f);
+                yield return Wait(0.4f);
+                bp.Advance(true);
+                yield return Wait(0.4f);
+                bool itTaken = itWaiting && it.Count("user", "flowers") == 0 && it.Count(her, "flowers") == 1 && Json.Str(itGiven, "offer") == itOfferId
+                               && itGiven.ContainsKey("taken") && (bool)itGiven["taken"];
+                Check("items: the initial stock (the shelf's; the user's and hers the same); the budget by running time, a part kept, not told unless the setting; his purchase (a dear one refused); a gift done when she takes it, the same request once",
+                      itStart && itBudget && itHidden && itShown && itBought && itTaken,
+                      string.Format("start {0} budget {1} (fraction {2:F1}) hidden {3} shown {4} bought {5} ('{6}' '{7}') taken {8} ({9})", itStart, itBudget, it.Fraction,
+                                    itHidden, itShown, itBought, itBuy, itDear, itTaken, Json.Write(itGiven)));
+                // her drink: flowing into her moods; a second dose of the same mood dulled; never past the grade's cap
+                it.ClearDosesForCheck();
+                float ix0 = h.Mood.ValueForCheck("intoxication"), bl0 = h.Mood.ValueForCheck("bladder");
+                int itUsedEv0 = EventCount("item_used");
+                Send(With(Line("いただきます。"), "item", D("request", "chk-item-2", "use", "beer")));
+                yield return Until(() => bp.Busy && bp.Text == "いただきます。", 10f);
+                yield return Wait(0.4f);
+                bp.Advance(true);
+                bool itPending = h.Mood.PendingCountForCheck >= 2 && it.Count(her, "beer") == 0 && EventCount("item_used") == itUsedEv0 + 1;
+                h.Mood.FlowForCheck(0.3f);
+                yield return Wait(0.8f);
+                float ix1 = h.Mood.ValueForCheck("intoxication");
+                bool itRose = ix1 >= ix0 + 0.24f && h.Mood.ValueForCheck("bladder") > bl0 + 0.1f;
+                it.SetBudgetForCheck(5000);
+                for (int k = 0; k < 4; k++) { it.Buy("beer"); it.MoveUser("beer", true); }
+                Send(With(Line("もう一本。"), "item", D("request", "chk-item-3", "use", "beer", "from", "shelf")));
+                yield return Until(() => bp.Busy && bp.Text == "もう一本。", 10f);
+                yield return Wait(0.4f);
+                bp.Advance(true);
+                string itDull = it.Log.Count > 0 ? it.Log[it.Log.Count - 1] : "";
+                bool itDulled = itDull.Contains("\"intoxication\"") && itDull.Contains("\"amount\":0.125");
+                for (int k = 0; k < 3; k++)
+                {
+                    Send(With(Line("まだ飲む。" + k), "item", D("request", "chk-item-4-" + k, "use", "beer", "from", "shelf")));
+                    yield return Until(() => bp.Busy && bp.Text.StartsWith("まだ飲む。"), 10f);
+                    yield return Wait(0.3f);
+                    bp.Advance(true);
+                    yield return Wait(0.3f);
+                }
+                h.Mood.FlowForCheck(0.3f);
+                yield return Wait(0.8f);
+                float ixCap = h.Mood.ValueForCheck("intoxication");
+                bool itCapped = ixCap <= (float)Json.Num(Json.Obj(Json.Obj(it.Def, "grades"), "1"), "cap", 0.6) + 0.01f && ixCap > ix1;
+                Check("items: her drink flows into her moods (intoxication and bladder); a second dose of the same mood dulled (half for an everyday one); never past the grade's cap",
+                      itPending && itRose && itDulled && itCapped, string.Format("pending {0} rose {1} ({2:F2} -> {3:F2}) dulled {4} ('{5}') capped {6} ({7:F2})", itPending, itRose, ix0, ix1,
+                                                                                  itDulled, itDull, itCapped, ixCap));
+                // Muse's item on him: forbidden by the setting (checked as it is applied), allowed again; nothing in his numbers
+                it.Buy("aphrodisiac");
+                it.MoveUser("aphrodisiac", true);
+                h.MuseItemsOnUser.Value = false;
+                int itRef0 = Refusals("item", "user_items_off");
+                Send(With(Line("あなたにも。"), "item", D("request", "chk-item-5", "use", "aphrodisiac", "on", "user", "from", "shelf")));
+                yield return Until(() => bp.Busy && bp.Text == "あなたにも。", 10f);
+                yield return Wait(0.5f);
+                bp.Advance(true);
+                bool itOff = Refusals("item", "user_items_off") == itRef0 + 1 && it.Count("shelf", "aphrodisiac") == 1;
+                h.MuseItemsOnUser.Value = true;
+                float itAr0 = h.Mood.ValueForCheck("arousal");
+                Send(With(Line("やっぱり、あなたに。"), "item", D("request", "chk-item-6", "use", "aphrodisiac", "on", "user", "from", "shelf")));
+                yield return Until(() => bp.Busy && bp.Text == "やっぱり、あなたに。", 10f);
+                yield return Wait(0.5f);
+                bp.Advance(true);
+                var itOnUser = LastEvent("item_used");
+                bool itOn = it.Count("shelf", "aphrodisiac") == 0 && Json.Str(itOnUser, "on") == "user" && Mathf.Abs(h.Mood.ValueForCheck("arousal") - itAr0) < 0.02f;
+                // his suggestion: told; she takes it - from the shelf
+                int coffee0 = it.Count("shelf", "coffee");
+                int itSugEv0 = EventCount("item_suggested");
+                string itSug = it.Suggest("coffee", "shelf");
+                yield return Until(() => EventCount("item_suggested") > itSugEv0, 5f);
+                string itSugId = Json.Str(LastEvent("item_suggested"), "suggestion", "");
+                Send(With(Line("コーヒー、いただくね。"), "item", D("request", "chk-item-7", "suggestion", itSugId)));
+                yield return Until(() => bp.Busy && bp.Text == "コーヒー、いただくね。", 10f);
+                yield return Wait(0.5f);
+                bp.Advance(true);
+                bool itSuggested = itSug == "" && itSugId.Length > 0 && it.Count("shelf", "coffee") == coffee0 - 1;
+                // the shelf filled once a date
+                it.SetRestockedForCheck("2000-01-01");
+                int beerShelf0 = it.Count("shelf", "beer"), restockEv0 = EventCount("items_restocked");
+                it.Restock(DateTime.Now);
+                it.Restock(DateTime.Now);
+                yield return Until(() => EventCount("items_restocked") > restockEv0, 5f);
+                yield return Wait(0.5f);         // (a second one, if any, would be in by now)
+                bool itRestocked = it.Count("shelf", "beer") == Mathf.Min(beerShelf0 + 1, (int)Json.Num(it.ItemDef("beer"), "max")) && EventCount("items_restocked") == restockEv0 + 1;
+                // the ledger in the moods' file (one write with her moods)
+                h.Mood.Persist();
+                var itFile = Json.Obj(Json.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(path), "moods.json"), Encoding.UTF8)), "_items");
+                bool itSaved = itFile != null && (int)Json.Num(itFile, "budget", -1) == it.Budget;
+                // an effect not yet in: gone after a closed app (she lived her day), kept in the same launch
+                var itRec = new Dictionary<string, object> { { "values", new Dictionary<string, object> { { "intoxication", 0.1 } } }, { "saved", 1.0 }, { "launch", "another" },
+                    { "pending", new List<object> { new Dictionary<string, object> { { "mood", "intoxication" }, { "left", 0.3 }, { "rate", 0.001 }, { "item", "beer" } } } } };
+                h.Mood.ResumeForCheck("check-items-closed", itRec);
+                bool itClosed = h.Mood.PendingCountForCheck == 0;
+                itRec["launch"] = Launch.Id;
+                h.Mood.ResumeForCheck("check-items-same", itRec);
+                bool itSame = h.Mood.PendingCountForCheck == 1;
+                h.Mood.LoadFor(her);
+                h.Mood.ClearPendingForCheck();          // (the checks after these: her moods as before them)
+                h.Mood.Values["intoxication"] = ix0;
+                h.Mood.Values["bladder"] = bl0;
+                h.Mood.Persist();
+                Check("items: Muse's item on him forbidden by the setting (as it is applied), allowed again, nothing in his numbers; his suggestion taken from the shelf; the shelf filled once a date; the ledger in the moods' file; an effect not yet in gone after a closed app, kept in the same launch",
+                      itOff && itOn && itSuggested && itRestocked && itSaved && itClosed && itSame,
+                      string.Format("off {0} on {1} ({2}) suggested {3} ('{8}' '{9}' coffee {10} -> {11}) restocked {4} saved {5} closed {6} same {7}", itOff, itOn, Json.Write(itOnUser), itSuggested,
+                                    itRestocked, itSaved, itClosed, itSame, itSug, itSugId, coffee0, it.Count("shelf", "coffee")));
+            }
+
             // an unknown label: shown anyway with the standard face, no event (MUSE_GUIDE.md 4)
+            int ulRefused0 = EventCount("block_refused");
             Send(With(Line("知らない表情。"), "emotion", D("label", "no_such_label")));
             yield return Until(() => bp.Busy && bp.Text == "知らない表情。", 10f);
             yield return Wait(1f);
-            Check("block: an unknown label shows the standard face (neutral), no event", st.Face == "neutral" && !EventTypes().Contains("block_refused"), st.Face);
+            Check("block: an unknown label shows the standard face (neutral), no event", st.Face == "neutral" && EventCount("block_refused") == ulRefused0, st.Face);
             var pkgSt = Json.Obj(Json.Parse(Http("GET", "/api/state", null)), "package");
             Check("state: the package while it plays (playing, block, blocks)", pkgSt != null && pkgSt["playing"] is bool && (bool)pkgSt["playing"] && (int)Json.Num(pkgSt, "block") == 1,
                   Json.Write(pkgSt));

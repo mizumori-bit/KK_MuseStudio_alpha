@@ -57,6 +57,7 @@ namespace MuseStudio
         void TakeApp(Dictionary<string, object> all)
         {
             appRead = true;
+            if (h.Items != null) h.Items.Import(Json.Obj(all, ItemsKey));     // (the items' ledger: in the same file - PR #46 §7)
             var app = Json.Obj(all, AppKey);
             if (app == null || !Json.Has(app, "alive")) return;
             lastGap = Math.Max(0.0, (startedAt - Json.Num(app, "alive")) / 60.0);
@@ -77,6 +78,7 @@ namespace MuseStudio
                 if (all == null) return;               // (not readable: left as it is)
                 if (!appRead) TakeApp(all);            // (its record first: never written over unread - GPT's re-review of #42)
                 all[AppKey] = AppDoc();
+                if (h.Items != null && h.Items.Imported) all[ItemsKey] = h.Items.Export();
                 WriteWhole(Json.Write(all));
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); }
@@ -187,6 +189,16 @@ namespace MuseStudio
                 away = Json.Has(mine, "closed_total") ? Math.Max(0.0, closedTotal - Json.Num(mine, "closed_total"))
                      : lastGap >= 0.0 ? lastGap : Math.Max(0.0, (Unix - Json.Num(mine, "saved")) / 60.0);
             ResumedForCheck = !saved ? "new" : sameLaunch ? "same_launch" : "after_closed " + away.ToString("F0");
+            // an item's effect still flowing in (PR #46 §7): kept as it was in the same launch; after the app was closed she lived
+            // her day - what had not come in yet is gone (the moods settle as below), never added again
+            pending.Clear();
+            if (sameLaunch)
+                foreach (var po in Json.Arr(mine, "pending") ?? new List<object>())
+                {
+                    var pd = po as Dictionary<string, object>;
+                    if (pd != null && Json.Num(pd, "left") > 0)
+                        pending.Add(new Pending { Mood = Json.Str(pd, "mood", ""), Left = (float)Json.Num(pd, "left"), Rate = (float)Json.Num(pd, "rate"), Item = Json.Str(pd, "item", "") });
+                }
             foreach (var kv in Moods)
             {
                 var vals = Json.Obj(mine, "values");
@@ -233,9 +245,12 @@ namespace MuseStudio
                 foreach (var kv in Values) vals[kv.Key] = Math.Round(kv.Value, 4);
                 var dn = new Dictionary<string, object>();
                 foreach (var kv in done) dn[kv.Key] = kv.Value;
+                var pend = new List<object>();
+                foreach (var pe in pending) pend.Add(new Dictionary<string, object> { { "mood", pe.Mood }, { "left", Math.Round(pe.Left, 5) }, { "rate", Math.Round(pe.Rate, 7) }, { "item", pe.Item } });
                 all[charId] = new Dictionary<string, object> { { "values", vals }, { "saved", Unix }, { "launch", Launch.Id }, { "done", dn },
-                    { "closed_total", Math.Round(closedTotal, 3) } };
+                    { "closed_total", Math.Round(closedTotal, 3) }, { "pending", pend } };
                 all[AppKey] = AppDoc();
+                if (h.Items != null && h.Items.Imported) all[ItemsKey] = h.Items.Export();
                 WriteWhole(Json.Write(all));
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); }
@@ -369,6 +384,28 @@ namespace MuseStudio
         // (checks) no climax of hers to call satisfying
         public void ForgetClimaxForCheck() { satisfiable.Clear(); }
 
+        // ---- items' effects (PR #46 §7): an amount flowing into a mood over its minutes ----
+        public class Pending { public string Mood = "", Item = ""; public float Left, Rate; }
+        readonly List<Pending> pending = new List<Pending>();
+        const string ItemsKey = "_items";
+
+        public void AddPending(string mood, float amount, float minutes, string item)
+        {
+            if (amount <= 0f) return;
+            pending.Add(new Pending { Mood = mood, Left = amount, Rate = amount / Mathf.Max(1f, minutes * 60f), Item = item });
+        }
+
+        public float PendingOf(string mood) { float s = 0f; foreach (var pe in pending) if (pe.Mood == mood) s += pe.Left; return s; }
+
+        public int PendingCountForCheck { get { return pending.Count; } }
+        public void ClearPendingForCheck() { pending.Clear(); }
+
+        // (checks) the effects come in now
+        public void FlowForCheck(float seconds) { foreach (var pe in pending) pe.Rate = pe.Left / Mathf.Max(0.01f, seconds); }
+
+        // written now (the items' ledger changed): her record and the app's, or the app's alone before a character
+        public void Persist() { if (charId.Length == 0) Alive(); else Save(); }
+
         public void Tick(float dt)
         {
             aliveT += dt;
@@ -385,6 +422,15 @@ namespace MuseStudio
                     afterPlay.TryGetValue(kv.Key, out a);
                     afterPlay[kv.Key] = a + (float)Json.Num(kv.Value, "after_play_per_second") * pc.PaceFactor(pc.Pace) * dt;
                 }
+            }
+            // an item's effect flowing in at its rate (PR #46 §7)
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                var pe = pending[i];
+                float step = Mathf.Min(pe.Left, pe.Rate * dt);
+                if (step > 0f) Add(pe.Mood, step, "item");
+                pe.Left -= step;
+                if (pe.Left <= 1e-6f) pending.RemoveAt(i);
             }
             MoodPace();
             saveT += dt;

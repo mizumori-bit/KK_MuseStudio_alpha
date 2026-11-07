@@ -77,6 +77,8 @@ namespace MuseStudio
         internal Sounds Sounds;
         internal Rooms Rooms = new Rooms();
         internal Places Places;                    // (PR #46 §4.1: every room registered at start-up)
+        internal Items Items;                      // (PR #46 §7: items and the budget)
+        internal ConfigEntry<bool> TellBudget, MuseItemsOnUser;
         internal ConfigEntry<int> ExtraRooms;      // (PR #46 §4.1: extra rooms kept loaded)
         internal Launch Launch;
         internal Personas Personas;
@@ -154,6 +156,12 @@ namespace MuseStudio
             ExtraRooms = Config.Bind("Stage", "Extra rooms kept loaded", 6, Ja("舞台", "読み込んだまま置く部屋の数",
                 "「最初から並べて置く部屋」のほかに、行った部屋を読み込んだまま置いておく数です（多いほど戻るのが一瞬、メモリを使います。1 部屋でおよそ 0.1〜0.4 GB）。超えたら、使っていない部屋から古い順に外します（今いる部屋・彼女がいる部屋・彼女の行動の部屋は外しません）。", 3,
                 new AcceptableValueRange<int>(0, 20)));
+            // items (PR #46 §7): the budget told to Muse (the owner's decision: off unless the user turns it on); Muse's items
+            // on the user (the user's choice: those whose effect would be on the user - Muse may not use them when off)
+            TellBudget = Config.Bind("Items", "Tell Muse the budget", false, Ja("持ち物", "予算を Muse に知らせる",
+                "入：予算の残りと入った額を、状態と出来事で Muse に知らせます。切（既定）：知らせません。知らせても、Muse が買ったり予算を増やしたりはできません。", 0));
+            MuseItemsOnUser = Config.Bind("Items", "Muse may use items on you", true, Ja("持ち物", "Muse があなたに品を使う",
+                "入（既定）：媚薬など、あなたに効かせる品を Muse があなたに使えます（実際の効き目はあなたの体には出ません。乗るかどうかはあなた次第です）。切：使えません（断られます）。", 1));
             CondomMode = Config.Bind("Play", "Condom", "ask", Ja("プレイ", "ゴム", "挿入のプレイのゴム：ask＝毎回 Muse が聞く、on＝いつも付ける、off＝いつも付けない。", 0,
                 new AcceptableValueList<string>("ask", "on", "off")));
             YourBody = Config.Bind("Play", "Your body", "male", Ja("プレイ", "あなたの体", "プレイでのあなたの体：male＝男性の体、female＝女性の体。", 1,
@@ -329,6 +337,7 @@ namespace MuseStudio
             Talk = new Talk(this);
             Relationship = new Relationship(this);
             string check;
+            Items = new Items(this);                // (before the moods: its ledger is read with their file)
             Mood = new Mood(this, Args.TryGetValue("check", out check) ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(check)), "moods.json")
                                                                         : Path.Combine(Paths.GameRootPath, Path.Combine("UserData", Path.Combine("MuseStudio", "moods.json"))));
             Touch.Touched = area => Mood.OnTouch(area);
@@ -462,6 +471,7 @@ namespace MuseStudio
             Stage.Tick();
             if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2)) Mood.Acted();
             Mood.Tick(Time.deltaTime);
+            if (Items != null && Stage.Ready) Items.Tick(Time.unscaledDeltaTime);
             Urges.Tick(Time.deltaTime);
             Outing.Tick();
             Presence.Tick();
@@ -780,7 +790,8 @@ namespace MuseStudio
                 { "gauge", Gauge.Info() }, { "beat", Beat.Info() }, { "mood", Mood.Info() },
                 { "presence", Presence.Info() }, { "belief", Presence.BeliefInfo() }, { "urges", Urges.Info() }, { "outing", Outing.Info() },
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },
-                { "clothes", Clothes.Info(Stage.Cha) }, { "replay", Replay != null ? Replay.Info() : null }, { "settings", SettingsInfo() } };
+                { "clothes", Clothes.Info(Stage.Cha) }, { "replay", Replay != null ? Replay.Info() : null }, { "settings", SettingsInfo() },
+                { "items", Items != null ? Items.State() : null } };
         }
 
         internal string CharacterId()
@@ -837,7 +848,8 @@ namespace MuseStudio
                 { "pace", Json.Arr(Json.Obj(Play.Doc, "pace_info"), "names") ?? new List<object>() },
                 { "plays", plays }, { "location", Stage.Location }, { "spots", spotRows }, { "available", ids }, { "participants", who },
                 { "coordinates", Coords != null ? Coords.Catalog() : new List<object>() },
-                { "rooms", Places != null ? Places.Catalog() : new List<object>() } });
+                { "rooms", Places != null ? Places.Catalog() : new List<object>() },
+                { "items", Items != null ? Items.Catalog() : new List<object>() } });
         }
 
         // the card on the stage (before one is: the last character, else stage.json's)

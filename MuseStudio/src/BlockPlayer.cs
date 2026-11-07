@@ -394,6 +394,15 @@ namespace MuseStudio
                     Refuse("coordinate", coord, cwhy, ids);
                 }
             }
+            // an item (PR #46 §7; MUSE_GUIDE 3.11): take or decline what was offered, use one, give him one - its request done
+            // once; refused - why (block_refused, field item); in a match / an opponent's / a replay: nothing
+            var itemOp = Json.Obj(b, "item");
+            if (itemOp != null && !opp && !h.Match.Active && !h.Match.Replaying && !h.Replay.Playing)
+            {
+                string iwhy = h.Items.FromBlock(itemOp);
+                if (iwhy.Length > 0) Refuse("item", Json.Str(itemOp, "request", ""), iwhy);
+            }
+            else if (itemOp != null) Refuse("item", Json.Str(itemOp, "request", ""), h.Match.Active || opp ? "in_match" : "replay");
             // what she does (Muse's entry): masturbation / toilet / shower / shower_together - a name, or {"kind", "play"}
             Pose(Json.Str(b, "pose", null), stage.Cha);        // (a match's talk: her motion)
             var act = Json.Obj(b, "action");

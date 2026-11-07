@@ -777,7 +777,11 @@ namespace MuseStudio
             if (Set(c[1])) cha.ChangeEyesPtn(Int(c[1]), true);
             if (Set(c[2])) cha.ChangeMouthPtn(Int(c[2]), true);
             if (Set(c[3])) cha.ChangeEyebrowOpenMax(Float(c[3]));
-            if (Set(c[4])) cha.ChangeEyesOpenMax(Float(c[4]));
+            if (Set(c[4]))
+            {
+                if (oci == Heroine) { eyesCell = Float(c[4]); eyesShownFactor = DrunkEyes; cha.ChangeEyesOpenMax(eyesCell * eyesShownFactor); }     // (hers: her drink's - PR #46 §7)
+                else cha.ChangeEyesOpenMax(Float(c[4]));
+            }
             if (Set(c[5])) cha.ChangeMouthOpenMax(Float(c[5]));
             var pl = MuseStudioPlugin.Instance.Play;
             if (Set(c[6]) && Int(c[6]) >= 0 && !(pl.Active && pl.Motion)) oci.ChangeLookEyesPtn(Int(c[6]));      // (a play's gaze is the position's: HEyeNeck)
@@ -1129,6 +1133,68 @@ namespace MuseStudio
         public float ExprBlush, BodyBlush;
         float blushShown = -1f;
 
+        // her intoxication (PR #46 §7: a drink's) shown in her eyes: the face's opening narrowed, a third at the most
+        float eyesCell = 1f, eyesShownFactor = 1f;
+        float Intoxication { get { float v; return MuseStudioPlugin.Instance.Mood != null && MuseStudioPlugin.Instance.Mood.Values.TryGetValue("intoxication", out v) ? v : 0f; } }
+        public float DrunkEyes { get { return 1f - 0.3f * Mathf.Clamp01((Intoxication - 0.3f) / 0.7f); } }
+
+        // the drink in her right hand while she drinks (PR #46 §7): the first of Studio's items whose name has one of these
+        // words, its seconds; none found - nothing held
+        GameObject heldProp;
+        float propUntil = -1f;
+        readonly Dictionary<string, Info.ItemLoadInfo> propFound = new Dictionary<string, Info.ItemLoadInfo>();
+        public string PropShown = "";        // (checks) the item held now ("" none)
+
+        public void HoldProp(List<object> words, float seconds)
+        {
+            DropProp();
+            if (words == null || Cha == null) return;
+            Info.ItemLoadInfo info = null;
+            foreach (var w in words)
+            {
+                string word = Convert.ToString(w);
+                if (!propFound.TryGetValue(word, out info))
+                {
+                    info = null;
+                    foreach (var g in Singleton<Info>.Instance.dicItemLoadInfo.Values)
+                    {
+                        foreach (var c in g.Values)
+                        {
+                            foreach (var it in c.Values) if (it != null && it.name != null && it.name.Contains(word)) { info = it; break; }
+                            if (info != null) break;
+                        }
+                        if (info != null) break;
+                    }
+                    propFound[word] = info;
+                }
+                if (info != null) break;
+            }
+            if (info == null) return;
+            try
+            {
+                var prefab = CommonLib.LoadAsset<GameObject>(info.bundlePath, info.fileName, true, info.manifest);
+                var hand = HIK.Find(Cha.objBodyBone.transform, "cf_j_hand_R");
+                if (prefab == null || hand == null) return;
+                heldProp = UnityEngine.Object.Instantiate(prefab);
+                foreach (var col in heldProp.GetComponentsInChildren<Collider>(true)) UnityEngine.Object.Destroy(col);
+                heldProp.transform.SetParent(hand, false);
+                heldProp.transform.localPosition = new Vector3(0f, -0.02f, 0.03f);
+                heldProp.transform.localRotation = Quaternion.identity;
+                foreach (var tr in heldProp.GetComponentsInChildren<Transform>(true)) tr.gameObject.layer = Cha.objBody != null ? Cha.objBody.layer : tr.gameObject.layer;
+                propUntil = Time.realtimeSinceStartup + seconds;
+                PropShown = info.name;
+            }
+            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: the drink held: " + e.Message); DropProp(); }
+        }
+
+        void DropProp()
+        {
+            if (heldProp != null) UnityEngine.Object.Destroy(heldProp);
+            heldProp = null;
+            propUntil = -1f;
+            PropShown = "";
+        }
+
         void BlushTick(float dt)
         {
             if (Cha == null) return;
@@ -1138,6 +1204,11 @@ namespace MuseStudio
             float from = (float)Json.Num(b, "from", 0.3), top = (float)Json.Num(b, "max", 0.85);
             float t = Mathf.Clamp01((ar - from) / Mathf.Max(0.01f, 1f - from));
             float want = top * t * t * (3f - 2f * t);
+            // (her drink's too: the intoxication's cheeks, the larger shown - PR #46 §7)
+            float ix = Intoxication, ti = Mathf.Clamp01((ix - 0.1f) / 0.7f);
+            want = Mathf.Max(want, 0.75f * ti * ti * (3f - 2f * ti));
+            float ef = DrunkEyes;
+            if (Mathf.Abs(ef - eyesShownFactor) > 0.03f) { eyesShownFactor = ef; Cha.ChangeEyesOpenMax(eyesCell * ef); }
             float rate = want > BodyBlush ? top / (float)Json.Num(b, "rise_seconds", 30.0) : top / (float)Json.Num(b, "fall_seconds", 60.0);
             BodyBlush = Mathf.MoveTowards(BodyBlush, want, rate * dt);
             float show = Mathf.Max(ExprBlush, BodyBlush);
@@ -1148,6 +1219,7 @@ namespace MuseStudio
         {
             WalkTick(Time.deltaTime);
             BlushTick(Time.deltaTime);
+            if (propUntil > 0f && (Time.realtimeSinceStartup >= propUntil || MuseStudioPlugin.Instance.Play.Active)) DropProp();
             SceneFaceTick();
             TempFaceTick();
             MuseHoldTick();
