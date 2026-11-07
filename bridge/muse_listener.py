@@ -53,6 +53,10 @@ ROUTES = [            # (method, path pattern): Muse's API (MUSE_GUIDE 7), nothi
     ("GET", r"/api/characters"),
     ("GET", r"/api/voices"),
     ("GET", r"/api/choices"),
+    ("GET", r"/api/labels/coordinates"),          # (PR #46 §1: the labels, Muse's to write)
+    ("POST", r"/api/labels/coordinates"),
+    ("GET", r"/api/labels/rooms"),
+    ("POST", r"/api/labels/rooms"),
     ("GET", r"/api/match"),
     ("POST", r"/api/match/rooms"),
     ("GET", rf"/api/match/rooms/{ROOM}"),

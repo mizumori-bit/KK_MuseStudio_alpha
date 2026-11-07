@@ -270,7 +270,16 @@ namespace MuseStudio
             while (Out && Now < on) yield return null;
             if (!Out) yield break;
             object o;
-            if (opts != null && opts.TryGetValue("outfit", out o) && o != null)
+            string coord = opts != null ? Json.Str(opts, "coordinate", null) : null;
+            if (coord != null)
+            {
+                // an outfit card (PR #46 §3): worn here, her own change; not there or not readable then - the clothes she had, told
+                string why = h.Coords.Wear(coord, "muse", true);
+                if (why.Length > 0)
+                    h.Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "action.coordinate" }, { "value", coord }, { "reason", why },
+                        { "available", new List<object>() } });
+            }
+            else if (opts != null && opts.TryGetValue("outfit", out o) && o != null)
             {
                 int n = Mathf.Clamp(Convert.ToInt32(o), 0, cha.chaFile.coordinate.Length - 1);
                 oci.SetCoordinateInfo((ChaFileDefine.CoordinateType)n, true);

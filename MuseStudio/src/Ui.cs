@@ -1210,7 +1210,45 @@ namespace MuseStudio
                 if (GUILayout.Button(Clothes.Names[k] + "：" + label[v], button, GUILayout.Height(lh)))
                     host.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[k], Clothes.Next(cha, k, v) } }, "user");
             }
+            DrawCoordinates(s, lh);
             GUILayout.EndArea();
+        }
+
+        // the coordinate cards (PR #46 §3): the cards in game/UserData/coordinate, worn as Studio's outfit loading does; not
+        // offered in a play, a match, while she is out (the way Muse's block is refused)
+        Vector2 coordScroll;
+        public string CoordinateNote = "";        // (checks) the last outcome shown
+
+        void DrawCoordinates(float s, float lh)
+        {
+            GUILayout.Space(6f * s);
+            GUILayout.Label("コーデ（カード）", small);
+            var co = host.Coords;
+            if (co == null) return;
+            string blocked = co.Blocked(false);
+            if (blocked.Length > 0)
+            {
+                GUILayout.Label(blocked == "in_play" ? "プレイ中は着替えられません" : blocked == "in_match" ? "対戦中は着替えられません"
+                    : blocked == "she_is_out" ? "彼女が出かけています" : "今は着替えられません", small);
+                return;
+            }
+            var list = co.List;
+            if (list.Count == 0) { GUILayout.Label("game/UserData/coordinate にカードがありません", small); return; }
+            int budget = 2;
+            coordScroll = GUILayout.BeginScrollView(coordScroll, GUILayout.Height(Mathf.Min(list.Count, 5) * (lh + 6f * s) + 8f * s));
+            foreach (var e in list)
+            {
+                var tex = Face(e.Path, ref budget);
+                var content = tex != null ? new GUIContent(" " + e.Name, tex) : new GUIContent(e.Name);
+                if (GUILayout.Button(content, button, GUILayout.Height(lh + 4f * s)))
+                {
+                    string why = co.Wear(e.Id, "user");
+                    CoordinateNote = why.Length == 0 ? e.Name + " に着替えました" + (co.LastReplaced.Count > 0 ? "（無い Mod の部品 " + co.LastReplaced.Count + " 個は原作の品に）" : "")
+                        : why == "unreadable" ? "このカードは読めませんでした（着替えていません）" : "着替えられませんでした";
+                }
+            }
+            GUILayout.EndScrollView();
+            if (CoordinateNote.Length > 0) GUILayout.Label(CoordinateNote, small);
         }
 
         void DrawLocations(Rect r, float s)
