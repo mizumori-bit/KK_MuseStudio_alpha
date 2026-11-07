@@ -72,7 +72,7 @@ namespace MuseStudio
             if (head == null) return;
             recNo++;
             var copy = Json.Parse(Json.Write(pkg)) as Dictionary<string, object> ?? new Dictionary<string, object>();
-            foreach (var k in new[] { "match", "launch", "character" }) copy.Remove(k);
+            foreach (var k in new[] { "match", "launch", "character", "_launch_at", "_character_at" }) copy.Remove(k);     // (the bridge's stamps too)
             entries.Add(new Dictionary<string, object> { { "k", "package" }, { "t", Math.Round(Now - t0, 2) }, { "speaker", speaker }, { "package", copy } });
         }
 
@@ -222,6 +222,7 @@ namespace MuseStudio
                 var pkg = Json.Parse(Json.Write(Json.Obj(e, "package"))) as Dictionary<string, object>;
                 if (pkg == null) continue;
                 pkg["speaker"] = Json.Str(e, "speaker", "self");
+                foreach (var k in new[] { "launch", "character", "_launch_at", "_character_at" }) pkg.Remove(k);   // (a record made before they were left out: they were that moment's)
                 h.Blocks.Enqueue(pkg);
                 while (!stop && (h.Blocks.Pending > 0 || h.Blocks.Busy)) yield return null;      // (taken and played out)
                 Done++;

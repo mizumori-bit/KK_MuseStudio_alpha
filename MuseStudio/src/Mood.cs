@@ -25,8 +25,15 @@ namespace MuseStudio
         readonly Dictionary<string, double> done = new Dictionary<string, double>();     // urge -> when it was last met (unix)
         readonly Dictionary<string, float> afterPlay = new Dictionary<string, float>();   // what the running play adds when it ends
         public string MoodPlay = "";        // the mood whose trigger started the running play
-        float idleSince, saveT;
+        float idleSince, saveT, aliveT;
         string charId = "";
+        // The app's own closed time (GPT's post-review of #29), in the same file under "_app": when the app was last alive and
+        // the minutes it has been closed in all. A character's record keeps that total at its save, so the time closed since
+        // is the total now minus it - not the time since her save, which also counted an open app with another character on
+        // the stage, and the time before she was chosen again.
+        const string AppKey = "_app";
+        double closedTotal;                 // minutes the app has been closed in all, as far as the file knows
+        double lastGap = -1.0;              // minutes it was closed just before this launch (-1: not known - no "_app" before)
         readonly string savePath;
         public readonly List<Dictionary<string, object>> Log = new List<Dictionary<string, object>>();
 
@@ -36,7 +43,37 @@ namespace MuseStudio
             savePath = path;
             Doc = Data.Load("moods.json");
             idleSince = Now;
+            var app = Json.Obj(ReadAll(), AppKey);
+            if (app != null && Json.Has(app, "alive"))
+            {
+                lastGap = Math.Max(0.0, (Unix - Json.Num(app, "alive")) / 60.0);
+                closedTotal = Math.Max(0.0, Json.Num(app, "closed_total", 0)) + lastGap;
+            }
+            Alive();
         }
+
+        Dictionary<string, object> AppDoc()
+        {
+            return new Dictionary<string, object> { { "alive", Unix }, { "closed_total", Math.Round(closedTotal, 3) }, { "launch", Launch.Id } };
+        }
+
+        // the app still alive (every 30 s, at each save, at the start): what its next start counts its closed time from
+        void Alive()
+        {
+            try
+            {
+                var all = ReadAll();
+                all[AppKey] = AppDoc();
+                Directory.CreateDirectory(Path.GetDirectoryName(savePath));
+                File.WriteAllText(savePath, Json.Write(all));
+            }
+            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); }
+        }
+
+        // (checks) the app's closed time as if: the total and the last closed time (-1: not known)
+        public void SetClosedForCheck(double total, double gap) { closedTotal = total; lastGap = gap; }
+        public double ClosedTotalForCheck { get { return closedTotal; } }
+        public double LastGapForCheck { get { return lastGap; } }
 
         static float Now { get { return Time.realtimeSinceStartup; } }
 
@@ -53,7 +90,8 @@ namespace MuseStudio
         // The character's moods as saved. While the app was closed she lived her day (PR #25, the owner's decision of
         // 2026-11-06): a mood with "away" settles towards its everyday value (a value drawn once in "toward" - the bladder low,
         // the arousal 0.2-0.4, all below their urges' marks), the further the longer it was closed (all of it after
-        // settle_minutes); nothing builds up from the closed time alone. Only for time the app was closed: a character saved
+        // settle_minutes); nothing builds up from the closed time alone. The closed time is the app's own (its closed total
+        // now minus the one kept in her record - GPT's post-review of #29), not the time since she was saved. Only for time the app was closed: a character saved
         // under this launch (switched away and back) comes back as she was - no settling, nothing drawn again. A mood without
         // "away": as before (per_minute x the closed minutes, at most away_minutes_max).
         public void LoadFor(string id)
@@ -71,7 +109,12 @@ namespace MuseStudio
             foreach (var kv in Json.Obj(mine, "done") ?? new Dictionary<string, object>()) if (kv.Value is double) done[kv.Key] = (double)kv.Value;
             bool saved = Json.Has(mine, "saved");
             bool sameLaunch = saved && Json.Str(mine, "launch") == Launch.Id;
-            double away = saved && !sameLaunch ? Math.Max(0.0, (Unix - Json.Num(mine, "saved")) / 60.0) : 0.0;
+            // the minutes the app was closed since her record was saved: the app's total then and now; a record from before the
+            // total was kept - the last closed time (all that is known); nothing of the app's either - the time since her save
+            double away = 0.0;
+            if (saved && !sameLaunch)
+                away = Json.Has(mine, "closed_total") ? Math.Max(0.0, closedTotal - Json.Num(mine, "closed_total"))
+                     : lastGap >= 0.0 ? lastGap : Math.Max(0.0, (Unix - Json.Num(mine, "saved")) / 60.0);
             ResumedForCheck = !saved ? "new" : sameLaunch ? "same_launch" : "after_closed " + away.ToString("F0");
             foreach (var kv in Moods)
             {
@@ -101,7 +144,7 @@ namespace MuseStudio
 
         public void Save()
         {
-            if (charId.Length == 0) return;
+            if (charId.Length == 0) { Alive(); return; }      // (no character yet: the app's own time still told)
             try
             {
                 var all = ReadAll();
@@ -109,7 +152,9 @@ namespace MuseStudio
                 foreach (var kv in Values) vals[kv.Key] = Math.Round(kv.Value, 4);
                 var dn = new Dictionary<string, object>();
                 foreach (var kv in done) dn[kv.Key] = kv.Value;
-                all[charId] = new Dictionary<string, object> { { "values", vals }, { "saved", Unix }, { "launch", Launch.Id }, { "done", dn } };
+                all[charId] = new Dictionary<string, object> { { "values", vals }, { "saved", Unix }, { "launch", Launch.Id }, { "done", dn },
+                    { "closed_total", Math.Round(closedTotal, 3) } };
+                all[AppKey] = AppDoc();
                 Directory.CreateDirectory(Path.GetDirectoryName(savePath));
                 File.WriteAllText(savePath, Json.Write(all));
             }
@@ -246,6 +291,8 @@ namespace MuseStudio
 
         public void Tick(float dt)
         {
+            aliveT += dt;
+            if (aliveT >= 30f) { aliveT = 0f; if (Values.Count == 0) Alive(); }     // (with a character: her save below says it too)
             if (Values.Count == 0) return;
             var pc = h.Play;
             foreach (var kv in Moods)

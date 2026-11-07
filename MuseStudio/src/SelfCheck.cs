@@ -547,6 +547,16 @@ namespace MuseStudio
             yield return Wait(0.5f);
             Check("pool: the app drops a package for another character it already has (package_dropped by the app)", appDrop
                   && LastEvent("package_dropped") != null && Json.Str(LastEvent("package_dropped"), "by") == "app");
+            // (GPT's post-review of #26: an untagged one the bridge stamped for the character or the launch before - still in the
+            // receiving queue at a switch - is checked right before it plays as well; one stamped for now plays)
+            bool stampedOld = !la.Accept(D("session", "check", "turn", 0, "_character_at", "card:nobody.png", "blocks", new List<object> { Line("x") }));
+            bool stampedOldLaunch = !la.Accept(D("session", "check", "turn", 0, "_launch_at", "an-older-launch", "blocks", new List<object> { Line("x") }));
+            bool stampedNow = la.Accept(D("session", "check", "turn", 0, "_character_at", h.CharacterId(), "_launch_at", Launch.Id, "blocks", new List<object> { Line("x") }));
+            bool unstamped = la.Accept(D("session", "check", "turn", 0, "blocks", new List<object> { Line("x") }));
+            yield return Wait(0.3f);
+            Check("pool: an untagged package stamped by the bridge for another character / an older launch is dropped right before it plays; one for now plays",
+                  stampedOld && stampedOldLaunch && stampedNow && unstamped && Json.Str(LastEvent("package_dropped"), "reason") == "old_launch",
+                  stampedOld + " " + stampedOldLaunch + " " + stampedNow + " " + unstamped);
             bp.Advance(true);
             yield return Wait(0.5f);
 
@@ -2130,9 +2140,23 @@ namespace MuseStudio
             if (shWorn) h.ChangeClothes(D("co_shoes", shNext), "user");
             yield return Wait(0.3f);
             string shState = shWorn ? Clothes.State(st.Cha, 7) : "-";
+            // (GPT's post-review of #11) all half with her shoes off: the garments with a half state go half, the shoes stay off
+            bool shAllHalf = false;
+            string shAllWhy = "";
+            if (shWorn)
+            {
+                int topK = System.Array.IndexOf(Clothes.Keys, "co_top");
+                h.ChangeClothes(D("all", "half"), "muse");
+                yield return Wait(0.5f);
+                shAllHalf = Clothes.State(st.Cha, 7) == "off" && (topK < 0 || !Clothes.Worn(st.Cha).Contains(topK) || !Clothes.HasHalf(st.Cha, topK) || Clothes.State(st.Cha, topK) == "half");
+                shAllWhy = Json.Write(Clothes.Info(st.Cha));
+                h.ChangeClothes(D("all", "on"), "user");
+                yield return Wait(0.3f);
+            }
             if (shWorn) h.ChangeClothes(D("co_shoes", "on"), "user");
             Check("clothes: her shoes have no half state - the panel's 靴 takes them off in one press; Muse's half is refused (no_half)",
                   shWorn && !Clothes.HasHalf(st.Cha, 7) && shNext == "off" && shState == "off" && shRefused, "worn " + shWorn + " next " + shNext + " state " + shState + " refused " + shRefused);
+            Check("clothes: all half changes only the garments with a half state - her shoes taken off stay off", shAllHalf, shAllWhy);
 
             // a face is not carried into another scene: the talk's face becomes the play's default as a play starts; a face given
             // just before the start (a block setting her face and starting the play) stays
@@ -2267,6 +2291,22 @@ namespace MuseStudio
             long psWait = shownEv != null && Json.Has(shownEv, "waited_ms") ? Convert.ToInt64(shownEv["waited_ms"]) : -1L;
             Check("package_shown: a package's first block shown tells when the bridge took it and when it showed (the wait between)",
                   shownEv != null && psRecv > 0 && psWait >= 0 && psWait < 20000 && Json.Num(shownEv, "turn") > 0, Json.Write(shownEv));
+            // (GPT's post-review of #15) a first block that is only her inner thought tells nothing; the block after it that shows
+            // tells it, once; a package with nothing to show sends none
+            int psN0 = bp.ShownToldForCheck, psEv0 = EventCount("package_shown");
+            SendPkg(D(), Line("（声には出さない）"), Line("見えるほうのセリフです。"));
+            yield return Until(() => bp.Busy && bp.Text == "見えるほうのセリフです。", 10f);
+            yield return Wait(0.4f);
+            int psN1 = bp.ShownToldForCheck, psEv1 = EventCount("package_shown");
+            bp.Advance(true);
+            yield return Wait(0.3f);
+            SendPkg(D(), Line("（これも内心だけ）"));
+            yield return Wait(2.5f);
+            bool psNone = bp.ShownToldForCheck == psN1;
+            if (bp.Busy) bp.Advance(true);
+            yield return Wait(0.3f);
+            Check("package_shown: not for a block that is only her inner thought - the next block that shows tells it once; nothing shown, none sent",
+                  psN1 == psN0 + 1 && psEv1 == psEv0 + 1 && psNone, string.Format("told {0}->{1} events {2}->{3} none {4}", psN0, psN1, psEv0, psEv1, psNone));
 
             // Muse's change of the speeds (the user asked in the chat): set and told (settings_changed by muse with the request); out
             // of range, unknown names and the same request again refused; untargeted refused
@@ -2297,6 +2337,32 @@ namespace MuseStudio
             h.GaugeSpeed.Value = msWasG;
             Check("Muse's speeds: a change the user asked for is set and told (settings_changed by muse, the request); out of range, unknown, the same request again and untargeted refused",
                   setOk && setRefused, "set " + setOk + " refused " + setRefused + " " + Json.Write(setEv));
+            // (GPT's post-review of #15) two requests while the settings window is open: both wait and both are done in order when
+            // it closes, each told on its own - none lost; one on a speed the user changed there is refused (user_changed)
+            float mwG = h.GaugeSpeed.Value, mwA = h.ArousalSpeed.Value;
+            var mwAim = D("launch", Launch.Id, "character", h.CharacterId());
+            int mwUser0 = Refusals("settings.arousal_speed", "user_changed");
+            MuseStudioPlugin.SettingsShown = true;
+            yield return Wait(0.3f);
+            bool mwOpen = MuseStudioPlugin.SettingsShown;
+            h.MuseSettings(D("gauge_speed", 1.5, "request", "chk-wait-1"), mwAim);
+            h.MuseSettings(D("gauge_speed", 2.5, "request", "chk-wait-2"), mwAim);
+            h.MuseSettings(D("arousal_speed", 3.0, "request", "chk-wait-3"), mwAim);
+            int mwWaiting = h.SettingsWaitingForCheck;
+            h.ArousalSpeed.Value = mwA + 0.5f;                   // (the user, in the window: wins over chk-wait-3)
+            MuseStudioPlugin.SettingsShown = false;
+            yield return Wait(0.5f);
+            var mwReqs = new List<string>();
+            foreach (var e in AllEvents())
+                if (Json.Str(e, "type") == "settings_changed" && Json.Str(e, "by") == "muse" && Json.Str(e, "request") != null && Json.Str(e, "request").StartsWith("chk-wait-"))
+                    mwReqs.Add(Json.Str(e, "request"));
+            bool mwDone = mwOpen && mwWaiting == 3 && h.SettingsWaitingForCheck == 0 && Mathf.Abs(h.GaugeSpeed.Value - 2.5f) < 0.001f
+                && mwReqs.Count >= 2 && mwReqs[0] == "chk-wait-1" && mwReqs[1] == "chk-wait-2"
+                && Refusals("settings.arousal_speed", "user_changed") == mwUser0 + 1 && Mathf.Abs(h.ArousalSpeed.Value - (mwA + 0.5f)) < 0.001f;
+            h.GaugeSpeed.Value = mwG;
+            h.ArousalSpeed.Value = mwA;
+            Check("Muse's speeds while the settings window is open: every request waits and is done in order when it closes (none lost); the user's change there wins",
+                  mwDone, string.Format("open {0} waiting {1} requests {2} gauge {3:F2}", mwOpen, mwWaiting, string.Join(",", mwReqs.ToArray()), h.GaugeSpeed.Value));
 
             // ---- PR #24: the packages' delivery ----
             // a package taken: received and begun at the bridge (its stage, asked by its id); sent again by Muse: one package,
@@ -2371,11 +2437,30 @@ namespace MuseStudio
             bool rsSame = Mathf.Abs(h.Mood.Values["arousal"] - 0.62f) < 0.001f && Mathf.Abs(h.Mood.Values["bladder"] - 0.58f) < 0.001f && h.Mood.ResumedForCheck == "same_launch";
             h.Mood.ResumeForCheck(rsCid, rsRec(0.9, 0.9, 360, null));
             bool rsOld = h.Mood.Values["arousal"] <= 0.4f && h.Mood.Values["bladder"] <= 0.2f;
+            // (GPT's post-review of #29) the app's own closed time, not the time since her save: B saved 4 hours ago under an
+            // older launch, the app then open with another character and closed only 5 minutes - B hardly moves; the same record
+            // after 6 hours closed in all settles; a record from before the total, after a 5-minute restart, hardly moves either
+            double rsTotalWas = h.Mood.ClosedTotalForCheck, rsGapWas = h.Mood.LastGapForCheck;
+            var rsB = rsRec(0.6, 0.6, 240, "an-old-launch");
+            rsB["closed_total"] = 100.0;
+            h.Mood.SetClosedForCheck(105.0, 5.0);
+            h.Mood.ResumeForCheck(rsCid, rsB);
+            float rsBA = h.Mood.Values["arousal"], rsBB = h.Mood.Values["bladder"];
+            bool rsBShort = rsBA > 0.55f && rsBA <= 0.6f && rsBB > 0.53f && rsBB <= 0.6f && h.Mood.ResumedForCheck == "after_closed 5";
+            h.Mood.SetClosedForCheck(460.0, 5.0);
+            h.Mood.ResumeForCheck(rsCid, rsB);
+            bool rsBLong = h.Mood.Values["arousal"] <= 0.4f && h.Mood.Values["bladder"] <= 0.2f && h.Mood.ResumedForCheck == "after_closed 360";
+            h.Mood.SetClosedForCheck(105.0, 5.0);
+            h.Mood.ResumeForCheck(rsCid, rsRec(0.6, 0.6, 360, "an-old-launch"));
+            bool rsBefore = h.Mood.Values["arousal"] > 0.55f && h.Mood.ResumedForCheck == "after_closed 5";
+            h.Mood.SetClosedForCheck(rsTotalWas, rsGapWas);
             foreach (var kv in moodsWas) h.Mood.Values[kv.Key] = kv.Value;
             h.Urges.Start("check_resume_back");
             Check("moods after the app was closed: a long time settles them (bladder low, arousal everyday, no urge from it); a short time hardly moves them; the same launch keeps them; an old record settles",
                   rsLong && rsShort && rsSame && rsOld,
                   string.Format("long {0:F2}/{1:F2} ({2}) short {3:F2}/{4:F2} same {5} old {6}", rsLA, rsLB, rsHow, rsSA, rsSB, rsSame, rsOld));
+            Check("moods after the app was closed: the app's own closed time counts, not the time since her save (saved 4 h ago, a 5-minute restart: hardly moved; 6 h closed in all: settled; a record from before, a 5-minute restart: hardly moved)",
+                  rsBShort && rsBLong && rsBefore, string.Format("B {0:F2}/{1:F2} long {2} before {3}", rsBA, rsBB, rsBLong, rsBefore));
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));
             Check("Muse's play start: aimed, a new request, the serial Muse saw, the room and the spot - it starts (play_started source muse with the request and the serial), the block's pace on it",
                   msStarted, msStartedWhy);

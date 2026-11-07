@@ -72,10 +72,17 @@ namespace MuseStudio
             if (by != "check") h.CharacterCard.Value = path;      // the last character
         }
 
-        // a package of Muse's: one tagged for another launch or another character than the one on the stage is dropped
+        // the launch and the character a package is for: its own tags, else what the bridge stamped when it took it (an
+        // untagged package is for the launch and the character of then - PR #24; GPT's post-review of #26: checked here too)
+        public static string LaunchOf(Dictionary<string, object> pkg) { return Json.Str(pkg, "launch") ?? Json.Str(pkg, "_launch_at"); }
+        public static string CharacterOf(Dictionary<string, object> pkg) { return Json.Str(pkg, "character") ?? Json.Str(pkg, "_character_at"); }
+
+        // a package of Muse's, right before it plays: one for another launch or another character than the one on the stage
+        // is dropped - whether it waited in the bridge, in the receiving queue or in the player's (a switch while it was on
+        // its way never shows it to the new character)
         public bool Accept(Dictionary<string, object> pkg)
         {
-            string lid = Json.Str(pkg, "launch"), cid = Json.Str(pkg, "character");
+            string lid = LaunchOf(pkg), cid = CharacterOf(pkg);
             string reason = lid != null && lid != Id ? "old_launch" : cid != null && cid != h.CharacterId() ? "other_character" : "";
             if (reason.Length == 0) return true;
             h.Bridge.Ack(Json.Str(pkg, "_pid"), "dropped", reason);

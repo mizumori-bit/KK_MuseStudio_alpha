@@ -1,7 +1,7 @@
 """MuseStudio checks: a test bridge on a spare port, then MuseStudio (game/CharaStudio.exe) with --muse-check; then the maker's
 part (game/Koikatu.exe -femalemaker --muse-maker-check: the creation's changes; no bridge, no card saved in the user's folders).
 
-  python -B MuseStudio/tools/run_checks.py [--port 18792] [--timeout 900] [--keep] [--no-maker | --maker-only]
+  python -B MuseStudio/tools/run_checks.py [--port 18792] [--timeout 1200] [--keep] [--no-maker | --maker-only]
 
 The bridge is bridge/bridge.py with its own temporary events file (never the bridge Muse watches); MuseStudio talks only
 to it (--muse-bridge). Results (CHECK lines, the FPS notes) are printed; the screenshots stay in the temporary folder
@@ -28,7 +28,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=18792)
-    ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--timeout", type=float, default=1200)      # (the checks take some 15 min now)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--probe", default="", help="(development) instead of the checks, look at this kept room (src/Probe.cs)")
     ap.add_argument("--no-maker", action="store_true", help="skip the maker's part")
@@ -83,6 +83,8 @@ def main() -> int:
                 break
             time.sleep(0.5)
         text = results.read_text(encoding="utf-8", errors="replace") if results.is_file() else ""
+        if not done and "CHECK SUMMARY" in text:
+            done = True                                   # (written at the very end of the time: they did finish)
         print(text.rstrip() or "(no results)")
         if not done:
             print(f"CHECK FAIL the checks did not finish in {a.timeout:.0f} s (see game/BepInEx/LogOutput.log)")

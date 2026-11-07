@@ -199,7 +199,7 @@ namespace MuseStudio
             var keep = new Queue<Dictionary<string, object>>();
             foreach (var p in pending)
             {
-                string cid = Json.Str(p, "character");
+                string cid = Launch.CharacterOf(p);           // (its tag, else the bridge's stamp)
                 if (cid != null && cid == character) { keep.Enqueue(p); continue; }
                 n++;
                 h.Bridge.Event("package_dropped", new Dictionary<string, object> { { "session", Json.Str(p, "session") }, { "turn", (int)Json.Num(p, "turn") },
@@ -399,7 +399,9 @@ namespace MuseStudio
         }
 
         // the package's first block on the screen: package_shown - when the bridge took it and when it showed (PR #12 adopted:
-        // Muse measures "from its making to its showing" without guessing; the bridge's clock and the app's are this PC's)
+        // Muse measures "from its making to its showing" without guessing; the bridge's clock and the app's are this PC's).
+        // Only a block with words on the screen tells it: one that is only her inner thought (or empty) does not, and the next
+        // block that shows does (GPT's post-review of #15); a package with nothing to show sends none
         bool shownTold;
         public int ShownToldForCheck;     // (checks)
 
@@ -419,9 +421,9 @@ namespace MuseStudio
         // the block's words on the screen (hers or the opponent's)
         void Present(Dictionary<string, object> b)
         {
-            TellShown();
             IsSound = Json.Str(b, "type", "dialogue") == "sound";
             Text = IsSound ? Json.Str(b, "text", "") : Shown(Json.Str(b, "text", ""));     // (a sound block's （） are its own: shown)
+            if (Text.Length > 0) TellShown();
             skipEmpty = Text.Length == 0;          // (all of it her inner thought: its effects, no box)
             ShownAt = Now;
             presentedAt = -1f;
