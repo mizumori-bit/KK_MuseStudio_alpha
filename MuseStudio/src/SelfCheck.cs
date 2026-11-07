@@ -2627,6 +2627,42 @@ namespace MuseStudio
                   shWorn && !Clothes.HasHalf(st.Cha, 7) && shNext == "off" && shState == "off" && shRefused, "worn " + shWorn + " next " + shNext + " state " + shState + " refused " + shRefused);
             Check("clothes: all half changes only the garments with a half state - her shoes taken off stay off", shAllHalf, shAllWhy);
 
+            // (the user's note of 2026-11-07: dressed, her nipples through her clothes now and then) Push Up kept to its own
+            // result: undressed (top and bra off) her own bust, nothing given back; dressed again Push Up flattens them; her own
+            // bust put back on her dressed (as Push Up's work while her clothes were loading left it) is given back to Push Up and
+            // flattened again
+            {
+                var pk = st.Cha;
+                var pkStates = (byte[])pk.fileStatus.clothesState.Clone();
+                for (int k = 0; k < pkStates.Length; k++) pk.SetClothesState(k, 0, false);
+                yield return Wait(1.0f);
+                float pkFlat11 = pk.fileBody.shapeValueBody[11], pkFlat13 = pk.fileBody.shapeValueBody[13];
+                int pkRep0 = st.Pushup.Repairs;
+                pk.SetClothesState(0, 3, false);
+                pk.SetClothesState(2, 3, false);
+                yield return Wait(1.0f);
+                float pkOwn11 = pk.fileBody.shapeValueBody[11], pkOwn13 = pk.fileBody.shapeValueBody[13];
+                int pkRepOff = st.Pushup.Repairs - pkRep0;
+                pk.SetClothesState(0, 0, false);
+                pk.SetClothesState(2, 0, false);
+                yield return Wait(1.0f);
+                bool pkDressed = Mathf.Abs(pk.fileBody.shapeValueBody[13] - pkFlat13) < 1e-3f;
+                pk.fileBody.shapeValueBody[11] = pkOwn11;
+                pk.SetShapeBodyValue(11, pkOwn11);
+                pk.fileBody.shapeValueBody[13] = pkOwn13;
+                pk.SetShapeBodyValue(13, pkOwn13);
+                float pkTrouble13 = pk.fileBody.shapeValueBody[13];
+                yield return Wait(1.0f);
+                float pkKept11 = pk.fileBody.shapeValueBody[11], pkKept13 = pk.fileBody.shapeValueBody[13];
+                bool pkKept = st.Pushup.Repairs == pkRep0 + 1 && Mathf.Abs(pkKept13 - pkFlat13) < 1e-3f && Mathf.Abs(pkKept11 - pkFlat11) < 1e-3f;
+                for (int k = 0; k < pkStates.Length; k++) pk.SetClothesState(k, pkStates[k], false);
+                yield return Wait(0.3f);
+                Check("clothes: Push Up kept to its own result - undressed her own bust (nothing given back); dressed again flattened; her own bust put back on her dressed is given back to Push Up and flattened again",
+                      pkOwn13 > pkFlat13 + 0.05f && pkRepOff == 0 && pkDressed && pkTrouble13 > pkFlat13 + 0.05f && pkKept,
+                      string.Format("nipple flat {0:F2} own {1:F2} (repairs undressed {2}) dressed {3} put on {4:F2} kept {5:F2} / {6:F2} repairs {7} ('{8}')", pkFlat13, pkOwn13, pkRepOff,
+                                    pkDressed, pkTrouble13, pkKept13, pkKept11, st.Pushup.Repairs - pkRep0, st.Pushup.Last));
+            }
+
             // (PR #46 §3) coordinate cards: one made here from what she wears (in a folder of the check's own, removed after) is
             // listed in the catalog (id, name, hash); Muse's block wears it - Studio's outfit loading - and outfit_changed tells it
             // (source coordinate, by muse, the card); an unknown id, a card that no longer reads, and a play refuse it (nothing
@@ -2668,11 +2704,11 @@ namespace MuseStudio
             var cdEv = LastEvent("outfit_changed");
             bool cdWore = co.Worn == cdWorn0 + 1 && Json.Str(cdEv, "source") == "coordinate" && Json.Str(cdEv, "by") == "muse"
                 && Json.Str(Json.Obj(cdEv, "coordinate"), "id") == cdId;
+            bp.Advance(true);
+            yield return Wait(2.5f);            // (the outfit's reload and Push Up's work after it: through by now)
             // (her areola and nipple depth - Push Up flattens them under a bra or top it is on for - as before the card)
             float cdNipNow11 = st.Cha.fileBody.shapeValueBody[11], cdNipNow13 = st.Cha.fileBody.shapeValueBody[13];
             bool cdPushup = cdSaved == "" && Mathf.Abs(cdNipNow11 - cdNip11) < 1e-3f && Mathf.Abs(cdNipNow13 - cdNip13) < 1e-3f;
-            bp.Advance(true);
-            yield return Wait(0.3f);
             int cdNo0 = Refusals("coordinate", "no_coordinate");
             SendPkg(D("launch", Launch.Id, "character", h.CharacterId()), With(Line("無いコーデです。"), "coordinate", "nope/none.png"));
             yield return Until(() => bp.Busy && bp.Text == "無いコーデです。", 10f);
