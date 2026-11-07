@@ -118,7 +118,8 @@ MAX_EVENT_IDS = 4096           # the app's event ids remembered (a resent event 
 RATE_LIMITS = {"muse": [20, 100], "app": [100, 400], "all": [120, 500], "anon": [20, 100]}
 APP_SEEN_SECONDS = 5.0         # the app polls /api/packages/next every second: "connected" if it did within this
 STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "emotion", "face", "camera", "package", "gauge", "play", "mood",
-                "beat", "presence", "belief", "urges", "outing", "her_location", "relationship", "clothes", "app_name", "match")
+                "beat", "presence", "belief", "urges", "outing", "her_location", "relationship", "clothes", "app_name", "match",
+                "settings", "play_serial", "items")      # (the contract's 7.4: test_state_fields.py holds them to it)
 SPEAKERS = ("self", "opponent")        # package.speaker (the match: the opponent's package, forwarded by the local Muse)
 MATCH_PHASES = ("intro", "negotiation", "sex", "end")
 MATCH_SIDES = ("host", "guest")
@@ -430,6 +431,16 @@ def validate_package(pkg) -> list[str]:
             errors.append(f"{n}.action must be a string, an object with a kind string, or null")
         if b.get("coordinate") is not None and (not isinstance(b["coordinate"], str) or not 1 <= len(b["coordinate"]) <= 300):
             errors.append(f"{n}.coordinate must be a string of 1-300 characters (a coordinate card's id) or null")
+        it = b.get("item")
+        if it is not None:
+            # (MUSE_GUIDE 3.11, contract 1.33: one operation - take / decline an offer, use one, take a suggestion, give him one)
+            ops = [k for k in ("accept", "decline", "use", "suggestion", "give") if k in it] if isinstance(it, dict) else []
+            if not isinstance(it, dict) or len(ops) != 1 or not isinstance(it.get(ops[0]), str) or not 1 <= len(it[ops[0]]) <= 100:
+                errors.append(f"{n}.item must be an object with one of accept / decline / use / suggestion / give (a string of 1-100 characters)")
+            elif not isinstance(it.get("request"), str) or not 1 <= len(it["request"]) <= 200:
+                errors.append(f"{n}.item.request must be a string of 1-200 characters (a new one for each operation: a resend is done once)")
+            elif it.get("on") not in (None, "self", "user") or it.get("from") not in (None, "own", "shelf"):
+                errors.append(f"{n}.item.on must be self / user, item.from own / shelf (or left out)")
         cl = _opt_dict(b.get("clothes"), n + ".clothes", errors)
         if cl is not None:
             for k, v in cl.items():

@@ -817,7 +817,7 @@ namespace MuseStudio
             if (mt.Active)
             {
                 // the match: the score, the phase and its turns, leaving (the users watch: no other menu)
-                if (menu == "location" || menu == "play" || menu == "clothes" || menu == "chara" || menu == "replay") menu = "";
+                if (menu == "location" || menu == "play" || menu == "clothes" || menu == "chara" || menu == "replay" || menu == "items") menu = "";
                 var rp = host.Replay;
                 if (mt.Replaying)
                 {
@@ -980,6 +980,15 @@ namespace MuseStudio
                     host.Replay.Error = "";
                 }
                 y += lh + 4f * s;
+                // the items and the budget (PR #46 §7): his own screen only
+                Buttons["持ち物"] = new Rect(x, y, w, lh);
+                if (host.Items != null && GUI.Button(new Rect(x, y, w, lh), menu == "items" ? "閉じる" : "持ち物（予算 " + host.Items.Budget + "）" + (host.Items.OffersToUser.Count > 0 ? " ●" : ""),
+                                                     menu == "items" ? openButton : button))
+                {
+                    menu = menu == "items" ? "" : "items";
+                    ItemsNote = "";
+                }
+                y += lh + 4f * s;
                 // the way into a match (the trial run of 2026-11-04: nowhere to be found): the user asks Muse - the invitation
                 // goes between the two Muses' chats
                 Buttons["通信対戦"] = new Rect(x, y, w, lh);
@@ -998,6 +1007,7 @@ namespace MuseStudio
             else if (menu == "play") DrawPlays(MenuRect = new Rect(x, y, w, Mathf.Min(Screen.height * 0.6f, left)), s);
             else if (menu == "replay") DrawReplays(x, y, w, s);
             else if (menu == "match") DrawMatchMenu(x, y, w, s);
+            else if (menu == "items") DrawItems(MenuRect = new Rect(x, y, w, Mathf.Min(Screen.height * 0.6f, left)), s);
         }
 
         // the match's start, the user's side of it: the host's conditions (the format, the arousal to start from: the settings) and
@@ -1255,6 +1265,88 @@ namespace MuseStudio
         }
 
         public bool AllRooms;             // (the 場所 menu: every registered room, not only the usual ones)
+
+        // ---- the items (PR #46 §7): the budget (his alone), what she offers him, his own (give her / to the shelf / suggest /
+        // use), the shelf (take / suggest), hers, the shop (his purchase: his gift) ----
+        Vector2 itemsScroll;
+        public string ItemsNote = "";
+
+        static string Why(string why)
+        {
+            switch (why)
+            {
+                case "": return "";
+                case "budget": return "予算が足りません";
+                case "full": return "これ以上は持てません";
+                case "not_enough": return "ありません";
+                case "no_use": return "使う品ではありません";
+                case "she_is_out": return "彼女は出かけています";
+                default: return why;
+            }
+        }
+
+        void DrawItems(Rect r, float s)
+        {
+            var it = host.Items;
+            float bw = 46f * s;
+            drawing.Add(r);
+            GUILayout.BeginArea(r, box);
+            int unit = (int)Json.Num(it.Reward, "unit_seconds", 3600);
+            int mins = Mathf.CeilToInt((float)((unit - it.Fraction) / 60.0));
+            GUILayout.Label("予算 " + it.Budget + "（起動している 1 時間ごとに " + (int)Json.Num(it.Reward, "per_unit", 100) + "。次まで " + mins + " 分）", small);
+            if (ItemsNote.Length > 0) GUILayout.Label(ItemsNote, small);
+            itemsScroll = GUILayout.BeginScrollView(itemsScroll);
+            foreach (var o in it.OffersToUser)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("彼女から：" + Json.Str(it.ItemDef(o.Item), "name", o.Item), small);
+                if (GUILayout.Button("受け取る", button, GUILayout.Width(bw * 1.6f))) ItemsNote = Why(it.Answer(o.Id, true, "user")) is string n1 && n1.Length > 0 ? n1 : "受け取りました";
+                if (GUILayout.Button("断る", button, GUILayout.Width(bw))) { it.Answer(o.Id, false, "user"); ItemsNote = "断りました"; }
+                GUILayout.EndHorizontal();
+            }
+            foreach (var o in it.OffersToHer) GUILayout.Label("彼女の返事待ち：" + Json.Str(it.ItemDef(o.Item), "name", o.Item), small);
+            GUILayout.Label("── あなたの持ち物 ──", small);
+            foreach (var kv in new List<KeyValuePair<string, object>>(it.Stock("user")))
+            {
+                string id = kv.Key;
+                bool drink = Json.Str(it.ItemDef(id), "kind", "") == "drink";
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(Json.Str(it.ItemDef(id), "name", id) + " ×" + Convert.ToInt32(kv.Value), small);
+                if (GUILayout.Button("渡す", button, GUILayout.Width(bw))) { string w = Why(it.OfferToHer(id)); ItemsNote = w.Length > 0 ? w : "渡そうとしています（彼女の返事を待っています）"; }
+                if (GUILayout.Button("棚へ", button, GUILayout.Width(bw))) ItemsNote = Why(it.MoveUser(id, true));
+                if (drink && GUILayout.Button("勧める", button, GUILayout.Width(bw * 1.3f))) { string w = Why(it.Suggest(id, "user")); ItemsNote = w.Length > 0 ? w : "勧めました（使うかは彼女が決めます）"; }
+                if (drink && GUILayout.Button("使う", button, GUILayout.Width(bw))) ItemsNote = Why(it.Use(id, "user", "user", "own")) is string n2 && n2.Length > 0 ? n2 : "使いました";
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.Label("── 棚（家のもの） ──", small);
+            foreach (var kv in new List<KeyValuePair<string, object>>(it.Stock("shelf")))
+            {
+                string id = kv.Key;
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(Json.Str(it.ItemDef(id), "name", id) + " ×" + Convert.ToInt32(kv.Value), small);
+                if (GUILayout.Button("取る", button, GUILayout.Width(bw))) ItemsNote = Why(it.MoveUser(id, false));
+                if (Json.Str(it.ItemDef(id), "kind", "") == "drink" && GUILayout.Button("勧める", button, GUILayout.Width(bw * 1.3f)))
+                {
+                    string w = Why(it.Suggest(id, "shelf"));
+                    ItemsNote = w.Length > 0 ? w : "勧めました（使うかは彼女が決めます）";
+                }
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.Label("── 彼女の持ち物 ──", small);
+            string her = host.CharacterId();
+            if (!string.IsNullOrEmpty(her))
+                foreach (var kv in it.Stock(her)) GUILayout.Label(Json.Str(it.ItemDef(kv.Key), "name", kv.Key) + " ×" + Convert.ToInt32(kv.Value), small);
+            GUILayout.Label("── 店 ──", small);
+            foreach (var kv in Json.Obj(it.Def, "items") ?? new Dictionary<string, object>())
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(Json.Str(kv.Value, "name", kv.Key) + "　" + (int)Json.Num(kv.Value, "price", 0), small);
+                if (GUILayout.Button("買う", button, GUILayout.Width(bw))) { string w = Why(it.Buy(kv.Key)); ItemsNote = w.Length > 0 ? w : "買いました（あなたの持ち物に）"; }
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+        }
 
         void DrawLocations(Rect r, float s)
         {
