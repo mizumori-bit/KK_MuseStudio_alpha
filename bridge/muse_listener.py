@@ -7,14 +7,21 @@ on a port of its own on this PC's tailnet address (never loopback: a program on 
   1. looks up the real TCP sender's address with Tailscale (`tailscale whois`): the machine must be the one
      bridge_config.json "muse_listener.machine" names - its StableID, which the owner checked in Tailscale's admin console.
      No header is trusted for this (X-Forwarded-For and the like are not read). Unknown, failed or stale -> refused.
-  2. (an aid, not the proof) Muse's usual Authorization: "placeholder" "learn" keeps the SHA-256 of the first one the pinned
-     machine sends (cache/muse_listener.json, this PC only) and asks for the same from then on; a 64-hex value is that
-     digest given; "off" does not look. The value itself is never written or logged.
+  2. (an aid, not the proof) Muse's usual Authorization: "placeholder" "learn" (the default) keeps the SHA-256 of the first
+     one the pinned machine sends (cache/muse_listener.json, this PC only) and asks for the same from then on - learnt only
+     when that file does not exist (the first time, or after the owner's bridge.py --forget-muse-placeholder); a file that
+     cannot be read or holds no digest refuses every request, it is never learnt over. A 64-hex value is that digest given;
+     "off" does not look; anything else refuses every request. The value itself is never written or logged.
   3. passes only Muse's own API, listed here by method and path (not the bridge's roles: they also serve shared ways), and
      no browser's request (Origin / Sec-Fetch-Site) and no Host but the bridge's names.
 
 Then the request goes to this PC's bridge (127.0.0.1, its own port) with the real Muse token put in here - the token never
-leaves this PC - and the bridge's own checks (role, rate, sizes) apply as for any request. Standard library only.
+leaves this PC - and the bridge's own checks (role, rate, sizes) apply as for any request.
+
+It opens only with the bridge's auth required, and only on an address Tailscale says is this PC's (in Tailscale's ranges;
+never every interface; loopback for the tests only). One request a connection: a connection that has not sent its request
+(headers and body) within read_seconds is cut, at most max_connections are served at once (the rest closed at once), and
+at most two `tailscale whois` run at a time. Standard library only.
 """
 from __future__ import annotations
 
@@ -55,6 +62,11 @@ _ROUTES = [(m, re.compile(p + r"\Z")) for m, p in ROUTES]
 DEFAULT_TAILSCALE = [r"C:\Program Files\Tailscale\tailscale.exe"] if os.name == "nt" else ["tailscale"]
 PASS_BACK = ("Content-Type", "Retry-After", "WWW-Authenticate", "Allow", "Cache-Control")
 FAILED_WHOIS_SECONDS = 5.0      # a failed lookup is not asked again for this long (a flood does not start a process each)
+WHOIS_AT_ONCE = 2               # `tailscale whois` processes at a time; a lookup that waits longer than 5 s is refused
+READ_SECONDS = 20.0             # a connection's request (headers and body) must have come within this; else it is cut
+MAX_CONNECTIONS = 16            # connections served at once; past it a new one is closed at once
+TAILNET_RANGES = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+PLACEHOLDER_FILE = "muse_listener.json"     # (next to the tokens: cache/)
 
 
 def route_allowed(method: str, raw_path: str) -> bool:
@@ -69,6 +81,7 @@ class Whois:
         self.cli, self.ttl = list(cli), float(ttl)
         self.seen: dict = {}
         self.lock = threading.Lock()
+        self.running = threading.BoundedSemaphore(WHOIS_AT_ONCE)
 
     def machine(self, ip: str) -> str | None:
         now = time.monotonic()
@@ -76,7 +89,8 @@ class Whois:
             hit = self.seen.get(ip)
             if hit is not None and now < hit[0]:
                 return hit[1]
-        sid = None
+        if not self.running.acquire(timeout=5.0):
+            return None                                   # (too many lookups at once: refused, not remembered)
         try:
             out = subprocess.run(self.cli + ["whois", "--json", ip], capture_output=True, text=True, encoding="utf-8",
                                  timeout=5, check=True).stdout
@@ -84,19 +98,50 @@ class Whois:
             sid = str(node.get("StableID") or "") or None
         except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
             sid = None
+        finally:
+            self.running.release()
         with self.lock:
             self.seen[ip] = (now + (self.ttl if sid else min(self.ttl, FAILED_WHOIS_SECONDS)), sid)
         return sid
 
 
-def tailnet_ipv4(cli: list) -> str | None:
+def tailnet_addresses(cli: list) -> list:
+    """this PC's own tailnet addresses as Tailscale lists them (IPv4 first); [] when it cannot say"""
     try:
-        out = subprocess.run(cli + ["ip", "-4"], capture_output=True, text=True, encoding="utf-8", timeout=5, check=True).stdout
-        ip = out.strip().splitlines()[0].strip()
-        ipaddress.IPv4Address(ip)
-        return ip
-    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
-        return None
+        out = subprocess.run(cli + ["ip"], capture_output=True, text=True, encoding="utf-8", timeout=5, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    found = []
+    for line in out.splitlines():
+        try:
+            found.append(ipaddress.ip_address(line.strip()))
+        except ValueError:
+            continue
+    return [str(a) for a in sorted(found, key=lambda a: a.version)]
+
+
+def listen_address(lc: dict, cli: list, test: bool) -> tuple:
+    """(the address to listen on, None) or (None, why not): this PC's own tailnet address only - one Tailscale lists, in
+    its ranges; "address" may only name one of them. Loopback only in the tests; never every interface"""
+    given = str(lc.get("address") or "").strip()
+    if given:
+        try:
+            a = ipaddress.ip_address(given)
+        except ValueError:
+            return None, f"address {given!r} is not an address"
+        if a.is_unspecified:
+            return None, "address may not be every interface"
+        if a.is_loopback:
+            return (given, None) if test else (None, "a loopback address is for the tests only")
+    own = tailnet_addresses(cli)
+    if not own:
+        return None, "this PC's tailnet address is unknown (Tailscale not running?)"
+    address = given or own[0]
+    if address not in own:
+        return None, "address is not one of this PC's tailnet addresses (tailscale ip)"
+    if not any(ipaddress.ip_address(address) in net for net in TAILNET_RANGES):
+        return None, "the address is not in Tailscale's ranges"
+    return address, None
 
 
 def list_machines(cli: list) -> int:
@@ -117,23 +162,36 @@ def list_machines(cli: list) -> int:
 
 
 class Placeholder:
-    """the aid: the digest of Muse's usual Authorization ("off" / "learn" / a 64-hex digest)"""
+    """the aid: the digest of Muse's usual Authorization ("learn" / "off" / a 64-hex digest; anything else refuses)"""
 
-    def __init__(self, mode: str, file: Path):
-        mode = str(mode or "off").strip().lower()
-        self.file, self.lock = file, threading.Lock()
-        self.mode = mode if mode in ("off", "learn") or re.fullmatch(r"[0-9a-f]{64}", mode) else "off"
-        if self.mode != str(mode or "off").strip().lower():
-            sys.stderr.write("[bridge] muse listener: placeholder is not off / learn / a 64-hex digest - not looked at\n")
+    def __init__(self, mode, file: Path):
+        raw = "learn" if mode is None else str(mode).strip().lower()
+        self.file, self.lock, self.told = file, threading.Lock(), False
+        if raw in ("off", "learn") or re.fullmatch(r"[0-9a-f]{64}", raw):
+            self.mode = raw
+        else:
+            self.mode = "invalid"
+            sys.stderr.write("[bridge] muse listener: placeholder is not learn / off / a 64-hex digest - every request is "
+                             "refused until it is fixed\n")
 
-    def _learned(self) -> str | None:
+    def _learned(self) -> tuple:
+        """("none", None): no file - the first time, or after the owner's reset; ("ok", digest); ("bad", None): there but
+        unreadable or without a digest - never learnt over"""
         try:
-            v = json.loads(self.file.read_text(encoding="utf-8")).get("placeholder_sha256")
-            return v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) else None
-        except (OSError, ValueError, AttributeError):
-            return None
+            text = self.file.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return "none", None
+        except OSError:
+            return "bad", None
+        try:
+            v = json.loads(text).get("placeholder_sha256")
+        except (ValueError, AttributeError):
+            return "bad", None
+        return ("ok", v) if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) else ("bad", None)
 
     def check(self, auth: str) -> bool:
+        if self.mode == "invalid":
+            return False
         if self.mode == "off":
             return True
         scheme, _, value = auth.partition(" ")
@@ -144,20 +202,64 @@ class Placeholder:
         if self.mode != "learn":
             return hmac.compare_digest(digest, self.mode)
         with self.lock:
-            known = self._learned()
-            if known is None:
+            kind, known = self._learned()
+            if kind == "ok":
+                self.told = False
+                return hmac.compare_digest(digest, known)
+            if kind == "bad":
+                if not self.told:
+                    self.told = True
+                    sys.stderr.write(f"[bridge] muse listener: the learned digest ({self.file.name}) cannot be read - every "
+                                     "request is refused (fix the file, or bridge.py --forget-muse-placeholder to learn again)\n")
+                return False
+            try:
                 self.file.parent.mkdir(parents=True, exist_ok=True)
-                tmp = self.file.with_suffix(".part")
-                tmp.write_text(json.dumps({"placeholder_sha256": digest}), encoding="utf-8")
-                os.replace(tmp, self.file)
-                sys.stderr.write("[bridge] muse listener: learned the digest of Muse's Authorization (the value is not kept)\n")
-                return True
-            return hmac.compare_digest(digest, known)
+                with open(self.file, "x", encoding="utf-8") as f:       # (only when there is none: never over one)
+                    f.write(json.dumps({"placeholder_sha256": digest}))
+            except OSError:
+                sys.stderr.write("[bridge] muse listener: the digest could not be kept - refused\n")
+                return False
+            sys.stderr.write("[bridge] muse listener: learned the digest of Muse's Authorization (the value is not kept)\n")
+            return True
+
+
+def forget_placeholder(tokens_file: Path) -> int:
+    """the owner's reset (bridge.py --forget-muse-placeholder): the next Authorization from Muse's machine is learnt"""
+    f = tokens_file.parent / PLACEHOLDER_FILE
+    try:
+        f.unlink()
+        print(f"removed {f} - the next request from Muse's machine is learnt")
+    except FileNotFoundError:
+        print(f"nothing to remove ({f} does not exist) - the next request from Muse's machine is learnt")
+    except OSError as e:
+        print(f"could not remove {f}: {e}")
+        return 1
+    return 0
 
 
 class ListenerServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = os.name != "nt"
+
+    def __init__(self, address, handler, max_connections: int = MAX_CONNECTIONS):
+        self.slots = threading.BoundedSemaphore(max(1, int(max_connections)))
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)             # (busy: closed at once, no thread for it)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
 
     def server_bind(self) -> None:
         if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
@@ -175,30 +277,49 @@ def start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
     if not machine:
         sys.stderr.write("[bridge] muse listener: no machine (StableID) set - not opened (bridge.py --list-machines)\n")
         return None
+    if not getattr(state, "auth", False):
+        sys.stderr.write("[bridge] muse listener: the bridge's auth is off - not opened (it is for a bridge that asks for its token)\n")
+        return None
     cli = lc.get("tailscale") or DEFAULT_TAILSCALE
     cli = [str(x) for x in (cli if isinstance(cli, list) else [cli])]
-    address = str(lc.get("address") or "").strip() or tailnet_ipv4(cli)
-    if not address:
-        sys.stderr.write("[bridge] muse listener: this PC's tailnet address is unknown (Tailscale not running?) - not opened\n")
-        return None
-    try:
-        loop = ipaddress.ip_address(address).is_loopback
-    except ValueError:
-        loop = True
-    if loop and not cfg.get("_test"):
-        sys.stderr.write("[bridge] muse listener: a loopback address is for the tests only - not opened\n")
+    address, why = listen_address(lc, cli, bool(cfg.get("_test")))
+    if address is None:
+        sys.stderr.write(f"[bridge] muse listener: {why} - not opened\n")
         return None
     whois = Whois(cli, float(lc.get("whois_ttl", 60)))
-    aid = Placeholder(lc.get("placeholder", "off"), cfg["_tokens_file"].parent / "muse_listener.json")
+    aid = Placeholder(lc.get("placeholder"), cfg["_tokens_file"].parent / PLACEHOLDER_FILE)
+    read_seconds = float(lc.get("read_seconds", READ_SECONDS))
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "MuseStudioListener/1.0"
         protocol_version = "HTTP/1.1"
+        timeout = read_seconds                            # (each read; the whole request has the deadline below)
+
+        def setup(self):
+            super().setup()
+            self.deadline = threading.Timer(read_seconds, self._cut)
+            self.deadline.daemon = True
+            self.deadline.start()
+
+        def _cut(self):
+            # (the request did not come in time: the connection is closed under the reader)
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        def finish(self):
+            self.deadline.cancel()
+            try:
+                super().finish()
+            except OSError:
+                pass
 
         def log_message(self, fmt, *args):
             pass                                          # (refusals are logged below; the bridge logs what it serves)
 
         def _refuse(self, code: int, reason: str, message: str):
+            self.deadline.cancel()
             path = self.path.split("?", 1)[0]
             if state.take("anon") > 0.0:
                 code, reason, message = 429, "rate", "too many refused requests: wait a little"
@@ -213,6 +334,7 @@ def start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
             self.close_connection = True
 
         def _any(self):
+            self.close_connection = True                  # (one request a connection)
             h = self.headers
             if h.get("Origin") is not None or h.get("Sec-Fetch-Site") is not None:
                 return self._refuse(403, "browser", "a web page may not use Muse's listener")
@@ -236,6 +358,9 @@ def start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
             if n > max_body:
                 return self._refuse(413, "too_large", f"the body passes {max_body} bytes")
             body = self.rfile.read(n) if n > 0 else None
+            if body is not None and len(body) < n:
+                return                                    # (cut before the whole body came)
+            self.deadline.cancel()
             fwd = {"Host": f"127.0.0.1:{bridge_port}", "Authorization": "Bearer " + state.tokens_now()["muse"]}
             for k in ("Content-Type", "Accept"):
                 if h.get(k):
@@ -261,7 +386,7 @@ def start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
 
     port = int(lc.get("port", 18767))
     try:
-        srv = ListenerServer((address, port), Handler)
+        srv = ListenerServer((address, port), Handler, int(lc.get("max_connections", MAX_CONNECTIONS)))
     except OSError as e:
         sys.stderr.write(f"[bridge] muse listener: cannot listen on the tailnet address's port {port} ({e}) - not opened\n")
         return None

@@ -1778,6 +1778,8 @@ def main() -> int:
                     help="replace both tokens with new ones (a running bridge and the app take them; the old ones stop working) and quit")
     ap.add_argument("--list-machines", action="store_true",
                     help="list this PC's tailnet machines with their StableID (for muse_listener.machine) and quit")
+    ap.add_argument("--forget-muse-placeholder", action="store_true",
+                    help="forget the learned digest of Muse's Authorization (the next one from Muse's machine is learnt) and quit")
     args = ap.parse_args()
     conf = Path(args.config)
     if not conf.is_file() and conf == HERE / "bridge_config.json" and (HERE / "bridge_config.example.json").is_file():
@@ -1795,6 +1797,8 @@ def main() -> int:
     if args.list_machines:
         cli = (cfg.get("muse_listener") or {}).get("tailscale") or muse_listener.DEFAULT_TAILSCALE
         return muse_listener.list_machines([str(x) for x in (cli if isinstance(cli, list) else [cli])])
+    if args.forget_muse_placeholder:
+        return muse_listener.forget_placeholder(cfg["_tokens_file"])
     cfg["_test"] = args.test
     port = args.port or int(cfg.get("port", 18765))
     host = str(cfg.get("host", "127.0.0.1"))

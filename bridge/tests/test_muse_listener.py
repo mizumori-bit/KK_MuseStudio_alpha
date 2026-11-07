@@ -9,6 +9,7 @@ import json
 import socket
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -180,6 +181,172 @@ class DigestGiven(unittest.TestCase):
             self.assertEqual(call(18887, "GET", "/api/state", auth=None)[0], 200)
         finally:
             b.close()
+
+
+class StartConditions(unittest.TestCase):
+    """GPT's post-review 1: only this PC's own tailnet address (in Tailscale's ranges), never every interface, loopback
+    only in the tests, and only with the bridge's auth required"""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(ROOT / "bridge"))
+        import muse_listener
+        cls.ml = muse_listener
+
+    def addr(self, given: str, own: str, test: bool):
+        cli = [sys.executable, "-B", FAKE, str(table_file({"_self": own}))]
+        return self.ml.listen_address({"address": given} if given else {}, cli, test)
+
+    def test_this_pcs_tailnet_address(self):
+        self.assertEqual(self.addr("", "100.101.1.1", False), ("100.101.1.1", None))
+        self.assertEqual(self.addr("100.101.1.1", "100.101.1.1", False), ("100.101.1.1", None))
+
+    def test_refused_addresses(self):
+        for given, own, test in (("0.0.0.0", "100.101.1.1", False), ("::", "100.101.1.1", True), ("0.0.0.0", "100.101.1.1", True),
+                                 ("127.0.0.1", "100.101.1.1", False), ("100.100.100.100", "100.101.1.1", False),
+                                 ("192.168.1.5", "192.168.1.5", False), ("", "192.168.1.5", False), ("", "", False),
+                                 ("junk", "100.101.1.1", False)):
+            with self.subTest(given=given, own=own, test=test):
+                address, why = self.addr(given, own, test)
+                self.assertIsNone(address)
+                self.assertTrue(why)
+
+    def test_loopback_in_the_tests(self):
+        self.assertEqual(self.addr("127.0.0.1", "", True), ("127.0.0.1", None))
+
+    def test_not_with_auth_off(self):
+        class State:
+            auth = False
+        lc = listener_cfg(table_file({"127.0.0.1": MUSE}), 18890)["muse_listener"]
+        cfg = {"muse_listener": lc, "_test": True, "_tokens_file": Path(tempfile.mkdtemp()) / "tokens.json"}
+        self.assertIsNone(self.ml.start(cfg, State(), 18765, lambda h, c: True, 1024))
+        self.assertFalse(is_open(18890))
+
+    def test_not_with_auth_off_in_a_bridge(self):
+        extra = listener_cfg(table_file({"127.0.0.1": MUSE}), 18891)
+        extra["auth"] = "off"
+        b = Bridge(18892, extra=extra, test=True)
+        try:
+            self.assertFalse(is_open(18891))
+        finally:
+            b.close()
+
+
+class PlaceholderFailsClosed(unittest.TestCase):
+    """GPT's post-review 2: a wrong setting refuses; the digest is learnt only when there is none, never over a file that
+    cannot be read"""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(ROOT / "bridge"))
+        import muse_listener
+        cls.ml = muse_listener
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="ph_"))
+        self.file = self.dir / "muse_listener.json"
+
+    def test_a_wrong_setting_refuses_everything(self):
+        for mode in ("lern", "ON", "true", "abc123", 1):
+            with self.subTest(mode=mode):
+                ph = self.ml.Placeholder(mode, self.file)
+                self.assertFalse(ph.check(PLACEHOLDER))
+                self.assertFalse(self.file.exists())
+
+    def test_no_setting_is_learn(self):
+        ph = self.ml.Placeholder(None, self.file)
+        self.assertTrue(ph.check(PLACEHOLDER))
+        self.assertTrue(ph.check(PLACEHOLDER))
+        self.assertFalse(ph.check("Bearer other"))
+        self.assertNotIn("stand-in", self.file.read_text(encoding="utf-8"))
+
+    def test_an_unreadable_file_is_not_learnt_over(self):
+        for content in ("not json", "{}", '{"placeholder_sha256": "short"}', "[1, 2]"):
+            with self.subTest(content=content):
+                self.file.write_text(content, encoding="utf-8")
+                ph = self.ml.Placeholder("learn", self.file)
+                self.assertFalse(ph.check(PLACEHOLDER))
+                self.assertEqual(self.file.read_text(encoding="utf-8"), content, "the file is left as it was")
+
+    def test_a_file_that_cannot_be_read_is_not_learnt_over(self):
+        self.file.mkdir()                                  # (there, but not readable as a file)
+        ph = self.ml.Placeholder("learn", self.file)
+        self.assertFalse(ph.check(PLACEHOLDER))
+        self.assertTrue(self.file.is_dir())
+
+    def test_the_owners_reset_learns_again(self):
+        ph = self.ml.Placeholder("learn", self.file)
+        self.assertTrue(ph.check(PLACEHOLDER))
+        self.assertFalse(ph.check("Bearer a-new-stand-in"))
+        self.assertEqual(self.ml.forget_placeholder(self.dir / "tokens.json"), 0)
+        self.assertTrue(ph.check("Bearer a-new-stand-in"))
+
+    def test_a_wrong_setting_in_a_bridge(self):
+        b = Bridge(18893, extra=listener_cfg(table_file({"127.0.0.1": MUSE}), 18894, placeholder="lern"), test=True)
+        try:
+            code, ans = call(18894, "GET", "/api/state")
+            self.assertEqual((code, ans["reason"]), (401, "placeholder"))
+        finally:
+            b.close()
+
+
+class ConnectionLimits(unittest.TestCase):
+    """GPT's post-review 3: a request that does not come in time is cut; past max_connections a connection is closed at once"""
+    LP = 18896
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = Bridge(18895, extra=listener_cfg(table_file({"127.0.0.1": MUSE}), cls.LP, placeholder="off", read_seconds=2,
+                                                 max_connections=2), test=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.b.close()
+
+    @staticmethod
+    def closed_within(s: socket.socket, seconds: float) -> bool:
+        s.settimeout(seconds)
+        try:
+            return s.recv(1024) == b""
+        except (ConnectionResetError, ConnectionAbortedError):
+            return True
+        except socket.timeout:
+            return False
+
+    def test_a_stalled_request_is_cut(self):
+        s = socket.create_connection(("127.0.0.1", self.LP))
+        try:
+            s.sendall(b"GET /health HTTP/1.1\r\nHost: mypc.tailnet.example\r\n")      # (the headers never end)
+            t0 = time.monotonic()
+            self.assertTrue(self.closed_within(s, 6))
+            self.assertLess(time.monotonic() - t0, 5)
+        finally:
+            s.close()
+
+    def test_a_stalled_body_is_cut_and_not_passed(self):
+        s = socket.create_connection(("127.0.0.1", self.LP))
+        try:
+            s.sendall(b"POST /api/packages HTTP/1.1\r\nHost: mypc.tailnet.example\r\nContent-Type: application/json\r\n"
+                      b"Content-Length: 500\r\n\r\n{\"session\": ")
+            self.assertTrue(self.closed_within(s, 6))
+        finally:
+            s.close()
+        self.assertEqual(self.b.call("GET", "/api/packages/status?session=stalled&turn=1", role="muse")[0], 404)
+
+    def test_past_the_number_a_connection_is_closed_at_once(self):
+        held = [socket.create_connection(("127.0.0.1", self.LP)) for _ in range(2)]
+        try:
+            time.sleep(0.3)
+            extra = socket.create_connection(("127.0.0.1", self.LP))
+            try:
+                self.assertTrue(self.closed_within(extra, 1.0), "the third connection is closed at once")
+            finally:
+                extra.close()
+        finally:
+            for s in held:
+                s.close()
+        time.sleep(2.5)                                   # (the held ones cut or closed: their slots free again)
+        self.assertEqual(call(self.LP, "GET", "/health", auth=None)[0], 200)
 
 
 if __name__ == "__main__":
