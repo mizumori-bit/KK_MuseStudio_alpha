@@ -154,6 +154,7 @@ namespace MuseStudio
             h.Stage.StopWalk(false);
             h.Presence.HerAt = "";                 // (the new character is with him)
             h.Stage.Heroine.ChangeChara(path);
+            h.Stage.TakeCardFace();                // (the new one's own face: her ordinary face from now)
             CardPath = path;
             h.CharacterCard.Value = path;          // the last character
             h.Stage.Name = h.Stage.Cha.chaFile.parameter.fullname.Trim();
