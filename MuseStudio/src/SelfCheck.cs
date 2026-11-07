@@ -187,6 +187,33 @@ namespace MuseStudio
             while (Time.realtimeSinceStartup - t0 < seconds) yield return null;
         }
 
+        // a coordinate card saved again as the maker saves an outfit: each plugin's controller on her (KKAPI's
+        // CharaCustomFunctionController) writes its coordinate data into it first - Push Up's bra and top, the material
+        // editor's, the overlays'. "" when saved, else why not
+        static string SaveAsMaker(ChaControl cha, string path)
+        {
+            try
+            {
+                var c = new ChaFileCoordinate();
+                if (!c.LoadFile(path)) return "not read back";
+                foreach (var mb in cha.GetComponents<MonoBehaviour>())
+                {
+                    if (mb == null) continue;
+                    for (var t = mb.GetType(); t != null; t = t.BaseType)
+                    {
+                        if (t.FullName != "KKAPI.Chara.CharaCustomFunctionController") continue;
+                        var m = t.GetMethod("OnCoordinateBeingSaved", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                                            null, new[] { typeof(ChaFileCoordinate) }, null);
+                        if (m != null) m.Invoke(mb, new object[] { c });       // (virtual: the plugin's own)
+                        break;
+                    }
+                }
+                c.SaveFile(path);
+                return "";
+            }
+            catch (Exception e) { return (e.InnerException ?? e).Message; }
+        }
+
         IEnumerator Shot(string name)
         {
             yield return null;
@@ -2379,6 +2406,12 @@ namespace MuseStudio
             cdCoord.SaveFile(cdPath);
             cdCoord.pngData = cdPngWas;
             cdCoord.coordinateName = cdNameWas;
+            // (saved again as the maker saves an outfit: each plugin's controller writes its coordinate data - Push Up's bra and
+            // top among them. As a coordinate saves itself it had the sideloader's alone: worn, Push Up took its own defaults
+            // for a card without its data - off - and her nipples showed through her clothes for the rest of the checks: the
+            // user's note of 2026-11-07, measured by --muse-probe=pushup)
+            string cdSaved = SaveAsMaker(st.Cha, cdPath);
+            float cdNip11 = st.Cha.fileBody.shapeValueBody[11], cdNip13 = st.Cha.fileBody.shapeValueBody[13];
             File.WriteAllBytes(Path.Combine(cdDir, "not_a_card.png"), new byte[] { 1, 2, 3, 4 });
             co.Scan();
             h.SendCatalog();
@@ -2398,6 +2431,9 @@ namespace MuseStudio
             var cdEv = LastEvent("outfit_changed");
             bool cdWore = co.Worn == cdWorn0 + 1 && Json.Str(cdEv, "source") == "coordinate" && Json.Str(cdEv, "by") == "muse"
                 && Json.Str(Json.Obj(cdEv, "coordinate"), "id") == cdId;
+            // (her areola and nipple depth - Push Up flattens them under a bra or top it is on for - as before the card)
+            float cdNipNow11 = st.Cha.fileBody.shapeValueBody[11], cdNipNow13 = st.Cha.fileBody.shapeValueBody[13];
+            bool cdPushup = cdSaved == "" && Mathf.Abs(cdNipNow11 - cdNip11) < 1e-3f && Mathf.Abs(cdNipNow13 - cdNip13) < 1e-3f;
             bp.Advance(true);
             yield return Wait(0.3f);
             int cdNo0 = Refusals("coordinate", "no_coordinate");
@@ -2419,10 +2455,10 @@ namespace MuseStudio
             try { Directory.Delete(cdDir, true); } catch (Exception) { }
             co.Scan();
             h.SendCatalog();
-            Check("coordinates: a card in game/UserData/coordinate is listed (id, name, hash; a file that is no card is not); Muse's block wears it (outfit_changed source coordinate by muse); unknown, unreadable and in a play refused",
-                  cdListed && !cdJunk && cdWore && cdUnknown && cdBad == "unreadable" && cdPlayErr == "" && cdInPlay == "in_play" && co.Worn == cdWorn0 + 1,
-                  string.Format("listed {0} junk {1} wore {2} unknown {3} bad '{4}' in play '{5}' worn {6} {7}", cdListed, cdJunk, cdWore, cdUnknown, cdBad, cdInPlay,
-                                co.Worn - cdWorn0, Json.Write(cdEv)));
+            Check("coordinates: a card in game/UserData/coordinate is listed (id, name, hash; a file that is no card is not); Muse's block wears it (outfit_changed source coordinate by muse) - one saved as the maker saves it keeps her Push Up (the nipples' depth as before); unknown, unreadable and in a play refused",
+                  cdListed && !cdJunk && cdWore && cdPushup && cdUnknown && cdBad == "unreadable" && cdPlayErr == "" && cdInPlay == "in_play" && co.Worn == cdWorn0 + 1,
+                  string.Format("listed {0} junk {1} wore {2} pushup {3} ('{4}' 11 {5:F3}->{6:F3} 13 {7:F3}->{8:F3}) unknown {9} bad '{10}' in play '{11}' worn {12} {13}", cdListed, cdJunk, cdWore,
+                                cdPushup, cdSaved, cdNip11, cdNipNow11, cdNip13, cdNipNow13, cdUnknown, cdBad, cdInPlay, co.Worn - cdWorn0, Json.Write(cdEv)));
 
             // a face is not carried into another scene: the talk's face becomes the play's default as a play starts; a face given
             // just before the start (a block setting her face and starting the play) stays
