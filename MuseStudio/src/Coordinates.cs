@@ -78,11 +78,16 @@ namespace MuseStudio
             {
                 var c = new ChaFileCoordinate();
                 if (!c.LoadFile(path)) return null;              // (not an outfit card: not listed)
-                string name = (c.coordinateName ?? "").Trim();
-                if (name.Length == 0) name = System.IO.Path.GetFileNameWithoutExtension(path);
-                return new Entry { Id = id, Path = path, Name = name, Hash = Hash(path), Size = fi.Length, Written = fi.LastWriteTimeUtc };
+                return new Entry { Id = id, Path = path, Name = NameOf(c, path), Hash = Hash(path), Size = fi.Length, Written = fi.LastWriteTimeUtc };
             }
             catch (Exception) { return null; }
+        }
+
+        // the card's own name, else its file's
+        static string NameOf(ChaFileCoordinate c, string path)
+        {
+            string name = (c.coordinateName ?? "").Trim();
+            return name.Length > 0 ? name : System.IO.Path.GetFileNameWithoutExtension(path);
         }
 
         public static string Hash(string path)
@@ -149,6 +154,18 @@ namespace MuseStudio
             bool readable;
             try { readable = probe.LoadFile(e.Path); } catch (Exception) { readable = false; }
             if (!readable) return "unreadable";                   // (read failed: not worn - nothing changed)
+            // the card as it is now (GPT's post-review of #52): one put under the same name since the list was made - its own
+            // name and hash in the list (sent again: the labels' check sees the changed contents) and in what is told
+            string hashNow;
+            try { hashNow = Hash(e.Path); } catch (Exception) { return "unreadable"; }
+            string nameNow = NameOf(probe, e.Path);
+            if (hashNow != e.Hash || nameNow != e.Name)
+            {
+                var fi = new FileInfo(e.Path);
+                e = new Entry { Id = e.Id, Path = e.Path, Name = nameNow, Hash = hashNow, Size = fi.Length, Written = fi.LastWriteTimeUtc };
+                known[e.Id] = e;
+                h.SendCatalog();
+            }
             var replaced = Missing(probe);
             try { h.Stage.Heroine.LoadClothesFile(e.Path); }
             catch (Exception ex)

@@ -2521,6 +2521,27 @@ namespace MuseStudio
             bool cdUnknown = Refusals("coordinate", "no_coordinate") == cdNo0 + 1 && co.Worn == cdWorn0 + 1;
             bp.Advance(true);
             yield return Wait(0.3f);
+            // (GPT's post-review of #52) a card put under the same name just after the list was made and worn at once - no scan
+            // between: what is told is the card worn (its name and hash), the list sent again with them
+            var cdNow = st.Cha.nowCoordinate;
+            byte[] cdPng2 = cdNow.pngData;
+            string cdName2Was = cdNow.coordinateName;
+            cdNow.pngData = new Texture2D(8, 8).EncodeToPNG();
+            cdNow.coordinateName = "点検のコーデ（差し替え）";
+            cdNow.SaveFile(cdPath);
+            cdNow.pngData = cdPng2;
+            cdNow.coordinateName = cdName2Was;
+            string cdSaved2 = SaveAsMaker(st.Cha, cdPath);
+            string cdHash2 = Coordinates.Hash(cdPath), cdHash1 = co.Find(cdId) != null ? co.Find(cdId).Hash : "";
+            string cdSwapErr = co.Wear(cdId, "user");
+            yield return Wait(0.6f);
+            var cdEv2 = LastEvent("outfit_changed");
+            var cdCat2 = Json.Obj(Json.Parse(Http("GET", "/api/catalog", null)), "catalog");
+            bool cdListed2 = false;
+            foreach (var o in Json.Arr(cdCat2, "coordinates") ?? new List<object>())
+                if (Json.Str(o, "id") == cdId && Json.Str(o, "hash") == cdHash2 && Json.Str(o, "name") == "点検のコーデ（差し替え）") cdListed2 = true;
+            bool cdSwapped = cdSwapErr == "" && cdSaved2 == "" && cdHash2 != cdHash1 && Json.Str(Json.Obj(cdEv2, "coordinate"), "hash") == cdHash2
+                             && Json.Str(Json.Obj(cdEv2, "coordinate"), "name") == "点検のコーデ（差し替え）" && cdListed2;
             byte[] cdGood = File.ReadAllBytes(cdPath);
             File.WriteAllBytes(cdPath, new byte[] { 9, 9, 9 });           // (listed, then no longer readable)
             string cdBad = co.Wear(cdId, "user");
@@ -2533,10 +2554,11 @@ namespace MuseStudio
             try { Directory.Delete(cdDir, true); } catch (Exception) { }
             co.Scan();
             h.SendCatalog();
-            Check("coordinates: a card in game/UserData/coordinate is listed (id, name, hash; a file that is no card is not); Muse's block wears it (outfit_changed source coordinate by muse) - one saved as the maker saves it keeps her Push Up (the nipples' depth as before); unknown, unreadable and in a play refused",
-                  cdListed && !cdJunk && cdWore && cdPushup && cdUnknown && cdBad == "unreadable" && cdPlayErr == "" && cdInPlay == "in_play" && co.Worn == cdWorn0 + 1,
-                  string.Format("listed {0} junk {1} wore {2} pushup {3} ('{4}' 11 {5:F3}->{6:F3} 13 {7:F3}->{8:F3}) unknown {9} bad '{10}' in play '{11}' worn {12} {13}", cdListed, cdJunk, cdWore,
-                                cdPushup, cdSaved, cdNip11, cdNipNow11, cdNip13, cdNipNow13, cdUnknown, cdBad, cdInPlay, co.Worn - cdWorn0, Json.Write(cdEv)));
+            Check("coordinates: a card in game/UserData/coordinate is listed (id, name, hash; a file that is no card is not); Muse's block wears it (outfit_changed source coordinate by muse) - one saved as the maker saves it keeps her Push Up (the nipples' depth as before); one put under the same name and worn at once tells its own name and hash; unknown, unreadable and in a play refused",
+                  cdListed && !cdJunk && cdWore && cdPushup && cdSwapped && cdUnknown && cdBad == "unreadable" && cdPlayErr == "" && cdInPlay == "in_play" && co.Worn == cdWorn0 + 2,
+                  string.Format("listed {0} junk {1} wore {2} pushup {3} ('{4}' 11 {5:F3}->{6:F3} 13 {7:F3}->{8:F3}) unknown {9} bad '{10}' in play '{11}' worn {12} {13} swapped {14} ('{15}' {16} listed {17} {18})",
+                                cdListed, cdJunk, cdWore, cdPushup, cdSaved, cdNip11, cdNipNow11, cdNip13, cdNipNow13, cdUnknown, cdBad, cdInPlay, co.Worn - cdWorn0, Json.Write(cdEv),
+                                cdSwapped, cdSwapErr, cdHash2 != cdHash1, cdListed2, Json.Write(cdEv2)));
 
             // a face is not carried into another scene: the talk's face becomes the play's default as a play starts; a face given
             // just before the start (a block setting her face and starting the play) stays
