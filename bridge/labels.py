@@ -9,10 +9,15 @@ Each label: {"text", "tags", "by": "muse" / "user", "rev", "hash", "status", "up
          "kept"   - what it was on is not there any more (removed, renamed): kept, not used; it comes back by itself when a
                     card with the same contents appears without a label of its own (a rename)
 A label the user wrote ("by": "user") is not written over by Muse (the user's own wins). Writes name the rev they read
-(a label changed meanwhile: 409 conflict). Standard library only.
+(a label changed meanwhile: 409 conflict). The file may be edited by hand while the bridge runs (GPT's post-review of #52):
+before anything is read or written the file is looked at again and an edit made outside is taken as it is - never written
+over unread; a file that does not read as labels while running (an edit half done) is kept as it is and nothing is written
+until it reads; a save finds the file changed since it was read (an edit at that very moment) and does not write over it.
+Standard library only.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -26,6 +31,12 @@ MAX_TEXT = 500               # characters
 MAX_TAGS, MAX_TAG = 10, 40
 UNREAD = "the labels' file could not be read (another program may hold it): no label is written until it can be"
 GARBLED = "the labels' file is not one and could not be copied aside: no label is written until a person moves it away"
+MID_EDIT = "the labels' file does not read as labels now (an edit by hand not finished?): no label is written until it does"
+CHANGED = "the labels' file was changed outside just now: read the labels again"
+
+
+class Changed(Exception):
+    """the file changed since it was read: not written over"""
 
 
 def _now() -> str:
@@ -38,31 +49,41 @@ class LabelStore:
         self.doc: dict = {k: {} for k in KINDS}
         self.frozen = ""            # (why nothing is written now; "" - it may be)
         self.unread = False
+        self.seen = None            # ((mtime_ns, size), sha256) of the file as last read or written; None: there was none
         self._load()
 
     # ---- the file ----
+    def _stamp(self):
+        st = self.path.stat()
+        return (st.st_mtime_ns, st.st_size)
+
+    @staticmethod
+    def _parse(data: bytes) -> dict:
+        doc = json.loads(data.decode("utf-8"))
+        return {k: {i: r for i, r in (doc.get(k) or {}).items() if isinstance(i, str) and isinstance(r, dict)} for k in KINDS}
+
     def _load(self) -> None:
         try:
-            text = self.path.read_text(encoding="utf-8")
+            stamp = self._stamp()
+            data = self.path.read_bytes()
         except FileNotFoundError:
-            return
-        except ValueError as e:
-            self._garbled(e)
             return
         except OSError as e:
             self.unread, self.frozen = True, UNREAD
             sys.stderr.write(f"[bridge] the labels' file {self.path} could not be read ({e}): kept as it is, no label written until it can be\n")
             return
         try:
-            doc = json.loads(text)
-            self.doc = {k: {i: r for i, r in (doc.get(k) or {}).items() if isinstance(i, str) and isinstance(r, dict)} for k in KINDS}
+            self.doc = self._parse(data)
         except (ValueError, AttributeError, TypeError) as e:
             self._garbled(e)
+            return
+        self.seen = (stamp, hashlib.sha256(data).hexdigest())
 
     def _garbled(self, err) -> None:
         aside = self.path.with_name(self.path.name + ".unreadable-" + time.strftime("%Y%m%d-%H%M%S"))
         try:
             shutil.copyfile(self.path, aside)
+            self.seen = (self._stamp(), hashlib.sha256(self.path.read_bytes()).hexdigest())     # (written over by the first save)
         except OSError as e:
             self.frozen = GARBLED
             sys.stderr.write(f"[bridge] the labels' file {self.path} is not one ({err}) and could not be copied aside ({e}): kept, no label written\n")
@@ -70,29 +91,75 @@ class LabelStore:
         sys.stderr.write(f"[bridge] the labels' file was not one ({err}): copied aside as {aside.name}, the labels start empty\n")
 
     def ready(self) -> str:
-        """"" when the labels may be written; else why not (a file not readable at the start is read again here)"""
+        """"" when the labels may be written; else why not. The file is looked at again first: one not readable at the start
+        is read again here, and an edit made outside while running is taken as it is (GPT's post-review of #52)"""
         if self.unread:
             try:
-                text = self.path.read_text(encoding="utf-8")
-                doc = json.loads(text)
-                self.doc = {k: {i: r for i, r in (doc.get(k) or {}).items() if isinstance(i, str) and isinstance(r, dict)} for k in KINDS}
+                stamp = self._stamp()
+                data = self.path.read_bytes()
+                self.doc = self._parse(data)
+                self.seen = (stamp, hashlib.sha256(data).hexdigest())
                 self.unread, self.frozen = False, ""
             except FileNotFoundError:
-                self.unread, self.frozen = False, ""
+                self.unread, self.frozen, self.seen = False, "", None
             except OSError:
                 return self.frozen
             except (ValueError, AttributeError, TypeError) as e:
                 self.unread, self.frozen = False, ""
                 self._garbled(e)
+            return self.frozen
+        if self.frozen in ("", MID_EDIT):
+            self._fresh()
         return self.frozen
+
+    def _fresh(self) -> None:
+        try:
+            stamp = self._stamp()
+        except FileNotFoundError:
+            if self.seen is not None:                   # (taken away while running: the labels as the file is - none)
+                self.doc = {k: {} for k in KINDS}
+                self.seen = None
+                sys.stderr.write("[bridge] the labels' file was removed outside: the labels start empty\n")
+            self.frozen = ""
+            return
+        except OSError:
+            return
+        if self.seen is not None and stamp == self.seen[0] and self.frozen != MID_EDIT:
+            return
+        try:
+            data = self.path.read_bytes()
+        except OSError:
+            self.unread, self.frozen = True, UNREAD     # (kept as it is: read again before anything is written)
+            return
+        digest = hashlib.sha256(data).hexdigest()
+        if self.seen is not None and digest == self.seen[1]:
+            self.seen, self.frozen = (stamp, digest), ""
+            return
+        try:
+            doc = self._parse(data)
+        except (ValueError, AttributeError, TypeError):
+            if self.frozen != MID_EDIT:
+                sys.stderr.write("[bridge] the labels' file does not read as labels now (edited outside?): kept as it is, no label written until it does\n")
+            self.frozen = MID_EDIT
+            return
+        self.doc, self.seen, self.frozen = doc, (stamp, digest), ""
+        sys.stderr.write("[bridge] the labels' file was edited outside: taken as it is now\n")
 
     def _save(self) -> None:
         if self.frozen:
             raise OSError(self.frozen)
+        try:
+            now = self._stamp()
+        except FileNotFoundError:
+            now = None
+        if (now is None) != (self.seen is None) or (now is not None and now != self.seen[0]):
+            raise Changed()                             # (an edit outside since it was read: not written over)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        data = json.dumps(self.doc, ensure_ascii=False, indent=1).encode("utf-8")
         tmp = self.path.with_suffix(".part")
-        tmp.write_text(json.dumps(self.doc, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.write_bytes(data)
         os.replace(tmp, self.path)
+        self.seen = (self._stamp(), hashlib.sha256(data).hexdigest())
 
     # ---- what there is (the app's catalog) ----
     @staticmethod
@@ -139,6 +206,8 @@ class LabelStore:
         if changed:
             try:
                 self._save()
+            except Changed:
+                sys.stderr.write("[bridge] the labels not saved: the file was changed outside just now (read again next time)\n")
             except OSError as e:
                 sys.stderr.write(f"[bridge] the labels not saved: {e}\n")
         return changed
@@ -182,11 +251,13 @@ class LabelStore:
         labels[lid] = rec
         try:
             self._save()
-        except OSError as e:
+        except (Changed, OSError) as e:
             if cur is None:
                 del labels[lid]
             else:
                 labels[lid] = cur
+            if isinstance(e, Changed):
+                return 409, {"ok": False, "reason": "conflict", "error": CHANGED}
             sys.stderr.write(f"[bridge] the label not saved: {e}\n")
             return 503, {"ok": False, "error": self.frozen or "the label could not be saved (the bridge's file could not be written)"}
         return 200, {"ok": True, "id": lid, "rev": rec["rev"]}

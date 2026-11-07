@@ -4,6 +4,7 @@ marked to look at again, a gone one kept aside and back on a card with the same 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -97,6 +98,75 @@ class Labels(unittest.TestCase):
         for m, path in (("GET", "/api/labels/coordinates"), ("POST", "/api/labels/coordinates"), ("GET", "/api/labels/rooms"), ("POST", "/api/labels/rooms")):
             with self.subTest(path=path, m=m):
                 self.assertTrue(muse_listener.route_allowed(m, path))
+
+
+def edit_outside(f: Path, doc) -> None:
+    """an edit by hand while the bridge runs (its time moved on: an editor's save)"""
+    f.write_text(doc if isinstance(doc, str) else json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    st = f.stat()
+    os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+
+
+class EditedWhileRunning(unittest.TestCase):
+    """GPT's post-review of #52 (point 1): an edit by hand to labels.json while the bridge runs is taken before anything is
+    read or written - the user's own wins over Muse's stale rev, a save of another label or the catalog's reconcile keeps it;
+    an edit half done is kept as it is (nothing written until it reads)"""
+
+    def setUp(self):
+        self.f = Path(tempfile.mkdtemp(prefix="labels_live_")) / "labels.json"
+        self.b = Bridge(18954, extra={"labels_file": str(self.f)})
+        self.assertEqual(self.b.call("POST", "/api/catalog", catalog([("a.png", "h1"), ("b.png", "h2")]), role="app")[0], 200)
+
+    def tearDown(self):
+        self.b.close()
+
+    def doc(self) -> dict:
+        return json.loads(self.f.read_text(encoding="utf-8"))
+
+    def test_the_users_edit_while_running_wins_and_is_kept(self):
+        b = self.b
+        self.assertEqual(b.call("POST", "/api/labels/coordinates", {"id": "a.png", "text": "Muse の説明"}, role="muse")[0], 200)
+        d = self.doc()
+        d["coordinates"]["a.png"].update(text="ユーザーの説明", by="user", rev=2)
+        edit_outside(self.f, d)
+        code, ans = b.call("POST", "/api/labels/coordinates", {"id": "a.png", "text": "古い rev で上書き", "rev": 1}, role="muse")
+        self.assertEqual((code, ans["reason"]), (409, "user_label"))
+        self.assertEqual(self.doc()["coordinates"]["a.png"]["text"], "ユーザーの説明")
+        self.assertEqual(b.call("GET", "/api/labels/coordinates", role="muse")[1]["labels"]["a.png"]["by"], "user")
+        # another label saved: the user's edit stays in the file
+        self.assertEqual(b.call("POST", "/api/labels/coordinates", {"id": "b.png", "text": "部屋着"}, role="muse")[0], 200)
+        d = self.doc()
+        self.assertEqual((d["coordinates"]["a.png"]["text"], d["coordinates"]["b.png"]["text"]), ("ユーザーの説明", "部屋着"))
+        # edited again, then the catalog's reconcile saves the whole file: the edit stays
+        d["coordinates"]["a.png"]["text"] = "ユーザーの説明（直した）"
+        edit_outside(self.f, d)
+        self.assertEqual(b.call("POST", "/api/catalog", catalog([("a.png", "h1x"), ("b.png", "h2")]), role="app")[0], 200)
+        d = self.doc()
+        self.assertEqual((d["coordinates"]["a.png"]["text"], d["coordinates"]["a.png"]["status"]), ("ユーザーの説明（直した）", "check"))
+
+    def test_an_edit_half_done_is_kept_and_nothing_written(self):
+        b = self.b
+        self.assertEqual(b.call("POST", "/api/labels/coordinates", {"id": "a.png", "text": "x"}, role="muse")[0], 200)
+        edit_outside(self.f, '{"coordinates": {"a.png": ')
+        self.assertEqual(b.call("POST", "/api/labels/coordinates", {"id": "b.png", "text": "y"}, role="muse")[0], 503)
+        self.assertEqual(b.call("GET", "/api/labels/coordinates", role="muse")[0], 503)
+        self.assertEqual(b.call("POST", "/api/catalog", catalog([("b.png", "h2")]), role="app")[0], 200)
+        self.assertEqual(self.f.read_text(encoding="utf-8"), '{"coordinates": {"a.png": ', "the half-done edit kept as it is")
+        edit_outside(self.f, {"coordinates": {"a.png": {"text": "直した", "tags": [], "by": "user", "rev": 5, "hash": "h1", "status": "ok"}}, "rooms": {}})
+        self.assertEqual(b.call("POST", "/api/labels/coordinates", {"id": "b.png", "text": "y"}, role="muse")[0], 200)
+        self.assertEqual(self.doc()["coordinates"]["a.png"]["text"], "直した")
+
+    def test_a_save_does_not_write_over_an_edit_since_it_read(self):
+        sys.path.insert(0, str(ROOT / "bridge"))
+        import labels
+        f = Path(tempfile.mkdtemp(prefix="labels_race_")) / "labels.json"
+        f.write_text(json.dumps({"coordinates": {"a.png": {"text": "t", "by": "muse", "rev": 1}}, "rooms": {}}), encoding="utf-8")
+        s = labels.LabelStore(f)
+        self.assertEqual(s.ready(), "")
+        edit_outside(f, {"coordinates": {"a.png": {"text": "その瞬間の直し", "by": "user", "rev": 2}}, "rooms": {}})
+        with self.assertRaises(labels.Changed):
+            s._save()
+        self.assertEqual(json.loads(f.read_text(encoding="utf-8"))["coordinates"]["a.png"]["text"], "その瞬間の直し")
 
 
 if __name__ == "__main__":
