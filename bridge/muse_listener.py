@@ -18,7 +18,7 @@ on a port of its own on this PC's tailnet address (never loopback: a program on 
 Then the request goes to this PC's bridge (127.0.0.1, its own port) with the real Muse token put in here - the token never
 leaves this PC - and the bridge's own checks (role, rate, sizes) apply as for any request.
 
-It opens only with the bridge's auth required, and only on an address Tailscale says is this PC's (in Tailscale's ranges;
+It opens only with the bridge's auth required, and only on an IPv4 address Tailscale says is this PC's (in its range;
 never every interface; loopback for the tests only). One request a connection: a connection that has not sent its request
 (headers and body) within read_seconds is cut, at most max_connections are served at once (the rest closed at once), and
 at most two `tailscale whois` run at a time. Standard library only.
@@ -65,7 +65,9 @@ FAILED_WHOIS_SECONDS = 5.0      # a failed lookup is not asked again for this lo
 WHOIS_AT_ONCE = 2               # `tailscale whois` processes at a time; a lookup that waits longer than 5 s is refused
 READ_SECONDS = 20.0             # a connection's request (headers and body) must have come within this; else it is cut
 MAX_CONNECTIONS = 16            # connections served at once; past it a new one is closed at once
-TAILNET_RANGES = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+TAILNET_RANGE = ipaddress.ip_network("100.64.0.0/10")    # (IPv4 only: the listener listens on this PC's tailnet IPv4)
+LIMITS = {"port": (int, 1, 65535, 18767), "whois_ttl": (float, 0.0, 3600.0, 60.0),       # (setting: type, min, max, default)
+          "read_seconds": (float, 1.0, 120.0, READ_SECONDS), "max_connections": (int, 1, 256, MAX_CONNECTIONS)}
 PLACEHOLDER_FILE = "muse_listener.json"     # (next to the tokens: cache/)
 
 
@@ -106,7 +108,7 @@ class Whois:
 
 
 def tailnet_addresses(cli: list) -> list:
-    """this PC's own tailnet addresses as Tailscale lists them (IPv4 first); [] when it cannot say"""
+    """this PC's own tailnet IPv4 addresses as Tailscale lists them; [] when it cannot say"""
     try:
         out = subprocess.run(cli + ["ip"], capture_output=True, text=True, encoding="utf-8", timeout=5, check=True).stdout
     except (OSError, subprocess.SubprocessError):
@@ -117,12 +119,13 @@ def tailnet_addresses(cli: list) -> list:
             found.append(ipaddress.ip_address(line.strip()))
         except ValueError:
             continue
-    return [str(a) for a in sorted(found, key=lambda a: a.version)]
+    return [str(a) for a in found if a.version == 4]
 
 
 def listen_address(lc: dict, cli: list, test: bool) -> tuple:
-    """(the address to listen on, None) or (None, why not): this PC's own tailnet address only - one Tailscale lists, in
-    its ranges; "address" may only name one of them. Loopback only in the tests; never every interface"""
+    """(the address to listen on, None) or (None, why not): this PC's own tailnet IPv4 address only - one Tailscale lists,
+    in its range; "address" may only name one of them. IPv4 only (the server's socket is IPv4). Loopback (127.0.0.1) only
+    in the tests; never every interface"""
     given = str(lc.get("address") or "").strip()
     if given:
         try:
@@ -131,6 +134,8 @@ def listen_address(lc: dict, cli: list, test: bool) -> tuple:
             return None, f"address {given!r} is not an address"
         if a.is_unspecified:
             return None, "address may not be every interface"
+        if a.version != 4:
+            return None, "address must be an IPv4 address (the listener is IPv4 only)"
         if a.is_loopback:
             return (given, None) if test else (None, "a loopback address is for the tests only")
     own = tailnet_addresses(cli)
@@ -139,8 +144,8 @@ def listen_address(lc: dict, cli: list, test: bool) -> tuple:
     address = given or own[0]
     if address not in own:
         return None, "address is not one of this PC's tailnet addresses (tailscale ip)"
-    if not any(ipaddress.ip_address(address) in net for net in TAILNET_RANGES):
-        return None, "the address is not in Tailscale's ranges"
+    if ipaddress.ip_address(address) not in TAILNET_RANGE:
+        return None, "the address is not in Tailscale's range"
     return address, None
 
 
@@ -181,7 +186,7 @@ class Placeholder:
             text = self.file.read_text(encoding="utf-8")
         except FileNotFoundError:
             return "none", None
-        except OSError:
+        except (OSError, ValueError):                     # (unreadable, or not UTF-8 - a UnicodeDecodeError)
             return "bad", None
         try:
             v = json.loads(text).get("placeholder_sha256")
@@ -267,10 +272,41 @@ class ListenerServer(ThreadingHTTPServer):
         super().server_bind()
 
 
+def settings(lc: dict) -> tuple:
+    """({setting: value}, None) or (None, why not): the numbers checked - finite, of their type, within LIMITS"""
+    out = {}
+    for key, (kind, lo, hi, default) in LIMITS.items():
+        raw = lc.get(key, default)
+        if isinstance(raw, bool):
+            return None, f"{key} must be a number"
+        try:
+            v = kind(raw)
+        except (TypeError, ValueError, OverflowError):
+            return None, f"{key} must be a number"
+        if kind is int and isinstance(raw, float) and raw != int(raw):
+            return None, f"{key} must be a whole number"
+        if not (lo <= v <= hi):                          # (NaN fails this too)
+            return None, f"{key} must be from {lo} to {hi}"
+        out[key] = v
+    return out, None
+
+
 def start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
-    """open the listener when bridge_config.json "muse_listener" asks for it and is complete; None otherwise (the bridge
-    goes on with its token check alone - auth stays required)"""
+    """open the listener when bridge_config.json "muse_listener" asks for it and is complete; None otherwise - the bridge
+    goes on with its token check alone (auth stays required). Nothing here stops the bridge: a fault is logged and the
+    listener alone stays closed"""
+    try:
+        return _start(cfg, state, bridge_port, host_allowed, max_body)
+    except Exception as e:                               # (a setting or a fault not foreseen: the listener only)
+        sys.stderr.write(f"[bridge] muse listener: not opened ({type(e).__name__}: {e})\n")
+        return None
+
+
+def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
     lc = cfg.get("muse_listener") or {}
+    if not isinstance(lc, dict):
+        sys.stderr.write("[bridge] muse listener: muse_listener is not an object - not opened\n")
+        return None
     if not lc.get("enabled"):
         return None
     machine = str(lc.get("machine") or "").strip()
@@ -280,15 +316,19 @@ def start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
     if not getattr(state, "auth", False):
         sys.stderr.write("[bridge] muse listener: the bridge's auth is off - not opened (it is for a bridge that asks for its token)\n")
         return None
+    conf, why = settings(lc)
+    if conf is None:
+        sys.stderr.write(f"[bridge] muse listener: {why} - not opened\n")
+        return None
     cli = lc.get("tailscale") or DEFAULT_TAILSCALE
     cli = [str(x) for x in (cli if isinstance(cli, list) else [cli])]
     address, why = listen_address(lc, cli, bool(cfg.get("_test")))
     if address is None:
         sys.stderr.write(f"[bridge] muse listener: {why} - not opened\n")
         return None
-    whois = Whois(cli, float(lc.get("whois_ttl", 60)))
+    whois = Whois(cli, conf["whois_ttl"])
     aid = Placeholder(lc.get("placeholder"), cfg["_tokens_file"].parent / PLACEHOLDER_FILE)
-    read_seconds = float(lc.get("read_seconds", READ_SECONDS))
+    read_seconds = conf["read_seconds"]
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "MuseStudioListener/1.0"
@@ -384,9 +424,9 @@ def start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
 
         do_GET = do_POST = do_HEAD = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _any
 
-    port = int(lc.get("port", 18767))
+    port = conf["port"]
     try:
-        srv = ListenerServer((address, port), Handler, int(lc.get("max_connections", MAX_CONNECTIONS)))
+        srv = ListenerServer((address, port), Handler, conf["max_connections"])
     except OSError as e:
         sys.stderr.write(f"[bridge] muse listener: cannot listen on the tailnet address's port {port} ({e}) - not opened\n")
         return None

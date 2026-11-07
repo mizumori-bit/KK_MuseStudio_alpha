@@ -694,6 +694,8 @@ class State:
         self.event_sizes: dict[int, int] = {}       # feed id -> its size as saved (MAX_EVENTS_BYTES)
         self.events_frozen = ""                    # (why the feed's file is not written: an oversized old one not kept aside, one not readable)
         self.events_unread = False                 # (the file there but not readable at the start: read again before each use)
+        self.packages_frozen = ""                  # (why the package file is not written: not readable at the start, or garbled
+        self.packages_unread = False               #  and not copied aside) / (not readable at the start: read again before each use)
         self.duplicates = 0
         self.faults = {"fail_500": 0, "drop_after_save": 0, "slow_state": 0, "fail_package_save": 0}      # (--test only: POST /api/test/faults)
         self.auth = str(cfg.get("auth", "required")) != "off"
@@ -729,22 +731,34 @@ class State:
     # ---- the packages' queue on disk (PR #24) ----
 
     def _load_packages(self) -> None:
+        # (GPT's post-review of #26: a file not readable at the start - held by another program - is kept exactly as it is:
+        # nothing is taken or written until it reads, and it is read again before each use; a garbled one is copied aside
+        # first, else kept and nothing taken. Before, a failed read started empty and the next save wrote over the queue)
         f = self.packages_file
-        if not f.is_file():
+        try:
+            text = f.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return                                      # (the first start)
+        except ValueError as e:                         # (not UTF-8)
+            self._packages_garbled(e)
+            return
+        except OSError as e:
+            self.packages_unread = True
+            self.packages_frozen = (f"the package queue's file {f.name} could not be read ({e}): no package is taken until it can be "
+                                    f"(it is read again before each use; the file is kept as it is)")
+            sys.stderr.write(f"[bridge] {self.packages_frozen}\n")
             return
         try:
-            doc = json.loads(f.read_text(encoding="utf-8"))
+            doc = json.loads(text)
             queue = [p for p in doc.get("queue", []) if isinstance(p, dict) and isinstance(p.get("_pid"), str)]
             log = [r for r in doc.get("log", []) if isinstance(r, dict) and isinstance(r.get("id"), str)]
             launch = doc.get("launch")
-        except (OSError, ValueError, AttributeError) as e:
-            aside = f.with_name(f.name + ".unreadable-" + time.strftime("%Y%m%d-%H%M%S"))
-            try:
-                os.replace(f, aside)
-            except OSError:
-                pass
-            sys.stderr.write(f"[bridge] the package queue's file could not be read ({e}): started empty, the file kept as {aside.name}\n")
+        except (ValueError, AttributeError, TypeError) as e:
+            self._packages_garbled(e)
             return
+        self._take_packages(queue, log, launch)
+
+    def _take_packages(self, queue: list, log: list, launch) -> None:
         for pkg in queue:
             self.packages.append(pkg)
             sz = _size(pkg)
@@ -760,8 +774,47 @@ class State:
             self.launch["updated"] = _now()
         sys.stderr.write(f"[bridge] package queue restored: {len(self.packages)} waiting, {len(self.package_log)} records\n")
 
+    def _packages_garbled(self, err) -> None:
+        # a file that reads but is not the queue's: copied aside as it is, then an empty queue; no copy: kept, nothing taken
+        f = self.packages_file
+        aside = f.with_name(f.name + ".unreadable-" + time.strftime("%Y%m%d-%H%M%S"))
+        try:
+            shutil.copyfile(f, aside)
+        except OSError as e:
+            self.packages_frozen = (f"the package queue's file {f.name} is not one ({err}) and could not be copied aside ({e}): kept as "
+                                    f"it is, and no package is taken - move it away, then start the bridge again")
+            sys.stderr.write(f"[bridge] {self.packages_frozen}\n")
+            return
+        sys.stderr.write(f"[bridge] the package queue's file was not one ({err}): copied aside as {aside.name}, the queue starts empty\n")
+
+    def packages_ready_locked(self) -> str:
+        """(with the lock held) "" when the package store may be used; else why not. A file not readable at the start is read
+        again here - the queue as it was, from then on"""
+        if self.packages_unread:
+            try:
+                text = self.packages_file.read_text(encoding="utf-8")
+                doc = json.loads(text)
+                parts = ([p for p in doc.get("queue", []) if isinstance(p, dict) and isinstance(p.get("_pid"), str)],
+                         [r for r in doc.get("log", []) if isinstance(r, dict) and isinstance(r.get("id"), str)], doc.get("launch"))
+            except FileNotFoundError:
+                parts = None                            # (gone meanwhile: nothing left to keep - an empty queue)
+            except OSError:
+                return self.packages_frozen             # (still not readable)
+            except (ValueError, AttributeError, TypeError) as e:
+                self.packages_unread, self.packages_frozen = False, ""
+                self._packages_garbled(e)
+                return self.packages_frozen
+            self.packages_unread, self.packages_frozen = False, ""
+            if parts is not None:
+                self._take_packages(*parts)
+            sys.stderr.write("[bridge] the package queue's file reads now\n")
+        return self.packages_frozen
+
     def _save_packages(self) -> None:
-        # Called with the lock held; raises when the file cannot be written (the caller then takes nothing)
+        # Called with the lock held; raises when the file cannot be written (the caller then takes nothing) - and while the
+        # file could not be read: never written over (GPT's post-review of #26)
+        if self.packages_frozen:
+            raise OSError(self.packages_frozen)
         if self.faults.get("fail_package_save", 0) > 0:
             self.faults["fail_package_save"] -= 1
             raise OSError("(test) the package queue's file not written")
@@ -1101,11 +1154,14 @@ class State:
             out["events_pending"] = len(self.events)
             return out
 
-    def set_launch(self, lid: str, phase: str, character) -> list[tuple[dict, str]]:
+    def set_launch(self, lid: str, phase: str, character) -> list[tuple[dict, str]] | None:
         # A new launch id: the packages waiting now belong to no live launch (an older one's, or sent before it) - dropped
         # (before_launch); the ones the old app had taken but never began (delivered / received) went with it (app_restarted).
         # The same id again (a phase, the character chosen, a bridge restarted under a running app): nothing dropped.
+        # None: the package file cannot be used yet - nothing changed (the app reports again)
         with self.lock:
+            if self.packages_ready_locked():
+                return None
             dropped: list[tuple[dict, str]] = []
             if lid != self.launch.get("id"):
                 for pkg in self.packages:
@@ -1411,8 +1467,9 @@ def make_handler(state: State):
             if path == "/health":
                 with state.lock:
                     launch = dict(state.launch)
+                    frozen = state.packages_ready_locked()
                 return self._json(200, {"ok": True, "irodori": state.irodori.health(), "voice": state.irodori.enabled,
-                                        "queue": len(state.packages),
+                                        "queue": len(state.packages), "packages_unavailable": frozen or None,
                                         "events": len(state.events), "app": time.time() - state.app_seen < APP_SEEN_SECONDS,
                                         "launch": launch})
             if path == "/api/packages/next":
@@ -1423,6 +1480,8 @@ def make_handler(state: State):
                 while True:
                     with state.lock:
                         state.app_seen = time.time()
+                        if state.packages_ready_locked():
+                            return self._send(204)          # (the package file not readable yet: nothing to give)
                         pkg = state.packages[0] if state.packages and not hold else None
                         if pkg is not None and not acked:
                             # (a caller without acks: taken out as before - received when taken)
@@ -1455,7 +1514,10 @@ def make_handler(state: State):
                 pid = query.get("id", [None])[0]
                 ses, trn = query.get("session", [None])[0], query.get("turn", [None])[0]
                 with state.lock:
+                    frozen = state.packages_ready_locked()
                     recs = list(state.package_log.values())
+                if frozen:
+                    return self._json(503, {"error": frozen})
                 shown = lambda r: {k: v for k, v in r.items() if k not in ("updated_ts", "queued_ts")}
                 if pid is not None:
                     r = next((r for r in recs if r["id"] == pid), None)
@@ -1541,6 +1603,11 @@ def make_handler(state: State):
                 char_now = state.character_now()
                 stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(received)) + ".%03d" % (int(received * 1000) % 1000)
                 with state.lock:
+                    frozen = state.packages_ready_locked()
+                    seen = None if frozen else state.package_log.get(key)
+                if frozen:
+                    return self._json(503, {"accepted": False, "errors": [frozen + " - not taken: send it again later"]})
+                with state.lock:
                     seen = state.package_log.get(key)
                     if seen is not None and key.startswith("h:") and received - seen.get("queued_ts", 0) > CONTENT_DUP_SECONDS \
                             and not any(q.get("_pid") == key for q in state.packages):
@@ -1601,6 +1668,9 @@ def make_handler(state: State):
                     return self._json(400, {"error": "ack takes {\"ids\": [ids], \"stage\": received / started / dropped, \"reason\": string or null}"})
                 unknown = []
                 with state.lock:
+                    frozen = state.packages_ready_locked()
+                    if frozen:
+                        return self._json(503, {"ok": False, "error": frozen})
                     for pid in ids:
                         if state._mark(pid, stage, reason if stage == "dropped" else None) is None:
                             unknown.append(pid)
@@ -1669,7 +1739,12 @@ def make_handler(state: State):
                                                      + ", \"character\": object or null}"})
                 if not self._active_window():
                     return self._json(409, {"error": "another app window is active"})
-                for pkg, why in state.set_launch(body["launch"], body["phase"], body.get("character")):
+                dropped = state.set_launch(body["launch"], body["phase"], body.get("character"))
+                if dropped is None:
+                    with state.lock:
+                        why = state.packages_frozen
+                    return self._json(503, {"ok": False, "error": why})
+                for pkg, why in dropped:
                     state.note_dropped(pkg, why)
                 if self.headers.get("X-MMS-Instance"):
                     state.app_seen = time.time()

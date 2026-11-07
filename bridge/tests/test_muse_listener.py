@@ -205,7 +205,8 @@ class StartConditions(unittest.TestCase):
         for given, own, test in (("0.0.0.0", "100.101.1.1", False), ("::", "100.101.1.1", True), ("0.0.0.0", "100.101.1.1", True),
                                  ("127.0.0.1", "100.101.1.1", False), ("100.100.100.100", "100.101.1.1", False),
                                  ("192.168.1.5", "192.168.1.5", False), ("", "192.168.1.5", False), ("", "", False),
-                                 ("junk", "100.101.1.1", False)):
+                                 ("junk", "100.101.1.1", False), ("fd7a:115c:a1e0::1", "fd7a:115c:a1e0::1", False),
+                                 ("", "fd7a:115c:a1e0::1", False)):
             with self.subTest(given=given, own=own, test=test):
                 address, why = self.addr(given, own, test)
                 self.assertIsNone(address)
@@ -228,6 +229,36 @@ class StartConditions(unittest.TestCase):
         b = Bridge(18892, extra=extra, test=True)
         try:
             self.assertFalse(is_open(18891))
+        finally:
+            b.close()
+
+
+class BadSettingsKeepTheBridge(unittest.TestCase):
+    """#37's post-review 1: a wrong listener setting closes the listener only - the bridge runs on, asking for its token"""
+
+    def test_wrong_numbers(self):
+        for i, over in enumerate(({"read_seconds": "abc"}, {"max_connections": 0}, {"whois_ttl": -1}, {"port": "x"},
+                                  {"read_seconds": "nan"}, {"max_connections": True}, {"max_connections": 2.5},
+                                  {"read_seconds": 1e9}, {"port": 70000})):
+            with self.subTest(over=over):
+                lp = 18900 + 2 * i
+                extra = listener_cfg(table_file({"127.0.0.1": MUSE}), lp)
+                extra["muse_listener"].update(over)
+                b = Bridge(lp + 1, extra=extra, test=True)          # (it starts: /health answers - the bridge did not stop)
+                try:
+                    self.assertFalse(is_open(lp))
+                    self.assertEqual(b.call("GET", "/api/state", role=None)[0], 401)
+                    self.assertEqual(b.call("GET", "/api/state", role="muse")[0], 200)
+                finally:
+                    b.close()
+
+    def test_not_an_object(self):
+        extra = listener_cfg(table_file({"127.0.0.1": MUSE}), 18930)
+        extra["muse_listener"] = "yes"
+        b = Bridge(18931, extra=extra, test=True)
+        try:
+            self.assertFalse(is_open(18930))
+            self.assertEqual(b.call("GET", "/api/state", role=None)[0], 401)
         finally:
             b.close()
 
@@ -267,6 +298,13 @@ class PlaceholderFailsClosed(unittest.TestCase):
                 ph = self.ml.Placeholder("learn", self.file)
                 self.assertFalse(ph.check(PLACEHOLDER))
                 self.assertEqual(self.file.read_text(encoding="utf-8"), content, "the file is left as it was")
+
+    def test_a_file_not_in_utf8_is_refused_and_kept(self):
+        raw = bytes([0xFF, 0xFE]) + b'{"placeholder_sha256": ' + bytes([0x80]) + b"}"
+        self.file.write_bytes(raw)
+        ph = self.ml.Placeholder("learn", self.file)
+        self.assertFalse(ph.check(PLACEHOLDER))
+        self.assertEqual(self.file.read_bytes(), raw)
 
     def test_a_file_that_cannot_be_read_is_not_learnt_over(self):
         self.file.mkdir()                                  # (there, but not readable as a file)
