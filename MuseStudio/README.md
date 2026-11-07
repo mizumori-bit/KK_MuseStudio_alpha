@@ -114,26 +114,34 @@ MuseStudio/
    python -B MuseStudio/tools/run_checks.py
    ```
 
-5. ブリッジの準備（鍵必須のまま。MUSE_GUIDE 7.1）。**Muse がつなぐ前に**、次を済ませます。
+5. ブリッジの準備（鍵必須のまま。MUSE_GUIDE 7.1）。**Muse がつなぐ前に**、まず経路を決めます。
+   - **経路 A（鍵を渡す）**：Muse が本物の鍵を持ち、要求に付けられる環境。Tailscale の中継（`tailscale serve`）を通ります。
+   - **経路 B（Muse 専用の受け口）**：Muse の側の代理文字列が tailnet の経路で本物の鍵に置き換わらない環境（作者の PC はこちら）。**本物の鍵は PC の外に出しません**（鍵を表示して渡す手順は踏みません）。
+
+   **両方の経路で**：
    - `bridge/bridge_config.example.json` を `bridge/bridge_config.json` に写し、`allowed_hosts` にこの PC の tailnet の名前を書きます（Muse の要求の `Host`。書かないと tailnet からの要求は `403`）。`auth` は `"required"`（既定）のままにします。`bridge_config.json` は PC ごとの設定で、リポジトリには入りません。
-   - tailnet から届くよう、この PC の Tailscale の中継（`tailscale serve`）をブリッジのポート（既定 `127.0.0.1:18765`）へ向けます。届く機械は tailnet の ACL で絞ります。
    - ブリッジを一度起動すると、`bridge/cache/tokens.json` に鍵が 2 つ（Muse 用・アプリ用）できます。MuseStudio と起動役は、そこからアプリの鍵を読みます（人手は要りません）。
+
+   **経路 A のとき**：
+   - tailnet から届くよう、この PC の Tailscale の中継（`tailscale serve`）をブリッジのポート（既定 `127.0.0.1:18765`）へ向けます。届く機械は tailnet の ACL で絞ります。
    - Muse の鍵を表示し、Muse の安全な入力欄へ入れます（チャットに貼らない）。
-   - **Muse の鍵が tailnet の経路で付かない（代理文字列のまま届く）とき**は、Muse 専用の受け口を使います（MUSE_GUIDE 7.1）。
-     - 機械の確認：`python bridge/bridge.py --list-machines` で tailnet の機械と StableID を表示し、Tailscale の管理画面（Machines）と見比べて Muse の機械を確かめます。
-     - 設定：`bridge_config.json` の `muse_listener` に、その StableID（`machine`）と `"enabled": true` を書きます。
-     - 届く範囲：Windows のファイアウォールで、そのポート（既定 18767）への受信を、Muse の機械の tailnet の IP と Python だけに許します（管理者の PowerShell の `New-NetFirewallRule`）。tailnet の許可設定（ACL）も、Muse の機械からそのポートだけに絞ります。
-     - 動き：ブリッジを起動すると、受け口がこの PC の tailnet のアドレスで開きます（`auth` が `"required"` で、Tailscale がこの PC のアドレスを答えるときだけ。全部の口や、ほかのアドレスでは開きません）。Muse は送り先のポートを 18767 にします。
-     - Muse の `Authorization` の照合値は、最初の 1 回で覚えます。Muse の側で値が変わったときは、次を実行して覚え直させます（覚えた値のファイルが読めないときも、勝手には覚え直しません）。
 
-       ```bash
-       python bridge/bridge.py --forget-muse-placeholder
-       ```
-   - 成功の見分け方：鍵を付けない `GET http://127.0.0.1:18765/health` が `{"ok": true, "auth": "required"}` だけを返し、Muse が鍵を付けて読むと中身（`launch` など）が返ります。
+     ```bash
+     python bridge/bridge.py --print-token muse
+     ```
 
-   ```bash
-   python bridge/bridge.py --print-token muse
-   ```
+   **経路 B のとき**（MUSE_GUIDE 7.1 の「あなた専用の受け口」）：
+   - 機械の確認：`python bridge/bridge.py --list-machines` で tailnet の機械と StableID を表示し、Tailscale の管理画面（Machines）と見比べて Muse の機械を確かめます。
+   - 設定：`bridge_config.json` の `muse_listener` に、その StableID（`machine`）と `"enabled": true` を書きます。
+   - 届く範囲：Windows のファイアウォールで、そのポート（既定 18767）への受信を、Muse の機械の tailnet の IP と Python だけに許します（管理者の PowerShell の `New-NetFirewallRule`）。tailnet の許可設定（ACL）も、Muse の機械からそのポートだけに絞ります。
+   - 動き：ブリッジを起動すると、受け口がこの PC の tailnet の IPv4 アドレスで開きます（`auth` が `"required"` で、Tailscale がこの PC のアドレスを答えるときだけ。IPv4 だけで、全部の口やほかのアドレスでは開きません。受け口の設定に誤りがあっても、ブリッジは鍵必須のまま動き、受け口だけが開きません）。Muse は送り先のポートを 18767 にし、いつもの `Authorization` を付けたまま送ります。
+   - Muse の `Authorization` の照合値は、最初の 1 回で覚えます。Muse の側で値が変わったときは、次を実行して覚え直させます（覚えた値のファイルが読めないときも、勝手には覚え直しません）。
+
+     ```bash
+     python bridge/bridge.py --forget-muse-placeholder
+     ```
+
+   **成功の見分け方**：鍵を付けない `GET http://127.0.0.1:18765/health` が `{"ok": true, "auth": "required"}` だけを返し、Muse が読むと中身（`launch` など）が返ります（経路 A は鍵を付けて、経路 B は受け口から）。
 
 6. 起動。起動役がブリッジ・MuseStudio・Muse のパネルを開きます。`launcher/panel_config.example.json` を `launcher/panel_config.json` に写して、この PC の値を入れます（無ければ例の設定で動きます。`game_mode` は `musestudio`）。成功の見分け方：MuseStudio の窓が開いてキャラを選ぶ画面が出て、`/health` の `launch.phase` が `stage_ready`、選ぶと `character_selected` になります。
 
