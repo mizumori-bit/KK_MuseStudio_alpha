@@ -139,6 +139,36 @@ namespace MuseStudio.Maker
             bool allAgain = ch.Count == 4 && ch.Checked(iHair) && f.parameter.firstname == "点検" && MakerChanges.Same(f.custom.hair.parts[1].baseColor, new Color(0.9f, 0.1f, 0.1f));
             Check("redo brings every step back", allAgain, "count " + ch.Count);
 
+            // (GPT's post-review of #17) an edit followed at once by undo, before the next look: the edit is a step first - undo
+            // takes it back, redo brings it again; an edit followed at once by a check keeps it listed; while the panels sync
+            // after an apply, the screen is blocked for the user
+            float q0 = f.custom.body.shapeValueBody[2];
+            cha.SetShapeBodyValue(2, Mathf.Clamp01(q0 + 0.3f));
+            float q1 = f.custom.body.shapeValueBody[2];
+            ch.Undo();                                        // (the same frame: no look in between)
+            bool qBlocked = false;
+            for (int k = 0; k < 3 && !qBlocked; k++) { yield return null; qBlocked = ch.SyncBlockedForCheck; }
+            yield return Wait(1.0f);
+            yield return Settle();
+            bool qUndo = Mathf.Abs(f.custom.body.shapeValueBody[2] - q0) < 0.001f && ch.CanRedo && !ch.SyncBlockedForCheck;
+            ch.Redo();
+            yield return Wait(1.0f);
+            yield return Settle();
+            bool qRedo = Mathf.Abs(f.custom.body.shapeValueBody[2] - q1) < 0.001f;
+            int qCount = ch.Count;
+            float r0 = f.custom.body.shapeValueBody[3];
+            cha.SetShapeBodyValue(3, Mathf.Clamp01(r0 + 0.25f));
+            float r1 = f.custom.body.shapeValueBody[3];
+            ch.Toggle(iHair);                                 // (another row's check, at once)
+            yield return Wait(1.0f);
+            yield return Settle();
+            bool qToggle = Mathf.Abs(f.custom.body.shapeValueBody[3] - r1) < 0.001f && ch.Count == qCount + 1;
+            ch.Toggle(iHair);
+            yield return Wait(1.0f);
+            yield return Settle();
+            Check("an edit followed at once by undo is a step first (undo takes it back, redo brings it); one followed at once by a check stays listed; the screen is blocked while the panels sync",
+                  qUndo && qRedo && qToggle && qBlocked, string.Format("undo {0} redo {1} toggle {2} blocked {3}", qUndo, qRedo, qToggle, qBlocked));
+
             // a slider's drag (the same item again and again within 0.8 s) is one step; a new edit after an undo drops the redo
             int steps0 = ch.StepsForCheck;
             for (int k = 1; k <= 5; k++) { cha.SetShapeBodyValue(1, 0.2f + 0.1f * k); yield return Wait(0.25f); }

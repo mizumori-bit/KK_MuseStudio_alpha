@@ -116,7 +116,7 @@ namespace MuseStudio.Maker
         public bool Open;
         Vector2 scroll;
         GameObject blocker;
-        RectTransform blockWin, blockBtn;
+        RectTransform blockWin, blockBtn, blockAll;     // (blockAll: the whole screen while the panels sync after an apply)
         Font font;
         bool fontTried;
         public int StepsForCheck { get { return hist.Count; } }
@@ -256,8 +256,13 @@ namespace MuseStudio.Maker
         public object Start(int i) { return start != null && i >= 0 && i < start.Length ? start[i] : null; }
         public object User(int i) { Entry e; return hist.Count > 0 && hist[pos].E.TryGetValue(i, out e) ? e.User : null; }
 
+        // (GPT's post-review of #17) the user's acts look at the character first: an edit made since the last look (0.1 s) is
+        // a step of its own before the act - undo then takes that edit back and redo brings it, a check keeps it listed
+        void Catch() { if (!Adopting) Tick(); }
+
         public void Toggle(int i)
         {
+            Catch();
             Entry e;
             if (!hist[pos].E.TryGetValue(i, out e)) return;
             var s = hist[pos].Clone();
@@ -268,8 +273,8 @@ namespace MuseStudio.Maker
             Apply(s);
         }
 
-        public void Undo() { if (!CanUndo) return; pos--; Apply(hist[pos]); }
-        public void Redo() { if (!CanRedo) return; pos++; Apply(hist[pos]); }
+        public void Undo() { Catch(); if (!CanUndo) return; pos--; Apply(hist[pos]); }
+        public void Redo() { Catch(); if (!CanRedo) return; pos++; Apply(hist[pos]); }
 
         // the character as the state has it: the checked items the user's value, the rest the starting one; the items to load
         // first, then their colours and the rest; one reload, the maker's panels read again
@@ -790,10 +795,14 @@ namespace MuseStudio.Maker
                 blocker.AddComponent<GraphicRaycaster>();
                 blockBtn = Panel("button");
                 blockWin = Panel("list");
+                blockAll = Panel("sync");
             }
             if (!blocker.activeSelf) blocker.SetActive(true);
             Place(blockBtn, ButtonRect, true);
             Place(blockWin, WindowRect, Open);
+            // (while the maker's panels write their values back after an apply - an undo, a redo, a check, a reset - the user's
+            // clicks and drags do not reach the maker: what changes then is the sync's, never an edit of the user's lost unseen)
+            Place(blockAll, new Rect(0f, 0f, Screen.width, Screen.height), Adopting);
         }
 
         RectTransform Panel(string name)
@@ -817,5 +826,6 @@ namespace MuseStudio.Maker
 
         public void LateUpdate() { Block(cha != null && start != null && Ready); }
         public bool BlockerOnForCheck { get { return blocker != null && blocker.activeSelf && blockWin != null && blockWin.gameObject.activeSelf; } }
+        public bool SyncBlockedForCheck { get { return blockAll != null && blockAll.gameObject.activeSelf; } }
     }
 }

@@ -75,8 +75,10 @@ namespace MuseStudio
                 {
                     foreach (int k in worn)
                     {
-                        string vk = v == "half" && !HasHalf(cha, k) ? "on" : v;      // (all half: a garment without one stays on)
-                        if (State(cha, k) != vk) { Put(cha, k, vk); changed.Add(Keys[k]); }
+                        // (all half: only the garments that have a half state - the others keep theirs: shoes taken off stay
+                        // off, never put on again; GPT's post-review of #11)
+                        if (v == "half" && !HasHalf(cha, k)) continue;
+                        if (State(cha, k) != v) { Put(cha, k, v); changed.Add(Keys[k]); }
                     }
                     // all off: her accessories too but the hair's (as in the bath); all on: they come back
                     if (v == "off" && acc.Off == null) acc.Off = BathAccessories.Off(cha);

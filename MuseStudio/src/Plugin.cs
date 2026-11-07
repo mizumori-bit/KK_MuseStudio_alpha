@@ -521,12 +521,11 @@ namespace MuseStudio
             settingsWereShown = shown;
             if (shown) { settingsAtOpen = SettingsInfo(); return; }
             var userChanged = SettingsClosed();
-            if (museSettingsWaiting != null)
-            {
-                var w = museSettingsWaiting;
-                museSettingsWaiting = null;
-                ApplyMuseSettings(w, museSettingsRequest, userChanged);
-            }
+            // (every request that came while it was open, in the order they came - each told on its own; what the user
+            // changed there wins over all of them - GPT's post-review of #15: one slot lost the earlier ones)
+            var waiting = new List<KeyValuePair<Dictionary<string, float>, string>>(museSettingsWaiting);
+            museSettingsWaiting.Clear();
+            foreach (var w in waiting) ApplyMuseSettings(w.Key, w.Value, userChanged);
         }
 
         internal Dictionary<string, object> SettingsClosed()            // (checks call it as the window closing)
@@ -553,8 +552,8 @@ namespace MuseStudio
         // settings_changed (by "muse", its request; changed: what really changed - empty when the values were so already).
         // While the settings window is open it waits till it closes, and what the user changed there meanwhile wins.
         readonly HashSet<string> settingsRequests = new HashSet<string>();
-        Dictionary<string, float> museSettingsWaiting;
-        string museSettingsRequest;
+        readonly List<KeyValuePair<Dictionary<string, float>, string>> museSettingsWaiting = new List<KeyValuePair<Dictionary<string, float>, string>>();
+        internal int SettingsWaitingForCheck { get { return museSettingsWaiting.Count; } }
 
         void RefuseSetting(string field, string value, string reason, string req, string detail)
         {
@@ -582,7 +581,7 @@ namespace MuseStudio
                 want[kv.Key] = (float)Math.Round(v, 2);
             }
             if (want.Count == 0) return;
-            if (SettingsShown) { museSettingsWaiting = want; museSettingsRequest = req; return; }      // (after the window closes)
+            if (SettingsShown) { museSettingsWaiting.Add(new KeyValuePair<Dictionary<string, float>, string>(want, req)); return; }      // (after the window closes, in order)
             ApplyMuseSettings(want, req, null);
         }
 
