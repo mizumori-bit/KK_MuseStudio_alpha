@@ -56,6 +56,7 @@ namespace MuseStudio
         internal ConfigEntry<float> CamTurnSpeed, CamMoveSpeed, CamZoomSpeed;
         internal ConfigEntry<bool> CamInvertX, CamInvertY, CamInvertWheel, CamBothMove, CamWheelZoom, GazeAtYourBody, KeyHints, FullScreen;
         internal ConfigEntry<bool> ShowClock;      // (PR #46 §8: the clock on the screen, on / off only)
+        internal Coordinates Coords;               // (PR #46 §3: the coordinate cards in game/UserData/coordinate)
         internal ConfigEntry<string> CamLeftDrag, CamRightDrag, CamMiddleDrag;
         internal readonly Dictionary<string, ConfigEntry<KeyboardShortcut>> CamKeys = new Dictionary<string, ConfigEntry<KeyboardShortcut>>();
 
@@ -316,6 +317,8 @@ namespace MuseStudio
             Mood = new Mood(this, Args.TryGetValue("check", out check) ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(check)), "moods.json")
                                                                         : Path.Combine(Paths.GameRootPath, Path.Combine("UserData", Path.Combine("MuseStudio", "moods.json"))));
             Touch.Touched = area => Mood.OnTouch(area);
+            Coords = new Coordinates(this, Path.Combine(Paths.GameRootPath, Path.Combine("UserData", "coordinate")));
+            Coords.Scan();
             ui = new Ui(this);
             // the scene raises her gauge while its block is being presented (no voice: its grace after the text is out)
             float grace = (float)Json.Num(Gauge.Doc, "scene_grace_seconds", 2.0), most = (float)Json.Num(Gauge.Doc, "scene_block_max_seconds", 30.0);
@@ -391,6 +394,26 @@ namespace MuseStudio
             Bridge.Event("outfit_changed", new Dictionary<string, object> { { "outfit", cur }, { "previous", prev }, { "changed", changed }, { "source", "app" } });
         }
 
+        // a coordinate card worn (Coordinates.Wear): told once, as what it is (source coordinate, by user / muse, the card, the
+        // mod parts put in the original's place); the watch above takes the new outfit as its own and tells nothing more
+        internal void OutfitTold(string source, string by, Dictionary<string, object> coordinate, List<string> replaced)
+        {
+            var cha = Stage.Cha;
+            if (cha == null) return;
+            var now = CharaSummary.OutfitNames(cha);
+            var prev = new Dictionary<string, object>();
+            var changed = new List<object>();
+            if (outfitLast != null) foreach (var kv in outfitLast) prev[kv.Key] = kv.Value;
+            foreach (var kv in now) { string was; if (outfitLast == null || !outfitLast.TryGetValue(kv.Key, out was) || was != kv.Value) changed.Add(kv.Key); }
+            var cur = new Dictionary<string, object>();
+            foreach (var kv in now) cur[kv.Key] = kv.Value;
+            outfitLast = now;
+            outfitOf = cha;
+            outfitAt = Time.realtimeSinceStartup + 0.3f;
+            Bridge.Event("outfit_changed", new Dictionary<string, object> { { "outfit", cur }, { "previous", prev }, { "changed", changed }, { "source", source },
+                { "by", by }, { "coordinate", coordinate }, { "replaced", new List<object>(replaced.ToArray()) } });
+        }
+
         void Update()
         {
             if (Stage == null || !Stage.Ready) return;
@@ -402,6 +425,7 @@ namespace MuseStudio
             if (SpotEditor != null) SpotEditor.Tick();
             if (!typing && Stage.StudioUiHidden && !Match.Active) Play.YourBodyKeys();
             OutfitWatch();
+            if (Coords != null) Coords.Tick();
             Dictionary<string, object> pkg;
             while (!Replay.Playing && (pkg = Bridge.NextPackage()) != null) Blocks.Enqueue(pkg);     // (a replay: Muse's wait)
             Chars.Tick();
@@ -783,7 +807,8 @@ namespace MuseStudio
             foreach (var kv in Play.Who()) who[kv.Key] = kv.Value;
             Bridge.Post("/api/catalog", new Dictionary<string, object> { { "version", 1 }, { "groups", groups }, { "places", places }, { "parts", parts },
                 { "pace", Json.Arr(Json.Obj(Play.Doc, "pace_info"), "names") ?? new List<object>() },
-                { "plays", plays }, { "location", Stage.Location }, { "spots", spotRows }, { "available", ids }, { "participants", who } });
+                { "plays", plays }, { "location", Stage.Location }, { "spots", spotRows }, { "available", ids }, { "participants", who },
+                { "coordinates", Coords != null ? Coords.Catalog() : new List<object>() } });
         }
 
         // the card on the stage (before one is: the last character, else stage.json's)

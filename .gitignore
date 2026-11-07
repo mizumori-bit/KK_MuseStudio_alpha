@@ -40,6 +40,7 @@
 !/bridge/kk_card.py
 !/bridge/muse_match.py
 !/bridge/muse_listener.py
+!/bridge/labels.py
 !/bridge/static/
 !/bridge/tests/
 !/bridge/bridge_config.example.json

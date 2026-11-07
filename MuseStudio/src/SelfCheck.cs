@@ -2228,6 +2228,67 @@ namespace MuseStudio
                   shWorn && !Clothes.HasHalf(st.Cha, 7) && shNext == "off" && shState == "off" && shRefused, "worn " + shWorn + " next " + shNext + " state " + shState + " refused " + shRefused);
             Check("clothes: all half changes only the garments with a half state - her shoes taken off stay off", shAllHalf, shAllWhy);
 
+            // (PR #46 §3) coordinate cards: one made here from what she wears (in a folder of the check's own, removed after) is
+            // listed in the catalog (id, name, hash); Muse's block wears it - Studio's outfit loading - and outfit_changed tells it
+            // (source coordinate, by muse, the card); an unknown id, a card that no longer reads, and a play refuse it (nothing
+            // changed); a file that is no outfit card is not listed
+            var co = h.Coords;
+            string cdDir = Path.Combine(co.Folder, "_check_" + DateTime.Now.Ticks);
+            Directory.CreateDirectory(cdDir);
+            string cdPath = Path.Combine(cdDir, "check_outfit.png");
+            var cdCoord = st.Cha.nowCoordinate;
+            byte[] cdPngWas = cdCoord.pngData;
+            string cdNameWas = cdCoord.coordinateName;
+            cdCoord.pngData = new Texture2D(8, 8).EncodeToPNG();
+            cdCoord.coordinateName = "点検のコーデ";
+            cdCoord.SaveFile(cdPath);
+            cdCoord.pngData = cdPngWas;
+            cdCoord.coordinateName = cdNameWas;
+            File.WriteAllBytes(Path.Combine(cdDir, "not_a_card.png"), new byte[] { 1, 2, 3, 4 });
+            co.Scan();
+            h.SendCatalog();
+            yield return Wait(1.0f);
+            string cdId = cdDir.Substring(co.Folder.Length).TrimStart('\\', '/').Replace('\\', '/') + "/check_outfit.png";
+            var cdCat = Json.Obj(Json.Parse(Http("GET", "/api/catalog", null)), "catalog");
+            bool cdListed = false, cdJunk = false;
+            foreach (var o in Json.Arr(cdCat, "coordinates") ?? new List<object>())
+            {
+                if (Json.Str(o, "id") == cdId && Json.Str(o, "name") == "点検のコーデ" && Json.Str(o, "hash", "").Length == 24) cdListed = true;
+                if (Json.Str(o, "id", "").EndsWith("not_a_card.png")) cdJunk = true;
+            }
+            int cdWorn0 = co.Worn;
+            SendPkg(D("launch", Launch.Id, "character", h.CharacterId()), With(Line("着替えますね。"), "coordinate", cdId));
+            yield return Until(() => bp.Busy && bp.Text == "着替えますね。", 10f);
+            yield return Wait(0.6f);
+            var cdEv = LastEvent("outfit_changed");
+            bool cdWore = co.Worn == cdWorn0 + 1 && Json.Str(cdEv, "source") == "coordinate" && Json.Str(cdEv, "by") == "muse"
+                && Json.Str(Json.Obj(cdEv, "coordinate"), "id") == cdId;
+            bp.Advance(true);
+            yield return Wait(0.3f);
+            int cdNo0 = Refusals("coordinate", "no_coordinate");
+            SendPkg(D("launch", Launch.Id, "character", h.CharacterId()), With(Line("無いコーデです。"), "coordinate", "nope/none.png"));
+            yield return Until(() => bp.Busy && bp.Text == "無いコーデです。", 10f);
+            yield return Wait(0.5f);
+            bool cdUnknown = Refusals("coordinate", "no_coordinate") == cdNo0 + 1 && co.Worn == cdWorn0 + 1;
+            bp.Advance(true);
+            yield return Wait(0.3f);
+            byte[] cdGood = File.ReadAllBytes(cdPath);
+            File.WriteAllBytes(cdPath, new byte[] { 9, 9, 9 });           // (listed, then no longer readable)
+            string cdBad = co.Wear(cdId, "user");
+            File.WriteAllBytes(cdPath, cdGood);
+            string cdPlayErr = pc.Begin("aibu_00", "check", "here");
+            yield return Wait(0.8f);
+            string cdInPlay = co.Wear(cdId, "user");
+            pc.End("check");
+            yield return Wait(0.5f);
+            try { Directory.Delete(cdDir, true); } catch (Exception) { }
+            co.Scan();
+            h.SendCatalog();
+            Check("coordinates: a card in game/UserData/coordinate is listed (id, name, hash; a file that is no card is not); Muse's block wears it (outfit_changed source coordinate by muse); unknown, unreadable and in a play refused",
+                  cdListed && !cdJunk && cdWore && cdUnknown && cdBad == "unreadable" && cdPlayErr == "" && cdInPlay == "in_play" && co.Worn == cdWorn0 + 1,
+                  string.Format("listed {0} junk {1} wore {2} unknown {3} bad '{4}' in play '{5}' worn {6} {7}", cdListed, cdJunk, cdWore, cdUnknown, cdBad, cdInPlay,
+                                co.Worn - cdWorn0, Json.Write(cdEv)));
+
             // a face is not carried into another scene: the talk's face becomes the play's default as a play starts; a face given
             // just before the start (a block setting her face and starting the play) stays
             tc.PackageFace();

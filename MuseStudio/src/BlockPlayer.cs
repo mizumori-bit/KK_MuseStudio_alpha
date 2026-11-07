@@ -338,6 +338,19 @@ namespace MuseStudio
             if (bl != null && !h.Match.Replaying) h.Presence.Believe(bl);      // she thinks he is away / not (Muse's call)
             var cl = Json.Obj(b, "clothes");
             if (cl != null && !h.Outing.Out) h.ChangeClothes(cl, "muse");     // she undresses / dresses (or he undresses her: Muse's telling)
+            // an outfit card worn (PR #46 §3): the same way as the user's menu; refused - in a play / a match / she is out / no
+            // such card / not readable - nothing changed (block_refused, field coordinate)
+            string coord = Json.Str(b, "coordinate", null);
+            if (coord != null && !h.Match.Replaying)
+            {
+                string cwhy = h.Coords.Wear(coord, "muse");
+                if (cwhy.Length > 0)
+                {
+                    var ids = new List<object>();
+                    if (cwhy == "no_coordinate") foreach (var e in h.Coords.List) ids.Add(e.Id);
+                    Refuse("coordinate", coord, cwhy, ids);
+                }
+            }
             // what she does (Muse's entry): masturbation / toilet / shower / shower_together - a name, or {"kind", "play"}
             Pose(Json.Str(b, "pose", null), stage.Cha);        // (a match's talk: her motion)
             var act = Json.Obj(b, "action");

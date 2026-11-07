@@ -77,6 +77,7 @@ sys.path.insert(0, str(HERE))
 from irodori_client import IrodoriClient, IrodoriError  # noqa: E402
 import kk_card  # noqa: E402
 import muse_listener  # noqa: E402
+import labels  # noqa: E402
 
 BLOCK_TYPES = {"dialogue", "sound"}
 CHOICE_KINDS = {"stance", "state_check", "situation"}
@@ -145,6 +146,7 @@ def load_config(path: Path) -> dict:
     cfg["_voice_catalog"] = resolve(cfg.get("voice_catalog", "voice_catalog.json"))
     cfg["_web_data_list"] = resolve(cfg.get("web_data_list", "../tools/kk_web_list.txt"))
     cfg["_tokens_file"] = resolve(cfg.get("tokens_file", "cache/tokens.json"))
+    cfg["_labels_file"] = resolve(cfg["labels_file"]) if cfg.get("labels_file") else cfg["_events_file"].parent / "labels.json"
     return cfg
 
 
@@ -162,6 +164,7 @@ def load_config(path: Path) -> dict:
 
 ROLES = ("muse", "app")
 _MUSE = {("GET", "/api/events"), ("POST", "/api/events/ack"), ("POST", "/api/packages"), ("GET", "/api/packages/status"), ("GET", "/api/state"),
+         ("GET", "/api/labels/coordinates"), ("POST", "/api/labels/coordinates"), ("GET", "/api/labels/rooms"), ("POST", "/api/labels/rooms"),
          ("GET", "/api/catalog"), ("GET", "/api/characters"), ("GET", "/api/voices"), ("GET", "/api/choices"),
          ("POST", "/api/test/faults")}
 _APP = {("POST", "/api/events"), ("POST", "/api/state"), ("POST", "/api/catalog"), ("POST", "/api/launch"),
@@ -425,6 +428,8 @@ def validate_package(pkg) -> list[str]:
         ac = b.get("action")
         if ac is not None and not isinstance(ac, str) and not (isinstance(ac, dict) and isinstance(ac.get("kind"), str)):
             errors.append(f"{n}.action must be a string, an object with a kind string, or null")
+        if b.get("coordinate") is not None and (not isinstance(b["coordinate"], str) or not 1 <= len(b["coordinate"]) <= 300):
+            errors.append(f"{n}.coordinate must be a string of 1-300 characters (a coordinate card's id) or null")
         cl = _opt_dict(b.get("clothes"), n + ".clothes", errors)
         if cl is not None:
             for k, v in cl.items():
@@ -726,6 +731,7 @@ class State:
         self.app_state: dict | None = None
         self.app_state_time: str | None = None
         self.catalog: dict | None = None          # the app's play catalog (POST /api/catalog)
+        self.labels = labels.LabelStore(cfg.get("_labels_file") or Path(cfg["_events_file"]).parent / "labels.json")     # (PR #46 §1)
         self.catalog_time: str | None = None
         self.app_seen = 0.0
         self.instances: dict[str, dict] = {}     # app window id -> {"started": ms, "seen": time}
@@ -1564,6 +1570,13 @@ def make_handler(state: State):
             if path == "/api/catalog":
                 with state.lock:
                     return self._json(200, {"catalog": state.catalog, "reported": state.catalog_time})
+            if path in ("/api/labels/coordinates", "/api/labels/rooms"):
+                kind = path.rsplit("/", 1)[1]
+                with state.lock:
+                    why = state.labels.ready()
+                    if why:
+                        return self._json(503, {"error": why})
+                    return self._json(200, state.labels.view(kind, state.catalog))
             if path == "/api/voices":
                 return self._json(200, voices_view(state.irodori, cfg["_voice_catalog"]))
             if path.startswith("/audio/"):
@@ -1801,7 +1814,13 @@ def make_handler(state: State):
                 with state.lock:
                     state.catalog = body
                     state.catalog_time = _now()
+                    state.labels.reconcile(body)            # (the labels set against what there is now - PR #46 §1)
                 return self._json(200, {"ok": True})
+            if path in ("/api/labels/coordinates", "/api/labels/rooms"):
+                kind = path.rsplit("/", 1)[1]
+                with state.lock:
+                    code, answer = state.labels.write(kind, body, state.catalog, "muse")
+                return self._json(code, answer)
             if path == "/api/tts":
                 return self._tts(body)
             return self._json(404, {"error": "not found"})
