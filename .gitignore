@@ -51,6 +51,7 @@
 !/launcher/panel_config.example.json
 !/launcher/make_shortcut.py
 !/launcher/icons/
+!/launcher/tests/
 
 __pycache__/
 *.pyc

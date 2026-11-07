@@ -216,12 +216,17 @@ class HoverFocus:
       class's own switch, while the panel still has the keyboard and the remembered window is still there (shown, not
       minimized); otherwise nothing.
     - The user's switch (Alt+Tab, a click elsewhere, the task bar) while on the panel: forgotten - nothing to go back to.
+      And while the cursor stays on the panel after the user's switch (from the panel, or between other windows), the panel
+      does not take the keyboard again: only once the cursor has left it and come back (GPT's post-review of #21/#22: the
+      next tick counted a new hover and took the keyboard back after enter_s).
     """
 
     def __init__(self, enter_s: float = 0.15, leave_s: float = 0.3, cooldown_s: float = 0.4):
         self.enter_s, self.leave_s, self.cooldown_s = enter_s, leave_s, cooldown_s
         self.reset()
         self.last_switch = -1e9
+        self.held = False                    # (the user switched while the cursor was on the panel: until it leaves)
+        self.last_fg = 0                     # (the foreground window's root at the last tick: a change is a switch)
         self.events: list[str] = []          # (tests) what each tick did, when it did something
 
     def reset(self) -> None:
@@ -233,7 +238,7 @@ class HoverFocus:
 
     def _note(self, what: str) -> str:
         self.events.append(what)
-        if what in ("focused", "restored", "refused", "restore_refused", "user_switched", "window_gone"):
+        if what in ("focused", "restored", "refused", "restore_refused", "user_switched", "window_gone", "held"):
             log(f"hover focus: {what}")
         return what
 
@@ -241,14 +246,25 @@ class HoverFocus:
         fg = foreground()
         fg_root = root_of(fg)
         on_panel = fg_root == panel
+        changed = bool(fg_root) and bool(self.last_fg) and fg_root != self.last_fg
+        if fg_root:
+            self.last_fg = fg_root
         if self.switched and fg and not on_panel:
             self.reset()                      # (the user went elsewhere: theirs wins)
+            self.held = bool(over)            # (and while the cursor stays: not taken back)
             return self._note("user_switched")
         if not allowed:
             self.reset()
+            self.held = False
             return "off"
         if over:
             self.out_since = None
+            if not self.held and changed and not on_panel and not self.switched:
+                self.held = True              # (a switch the user made while the cursor rests here: from the panel, or between
+                self.over_since = None        #  other windows - it is not taken from them until the cursor leaves)
+                return self._note("held")
+            if self.held:
+                return "held"
             if self.switched or self.refused or on_panel:
                 return "inside"
             if buttons:
@@ -268,6 +284,7 @@ class HoverFocus:
             return self._note("refused")
         self.over_since = None
         self.refused = False
+        self.held = False                     # (the cursor left: the next stay may take the keyboard again)
         if not self.switched:
             return "outside"
         if buttons:

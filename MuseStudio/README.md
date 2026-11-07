@@ -155,6 +155,12 @@ MuseStudio/
 python -B -m unittest discover -s bridge/tests
 ```
 
+起動役の「ホバーでフォーカス」のテスト（窓の呼び出しを置き換えて流します。Windows のみ）：
+
+```bash
+python -B -m unittest discover -s launcher/tests
+```
+
 ## 使い方
 
 - 起動は起動役（上の 6）か、`MuseStudio\game\CharaStudio.exe` です（作業フォルダを `game` にして起動してください）。ブリッジは既定で `http://127.0.0.1:18765` で、プラグインの設定（`game/BepInEx/config/metamuse.musestudio.cfg`）で変えられます。
