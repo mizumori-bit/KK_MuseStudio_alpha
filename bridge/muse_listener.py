@@ -340,6 +340,12 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
     aid = Placeholder(lc.get("placeholder"), cfg["_tokens_file"].parent / PLACEHOLDER_FILE)
     read_seconds = conf["read_seconds"]
 
+    def diag(msg: str) -> None:
+        # (bridge.py --log-muse-requests: every connection and request written - whether Muse's requests come here at all,
+        # and what they carry: the headers' names, never their values. 2026-11-07, Muse's call way timing out)
+        if cfg.get("_log_muse_requests"):
+            sys.stderr.write(f"[bridge] {time.strftime('%H:%M:%S')} muse listener (diagnosis): {msg}\n")
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "MuseStudioListener/1.0"
         protocol_version = "HTTP/1.1"
@@ -347,6 +353,8 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
 
         def setup(self):
             super().setup()
+            self.opened = time.monotonic()
+            diag("a connection opened")
             self.deadline = threading.Timer(read_seconds, self._cut)
             self.deadline.daemon = True
             self.deadline.start()
@@ -395,6 +403,8 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
         def _any(self):
             self.close_connection = True                  # (one request a connection)
             h = self.headers
+            diag(f"got {self.command} {self.path.split('?', 1)[0]} {time.monotonic() - self.opened:.2f} s after it opened "
+                 f"(headers: {', '.join(sorted(set(h.keys()), key=str.lower))})")
             if h.get("Origin") is not None or h.get("Sec-Fetch-Site") is not None:
                 return self._refuse(403, "browser", "a web page may not use Muse's listener")
             if not host_allowed(h.get_all("Host"), cfg):
@@ -449,6 +459,7 @@ def _start(cfg: dict, state, bridge_port: int, host_allowed, max_body: int):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+            diag(f"answered {self.command} {self.path.split('?', 1)[0]}: {r.status}, {len(data)} bytes, {time.monotonic() - self.opened:.2f} s after it opened")
 
         do_GET = do_POST = do_HEAD = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _any
 

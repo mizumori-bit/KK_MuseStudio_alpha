@@ -1888,6 +1888,9 @@ def main() -> int:
                     help="list this PC's tailnet machines with their StableID (for muse_listener.machine) and quit")
     ap.add_argument("--forget-muse-placeholder", action="store_true",
                     help="forget the learned digest of Muse's Authorization (the next one from Muse's machine is learnt) and quit")
+    ap.add_argument("--log-muse-requests", action="store_true",
+                    help="(diagnosis) write every connection and request on Muse's listener in the log - the way, its headers' "
+                         "names (no values), the answer and the time")
     args = ap.parse_args()
     conf = Path(args.config)
     if not conf.is_file() and conf == HERE / "bridge_config.json" and (HERE / "bridge_config.example.json").is_file():
@@ -1908,6 +1911,7 @@ def main() -> int:
     if args.forget_muse_placeholder:
         return muse_listener.forget_placeholder(cfg["_tokens_file"])
     cfg["_test"] = args.test
+    cfg["_log_muse_requests"] = args.log_muse_requests
     port = args.port or int(cfg.get("port", 18765))
     host = str(cfg.get("host", "127.0.0.1"))
     state = State(cfg)

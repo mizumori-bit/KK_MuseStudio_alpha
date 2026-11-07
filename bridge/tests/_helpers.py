@@ -16,7 +16,7 @@ import bridge as _bridge  # noqa: E402
 
 
 class Bridge:
-    def __init__(self, port: int, extra: dict | None = None, test: bool = False, log: bool = False):
+    def __init__(self, port: int, extra: dict | None = None, test: bool = False, log: bool = False, flags: list | None = None):
         self.port = port
         self.tmp = Path(tempfile.mkdtemp(prefix="bridge_test_"))
         self.log = self.tmp / "bridge.log" if log else None          # (its log kept to read: log=True)
@@ -29,7 +29,7 @@ class Bridge:
         cfg.update(extra or {})
         (self.tmp / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
         args = [sys.executable, "-B", str(ROOT / "bridge/bridge.py"), "--config", str(self.tmp / "config.json"), "--port", str(port)]
-        self.args = args + (["--test"] if test else [])
+        self.args = args + (["--test"] if test else []) + list(flags or [])
         self._start()
 
     def _start(self):
