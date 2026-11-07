@@ -75,6 +75,7 @@ namespace MuseStudio
             if (!File.Exists(card)) MuseStudioPlugin.Log.LogWarning("MuseStudio: no character card " + card + " (the default body)");
             Step("character " + card);
             Heroine = AddChara(false, card);
+            TakeCardFace();                    // (her card's own face, before any is put on: the start face and the talk's default)
             MuseStudioPlugin.Instance.Chars.CardPath = File.Exists(card) ? card : "";
             if (File.Exists(card)) Name = Cha.chaFile.parameter.fullname.Trim();     // the card's name (stage.json's for the default body)
             Step("character added");
@@ -447,7 +448,30 @@ namespace MuseStudio
         // another body's face by a label (the match: the opponent's)
         public bool ApplyFaceOn(OCIChar who, string label)
         {
-            return who != null && ApplyCells(Json.Arr(Json.Obj(Json.Obj(faces, "labels"), label), "cells"), who);
+            return who != null && ApplyCells(label == "card" && who != Heroine ? CellsOf("neutral") : CellsOf(label), who);
+        }
+
+        // Her card's own face (the owner's choice of 2026-11-07: the face her card was saved with is her ordinary face - the
+        // start face, the talk's default, the package's end face; faces.json's labels stay Muse's emotions): the label "card".
+        // Taken from her status as she is loaded (and when the user switches characters), before any face is put on: the
+        // eyebrow / eyes / mouth patterns and their openings, the cheek, the highlight, the tears, the blink (her gaze stays
+        // the look's).
+        List<object> cardCells;
+        public List<object> CardCells { get { return cardCells; } }
+
+        public void TakeCardFace()
+        {
+            var s = Cha != null ? Cha.fileStatus : null;
+            if (s == null) { cardCells = null; return; }
+            cardCells = new List<object> { s.eyebrowPtn, s.eyesPtn, s.mouthPtn, s.eyebrowOpenMax, s.eyesOpenMax, s.mouthOpenMax, -1,
+                                           s.hohoAkaRate, !s.hideEyesHighlight, (int)s.tearsLv, s.eyesBlink };
+        }
+
+        // a label's cells: faces.json's, her card's for "card" (none taken: the standard face's)
+        List<object> CellsOf(string label)
+        {
+            if (label == "card" && cardCells != null) return cardCells;
+            return Json.Arr(Json.Obj(Json.Obj(faces, "labels"), label == "card" ? "neutral" : label), "cells");
         }
 
         public bool ApplyPresetOn(OCIChar who, string name)
@@ -464,7 +488,7 @@ namespace MuseStudio
         {
             // (put back after a reaction or her climax when its own time is over: the scene's default, not a flash of it)
             if (restoring && tempLabel == label && Time.realtimeSinceStartup >= tempUntil) return ApplyFace(FaceBack(), false);
-            if (!ApplyCells(Json.Arr(Json.Obj(Json.Obj(faces, "labels"), label), "cells"))) return false;
+            if (!ApplyCells(CellsOf(label))) return false;
             Emotion = label;
             Face = label;
             faceSerial++;
@@ -599,6 +623,8 @@ namespace MuseStudio
                 return h.Play.Active ? "play" : "talk";
             }
         }
+
+        public string DefaultFaceForCheck { get { return SceneDefault(); } }     // (checks)
 
         public string SceneDefault()
         {

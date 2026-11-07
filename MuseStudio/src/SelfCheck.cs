@@ -360,6 +360,13 @@ namespace MuseStudio
             var pc = h.Play;
             Note("stage ready at " + Time.realtimeSinceStartup.ToString("F1") + " s");
             Check("dialogue: 自動送り starts on (stage.json advance.auto, the trial run of 2026-11-04)", bp.Auto, "auto " + bp.Auto);
+            // (the owner's choice of 2026-11-07) her ordinary face is her card's own: the start face, the talk's default
+            var ccells = st.CardCells;
+            var cfs = st.Cha.fileStatus;
+            Check("faces: she starts with her card's own face (the label card: the patterns and openings her card was saved with), the talk's default",
+                  st.Face == "card" && ccells != null && cfs.eyebrowPtn == Convert.ToInt32(ccells[0]) && cfs.eyesPtn == Convert.ToInt32(ccells[1]) && cfs.mouthPtn == Convert.ToInt32(ccells[2])
+                  && Mathf.Abs(cfs.eyesOpenMax - Convert.ToSingle(ccells[4])) < 1e-4f && st.DefaultFaceForCheck == "card",
+                  st.Face + " " + (ccells != null ? Json.Write(ccells) : "none") + " now " + cfs.eyebrowPtn + "/" + cfs.eyesPtn + "/" + cfs.mouthPtn + " " + cfs.eyesOpenMax);
             BustAt("start");
             yield return null;
             Check("keys: the keys one can press shown at the top (the setting, default on: Space, F1, Studio's UI key, the camera's)", h.KeyHints.Value
@@ -628,7 +635,7 @@ namespace MuseStudio
                   Json.Str(stFace, "muse") == "gentle" && Json.Num(stFace, "muse_left", -1) > 0 && Json.Str(stFace, "shown") == "gentle", Json.Write(stFace));
             st.ReleaseMuse("check");                 // (the checks after this one start from the talk's own face, as before)
             var stEndFace = st.Face;
-            Check("package end: with no face of Muse's held, the end face as before", stEndFace == Json.Str(st.Cfg, "package_end_face", "service_smile"), stEndFace);
+            Check("package end: with no face of Muse's held, the end face as before", stEndFace == Json.Str(st.Cfg, "package_end_face", "card"), stEndFace);
             Check("bridge: the state carries the location, the scene and the app", Json.Str(Json.Obj(state, "location"), "key") == "myroom"
                   && Json.Str(Json.Obj(state, "scene"), "key") == "idle" && Json.Obj(state, "app") != null
                   && Json.Obj(state, "app")["connected"] is bool && (bool)Json.Obj(state, "app")["connected"], Json.Write(state).Substring(0, Math.Min(300, Json.Write(state).Length)));
@@ -2152,7 +2159,7 @@ namespace MuseStudio
             yield return Wait(0.5f);
 
             // 3. every face goes back by itself to the scene's default (faces.json return; PR #5 adopted): in the talk her climax
-            //    face after 8 s, a teasing face after 12 s, an unlisted one after 20 s - to the talk's default (service_smile), which
+            //    face after 8 s, a teasing face after 12 s, an unlisted one after 20 s - to the talk's default (card: her card's own face), which
             //    stays; in a play to the play's default by her gauge; a newer face wins over the timer; under a touch's face the
             //    timer waits, and put back after its time the face goes straight on to the default (no flash of the old one)
             tc.PackageFace();                   // (no touch reaction's face left to put back meanwhile)
@@ -2168,7 +2175,7 @@ namespace MuseStudio
             st.ApplyFace("gentle");
             float tfGentleLeft = st.TemporaryLeft;
             Check("faces: every face goes back by itself to the scene's default - her climax face after 8 s, teasing 12 s, an unlisted one 20 s, in the talk to service_smile (which stays)",
-                  tfLeft > 7.5f && tfLeft <= 8.01f && tfTalk == "service_smile" && tfDefaultLeft < 0f && st.FaceScene == "talk"
+                  tfLeft > 7.5f && tfLeft <= 8.01f && tfTalk == "card" && tfDefaultLeft < 0f && st.FaceScene == "talk"
                   && tfTeaseLeft > 11.5f && tfTeaseLeft <= 12.01f && tfGentleLeft > 19.5f && tfGentleLeft <= 20.01f,
                   string.Format("ecstasy {0:F2} -> {1} (timer {2:F1}) teasing {3:F2} gentle {4:F2} scene {5}", tfLeft, tfTalk, tfDefaultLeft, tfTeaseLeft, tfGentleLeft, st.FaceScene));
             string tfPlayErr = pc.Begin("aibu_00", "check", "here");
@@ -2204,9 +2211,9 @@ namespace MuseStudio
             st.RestoreFace("ecstasy");          // (the touch's face over: its own put back)
             string tfBack = st.Face;
             Check("faces: a newer face wins over the old one's timer; under a touch's face the timer waits; put back after its time, the scene's default at once",
-                  tfNewer == "teasing" && tfNewerLeft > 11.5f && tfUnder == "preset:aroused" && tfBack == "service_smile",
+                  tfNewer == "teasing" && tfNewerLeft > 11.5f && tfUnder == "preset:aroused" && tfBack == "card",
                   tfNewer + " (" + tfNewerLeft.ToString("F1") + ") / " + tfUnder + " / " + tfBack);
-            st.ApplyFace("service_smile");
+            st.ApplyFace("card");
 
             // 4b. (PR #46 §2) Muse's face held: past its own seconds; a label of a moment (ecstasy) goes back to it; a face of the
             //     app's with nothing to put it back comes back to it; the state tells it; the safety time ends it; so do a change
@@ -2256,7 +2263,7 @@ namespace MuseStudio
                   string.Format("kept {0} moment {1} back {2} app {3} state {4} safety {5} next {6} play '{7}' scene {8} in play {9}",
                                 mhKept, mhMoment, mhBack, mhAppBack, Json.Write(mhInfo), mhSafety, mhNext, mhPlayErr, mhScene, mhPlay));
             st.ReleaseMuse("check");
-            st.ApplyFace("service_smile");
+            st.ApplyFace("card");
             tc.PackageFace();
 
             // 5. Muse starts or changes a normal play (only on the user's wish in the chat): checked again as the block shows - aimed
@@ -2583,9 +2590,9 @@ namespace MuseStudio
             string fbGiven = st.Face;
             pc.End("check");
             yield return Wait(0.5f);
-            st.ApplyFace("service_smile");
+            st.ApplyFace("card");
             Check("faces: a face is not carried into another scene - teasing in the talk becomes the play's default (flushed) as it starts, the talk's (service_smile) as it ends; one given just before the start stays",
-                  fbPlay == "flushed" && fbBack == "service_smile" && fbGiven == "desire" && st.SceneResets >= fbResets0 + 2, fbPlay + " / " + fbBack + " / " + fbGiven);
+                  fbPlay == "flushed" && fbBack == "card" && fbGiven == "desire" && st.SceneResets >= fbResets0 + 2, fbPlay + " / " + fbBack + " / " + fbGiven);
 
             // her look is not carried over either (the user's note): a look away left by a touch's reaction comes back to the user
             // (pattern 1) as its face is put back; a look left from before a play comes back to the user as the play ends
@@ -2600,7 +2607,7 @@ namespace MuseStudio
             yield return null;
             int gzAfterPlay = st.Cha.fileStatus.eyesLookPtn;
             yield return Wait(0.4f);
-            st.ApplyFace("service_smile");
+            st.ApplyFace("card");
             Check("faces: her look is not carried over either - after a touch's reaction and after a play her eyes are at the user again (pattern 1; the user's note)",
                   gzAfterReaction == 1 && gzAfterPlay == 1, "after the reaction " + gzAfterReaction + " after the play " + gzAfterPlay);
             // an app's own face nothing will put back (her climax's, eyes shut and not blinking) becomes the scene's default after
@@ -2618,7 +2625,7 @@ namespace MuseStudio
             bool afBlink = st.Cha.fileStatus.eyesBlink;
             int afLook = st.Cha.fileStatus.eyesLookPtn;
             Check("faces: an app's own face nothing puts back (her climax's: eyes shut, no blinking) becomes the scene's default by itself - eyes blinking, at the user",
-                  afShown == "preset:ecstasy" && afBack == "service_smile" && afBlink && afLook == 1, afShown + " -> " + afBack + " blink " + afBlink + " look " + afLook);
+                  afShown == "preset:ecstasy" && afBack == "card" && afBlink && afLook == 1, afShown + " -> " + afBack + " blink " + afBlink + " look " + afLook);
 
             // the speeds the user sets (快感度・発情の上がる速さ) and Muse told of a real change when the settings close
             float gsWas = h.GaugeSpeed.Value, asWas = h.ArousalSpeed.Value;
