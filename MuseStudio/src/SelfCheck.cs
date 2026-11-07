@@ -2383,6 +2383,37 @@ namespace MuseStudio
             h.GaugeSpeed.Value = cfG;
             Check("Muse's speeds in the frame the settings window closes: the user's value wins over the waiting and the new request (user_changed), told as the user's",
                   cfDone, string.Format("seen {0} gauge {1:F2} user's to {2}", cfSeen, h.GaugeSpeed.Value, cfTo));
+            // (GPT's re-review of #42) through the player as packages come: one the bridge took before the window closed, played
+            // in the frame it closes, loses to the user's change (user_changed); one taken after the closing is done
+            float rqG = h.GaugeSpeed.Value;
+            int rqUser0 = Refusals("settings.gauge_speed", "user_changed");
+            if (bp.Busy) bp.Advance(true);
+            yield return Wait(0.3f);
+            MuseStudioPlugin.SettingsShown = true;
+            yield return Wait(0.3f);
+            h.GaugeSpeed.Value = 1.25f;                         // (the user, in the window)
+            long rqTook = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+            MuseStudioPlugin.SettingsShown = false;
+            turn++;
+            bp.EnqueueForCheck(D("session", "check", "turn", turn, "launch", Launch.Id, "character", h.CharacterId(), "_received_ms", rqTook,
+                                 "settings", D("gauge_speed", 2.0, "request", "chk-rq-1"), "blocks", new List<object> { Line("閉じる瞬間の依頼です。") }));
+            yield return Until(() => bp.Busy && bp.Text == "閉じる瞬間の依頼です。", 5f);
+            yield return Wait(0.3f);
+            bool rqKept = Mathf.Abs(h.GaugeSpeed.Value - 1.25f) < 0.001f && Refusals("settings.gauge_speed", "user_changed") == rqUser0 + 1;
+            bp.Advance(true);
+            yield return Wait(0.3f);
+            turn++;
+            bp.EnqueueForCheck(D("session", "check", "turn", turn, "launch", Launch.Id, "character", h.CharacterId(),
+                                 "_received_ms", (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds,
+                                 "settings", D("gauge_speed", 2.0, "request", "chk-rq-2"), "blocks", new List<object> { Line("閉じたあとの依頼です。") }));
+            yield return Until(() => bp.Busy && bp.Text == "閉じたあとの依頼です。", 5f);
+            yield return Wait(0.3f);
+            bool rqLater = Mathf.Abs(h.GaugeSpeed.Value - 2.0f) < 0.001f;
+            bp.Advance(true);
+            yield return Wait(0.3f);
+            h.GaugeSpeed.Value = rqG;
+            Check("Muse's speeds through the player: a request taken before the settings window closed, played in its closing frame, loses to the user's change; one taken after is done",
+                  rqKept && rqLater, string.Format("kept {0} later {1}", rqKept, rqLater));
             Check("Muse's speeds while the settings window is open: every request waits and is done in order when it closes (none lost); the user's change there wins",
                   mwDone, string.Format("open {0} waiting {1} requests {2} gauge {3:F2}", mwOpen, mwWaiting, string.Join(",", mwReqs.ToArray()), h.GaugeSpeed.Value));
 
@@ -2491,23 +2522,38 @@ namespace MuseStudio
             Mood.ForFileCheck(h, mfBroken);
             var mfAside = Directory.GetFiles(mfDir, "broken.json.unreadable-*");
             bool mfCopied = mfAside.Length == 1 && File.ReadAllText(mfAside[0]) == mfText && Json.Parse(File.ReadAllText(mfBroken)) is Dictionary<string, object>;
+            // (GPT's re-review of #42) the same character chosen while the file is held: her record, not the start values, is
+            // kept at the save after it reads; the app's record (closed total) is read before it is written; a .bak left by a
+            // stopped save is taken back
             string mfHeldPath = Path.Combine(mfDir, "held.json");
-            string mfHeldText = "{\"card:a.png\": {\"values\": {\"arousal\": 0.5}, \"saved\": 1}}";
+            string mfHeldText = "{\"card:a.png\": {\"values\": {\"arousal\": 0.8, \"bladder\": 0.1}, \"saved\": 1, \"launch\": \"" + Launch.Id + "\"}, \"_app\": {\"alive\": 1, \"closed_total\": 777}}";
             File.WriteAllText(mfHeldPath, mfHeldText);
             bool mfKept, mfAfter;
+            string mfWhy = "";
             using (var hold = new FileStream(mfHeldPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 var mfm = Mood.ForFileCheck(h, mfHeldPath);
-                mfm.SaveForCheck("card:x.png");
+                mfm.LoadFor("card:a.png");                    // (held: she starts with the start values)
+                mfm.Save();
                 hold.Close();
                 mfKept = mfm.HeldForCheck && File.ReadAllText(mfHeldPath) == mfHeldText;
-                mfm.SaveForCheck("card:x.png");
+                mfm.Save();                                   // (it reads now: her record is read before her save)
                 var mfDoc = Json.Parse(File.ReadAllText(mfHeldPath)) as Dictionary<string, object>;
-                mfAfter = mfDoc != null && mfDoc.ContainsKey("card:a.png") && mfDoc.ContainsKey("card:x.png") && !mfm.HeldForCheck;
+                var mfA = Json.Obj(Json.Obj(mfDoc, "card:a.png"), "values");
+                var mfApp = Json.Obj(mfDoc, "_app");
+                mfAfter = mfA != null && Math.Abs(Json.Num(mfA, "arousal") - 0.8) < 0.001 && Math.Abs(mfm.ValueForCheck("arousal") - 0.8f) < 0.001f
+                    && mfApp != null && Json.Num(mfApp, "closed_total") >= 777 && !mfm.HeldForCheck;
+                mfWhy = Json.Write(mfDoc);
             }
+            string mfBakPath = Path.Combine(mfDir, "bak.json");
+            File.WriteAllText(mfBakPath + ".bak", "{\"card:b.png\": {\"values\": {\"arousal\": 0.6}, \"saved\": 1}}");
+            Mood.ForFileCheck(h, mfBakPath);
+            var mfBakDoc = File.Exists(mfBakPath) ? Json.Parse(File.ReadAllText(mfBakPath)) as Dictionary<string, object> : null;
+            bool mfBak = mfBakDoc != null && mfBakDoc.ContainsKey("card:b.png") && !File.Exists(mfBakPath + ".bak");
+            mfAfter = mfAfter && mfBak;
             try { Directory.Delete(mfDir, true); } catch (Exception) { }
             Check("moods file: a broken one is copied aside before anything is written (the same bytes); one held by another program is left as it was, then written keeping its records",
-                  mfCopied && mfKept && mfAfter, string.Format("copied {0} kept {1} after {2}", mfCopied, mfKept, mfAfter));
+                  mfCopied && mfKept && mfAfter, string.Format("copied {0} kept {1} after {2} bak {3} {4}", mfCopied, mfKept, mfAfter, mfBak, mfWhy));
             Check("moods after the app was closed: the app's own closed time counts, not the time since her save (saved 4 h ago, a 5-minute restart: hardly moved; 6 h closed in all: settled; a record from before, a 5-minute restart: hardly moved)",
                   rsBShort && rsBLong && rsBefore, string.Format("B {0:F2}/{1:F2} long {2} before {3}", rsBA, rsBB, rsBLong, rsBefore));
             Check("Muse's play start: a package not aimed at this launch and character is refused (untargeted), nothing started", msUntargeted, Json.Write(LastEvent("block_refused")));

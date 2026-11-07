@@ -43,13 +43,24 @@ namespace MuseStudio
             savePath = path;
             Doc = Data.Load("moods.json");
             idleSince = Now;
-            var app = Json.Obj(ReadAll() ?? new Dictionary<string, object>(), AppKey);
-            if (app != null && Json.Has(app, "alive"))
-            {
-                lastGap = Math.Max(0.0, (Unix - Json.Num(app, "alive")) / 60.0);
-                closedTotal = Math.Max(0.0, Json.Num(app, "closed_total", 0)) + lastGap;
-            }
+            startedAt = Unix;
+            var all = ReadAll();
+            if (all != null) TakeApp(all);
             Alive();
+        }
+
+        // the app's record as the file has it: the closed time before this launch (from its start - not when it is read)
+        readonly double startedAt;
+        bool appRead;                       // false: the file was not readable yet - its record is read before anything is written
+        bool charRead = true;               // false: her record was not readable when she was chosen - read before her save
+
+        void TakeApp(Dictionary<string, object> all)
+        {
+            appRead = true;
+            var app = Json.Obj(all, AppKey);
+            if (app == null || !Json.Has(app, "alive")) return;
+            lastGap = Math.Max(0.0, (startedAt - Json.Num(app, "alive")) / 60.0);
+            closedTotal = Math.Max(0.0, Json.Num(app, "closed_total", 0)) + lastGap;
         }
 
         Dictionary<string, object> AppDoc()
@@ -64,6 +75,7 @@ namespace MuseStudio
             {
                 var all = ReadAll();
                 if (all == null) return;               // (not readable: left as it is)
+                if (!appRead) TakeApp(all);            // (its record first: never written over unread - GPT's re-review of #42)
                 all[AppKey] = AppDoc();
                 WriteWhole(Json.Write(all));
             }
@@ -72,7 +84,7 @@ namespace MuseStudio
 
         // (checks) a moods file at another path: what the start does to it
         public static Mood ForFileCheck(MuseStudioPlugin host, string path) { return new Mood(host, path); }
-        public void SaveForCheck(string id) { charId = id; Values["arousal"] = 0.3f; Save(); }
+        public float ValueForCheck(string key) { float v; Values.TryGetValue(key, out v); return v; }
 
         // (checks) the app's closed time as if: the total and the last closed time (-1: not known)
         public void SetClosedForCheck(double total, double gap) { closedTotal = total; lastGap = gap; }
@@ -94,6 +106,11 @@ namespace MuseStudio
 
         Dictionary<string, object> ReadAll()
         {
+            if (!File.Exists(savePath) && File.Exists(savePath + ".bak"))
+            {
+                try { File.Move(savePath + ".bak", savePath); }       // (a save stopped between its moves: the old file back)
+                catch (Exception e) { Hold("is only there as .bak and could not be put back (" + e.GetType().Name + ")"); return null; }
+            }
             if (!File.Exists(savePath)) { HeldForCheck = false; return new Dictionary<string, object>(); }
             string text;
             try { text = File.ReadAllText(savePath); }
@@ -122,14 +139,20 @@ namespace MuseStudio
         }
 
         // a whole new file first, then put in its place: a write cut off leaves the old file as it was
+        // a whole new file first (.part); the old one moved aside (.bak) and the new one moved in; the old one removed last. A
+        // stop at any point leaves a whole file: the old one in place, or as .bak (taken back by the next read). Never written
+        // into in place (GPT's re-review of #42: the fallback copied over it)
         void WriteWhole(string text)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(savePath));
-            string part = savePath + ".part";
+            string part = savePath + ".part", bak = savePath + ".bak";
             File.WriteAllText(part, text);
             if (!File.Exists(savePath)) { File.Move(part, savePath); return; }
-            try { File.Replace(part, savePath, null); }
-            catch (Exception) { File.Copy(part, savePath, true); File.Delete(part); }     // (no replace here: the whole file is written already)
+            if (File.Exists(bak)) File.Delete(bak);
+            File.Move(savePath, bak);
+            try { File.Move(part, savePath); }
+            catch (Exception) { File.Move(bak, savePath); throw; }
+            File.Delete(bak);
         }
 
         // The character's moods as saved. While the app was closed she lived her day (PR #25, the owner's decision of
@@ -142,7 +165,10 @@ namespace MuseStudio
         public void LoadFor(string id)
         {
             if (charId.Length > 0) Save();
-            Apply(id, Json.Obj(ReadAll() ?? new Dictionary<string, object>(), id));
+            var all = ReadAll();
+            if (all != null && !appRead) TakeApp(all);
+            charRead = all != null;                // (not readable: she starts as new, and her record is read before her save)
+            Apply(id, all != null ? Json.Obj(all, id) : null);
         }
 
         public string ResumedForCheck = "";       // (checks) how the last load came back: "new" / "same_launch" / "after_closed <minutes>"
@@ -194,6 +220,15 @@ namespace MuseStudio
             {
                 var all = ReadAll();
                 if (all == null) return;               // (not readable: left as it is)
+                if (!appRead) TakeApp(all);
+                if (!charRead)
+                {
+                    // her record could not be read when she was chosen: read now - hers, not the start values, are kept (GPT's
+                    // re-review of #42: the start values replaced her record at the first save after the file read)
+                    charRead = true;
+                    var mine = Json.Obj(all, charId);
+                    if (mine != null) Apply(charId, mine);
+                }
                 var vals = new Dictionary<string, object>();
                 foreach (var kv in Values) vals[kv.Key] = Math.Round(kv.Value, 4);
                 var dn = new Dictionary<string, object>();

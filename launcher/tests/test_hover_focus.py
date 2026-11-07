@@ -122,6 +122,22 @@ class HoverFocusTicks(unittest.TestCase):
         self.assertNotIn("held", out)
         self.assertIn("focused", out)
 
+    def test_out_then_a_switch_before_the_restore_then_back_in(self):
+        # (GPT's re-review of #42) the panel took it, the cursor went out, the user chose another window before the panel gave
+        # it back, and the cursor came back at the next tick: nothing is given back to the old one, and the way back in is a
+        # new hover - the panel takes it again after enter_s
+        self.ticks(True, 0.4)
+        self.assertEqual(self.fg, PANEL)
+        self.f.tick(PANEL, False, True, False, self.now, (BAR,))   # (out: the restore is waiting for leave_s)
+        self.now += 0.05
+        self.fg = OTHER
+        out = self.ticks(True, 0.6)
+        self.assertIn("user_switched", out)
+        self.assertNotIn("held", out)
+        self.assertIn("focused", out)
+        self.ticks(False, 0.8)
+        self.assertEqual(self.fg, OTHER, "given back to the window the user chose, not the old one")
+
     def test_a_held_button_still_switches_nothing(self):
         out = self.ticks(True, 1.0, buttons=True)
         self.assertNotIn("focused", out)

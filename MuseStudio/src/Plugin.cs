@@ -520,8 +520,13 @@ namespace MuseStudio
             bool shown = SettingsShown;
             if (shown == settingsWereShown) return;
             settingsWereShown = shown;
-            if (shown) { settingsAtOpen = SettingsInfo(); return; }
+            if (shown) { settingsAtOpen = SettingsInfo(); lastUserChanged = null; return; }
             var userChanged = SettingsClosed();
+            // (kept past the closing: a request the bridge took before it, played in this frame or later, still loses to them -
+            // GPT's re-review of #42)
+            lastUserChanged = userChanged;
+            settingsClosedMs = UnixMs();
+            settingsClosedFrame = Time.frameCount;
             // (every request that came while it was open, in the order they came - each told on its own; what the user
             // changed there wins over all of them - GPT's post-review of #15: one slot lost the earlier ones)
             var waiting = new List<KeyValuePair<Dictionary<string, float>, string>>(museSettingsWaiting);
@@ -555,6 +560,10 @@ namespace MuseStudio
         // While the settings window is open it waits till it closes, and what the user changed there meanwhile wins.
         readonly HashSet<string> settingsRequests = new HashSet<string>();
         readonly List<KeyValuePair<Dictionary<string, float>, string>> museSettingsWaiting = new List<KeyValuePair<Dictionary<string, float>, string>>();
+        Dictionary<string, object> lastUserChanged;      // what the user changed in the window last closed (null: none since)
+        long settingsClosedMs = -1;                      // when it closed (UNIX ms, the bridge's clock is this PC's too)
+        int settingsClosedFrame = -1;
+        static long UnixMs() { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
         internal int SettingsWaitingForCheck { get { return museSettingsWaiting.Count; } }
 
         void RefuseSetting(string field, string value, string reason, string req, string detail)
@@ -585,7 +594,16 @@ namespace MuseStudio
             if (want.Count == 0) return;
             // (after the window closes, in order; also while its closing is not settled yet - settingsAtOpen still held)
             if (SettingsShown || settingsAtOpen != null) { museSettingsWaiting.Add(new KeyValuePair<Dictionary<string, float>, string>(want, req)); return; }
-            ApplyMuseSettings(want, req, null);
+            // a request the bridge took before the window closed (or, without that time, one in the frame it closed): made before
+            // the user's changes there were final - those still win over it (user_changed); one taken after the closing is new
+            Dictionary<string, object> userWon = null;
+            if (lastUserChanged != null && lastUserChanged.Count > 0)
+            {
+                object rv;
+                long took = pkg != null && pkg.TryGetValue("_received_ms", out rv) && rv != null ? Convert.ToInt64(rv) : -1L;
+                if ((took >= 0 && took <= settingsClosedMs) || (took < 0 && Time.frameCount == settingsClosedFrame)) userWon = lastUserChanged;
+            }
+            ApplyMuseSettings(want, req, userWon);
         }
 
         void ApplyMuseSettings(Dictionary<string, float> want, string req, Dictionary<string, object> userChanged)
