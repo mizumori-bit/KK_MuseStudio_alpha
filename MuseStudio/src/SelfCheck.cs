@@ -755,6 +755,7 @@ namespace MuseStudio
                 var ed = h.SpotEditor;
                 ed.Toggle(true);
                 ed.ShowKind("play");
+                ed.ShowCategory("");                  // (every play spot: 全部)
                 yield return Wait(0.5f);
                 var sp = st.Spots.Find(o => !o.Here);
                 var here = st.Spots.Find(o => o.Here);
@@ -867,6 +868,7 @@ namespace MuseStudio
             {
                 var gzEd = h.SpotEditor;
                 gzEd.Toggle(true);
+                gzEd.ShowCategory("");                // (every play spot: 全部 - the kinds' own check below)
                 var gzSeen = new List<string>();
                 bool gzOnly = true;
                 foreach (var k in SpotEditor.Kinds)
@@ -936,6 +938,139 @@ namespace MuseStudio
                 Check("position references: one kind's markers at a time in its colour (its tab by a real click); the toilet's place moved and turned is the outing's, and back; the settings' resets clear every room's adjustments and camera views",
                       gzOnly && gzTabbed && gzOuting && gzOutingBack && gzReset, string.Join(", ", gzSeen.ToArray()) + " tab " + gzTabbed + " " + RealInput.LastError
                       + " outing " + gzOuting + "/" + gzOutingBack + " reset " + gzReset + " (set " + gzSet + " cam " + gzCamSaved + ")");
+            }
+            // the positions' layers and filters (PR #46 §4.2, PR #47): the play spots by their kind - the room's first at the
+            // start, only its markers, a spot of two kinds one marker under both, a kind by a real click; the layers by the
+            // panel's real clicks - the current place saved as the default, moved on, the default back, the initial place back
+            // (the default kept), the default back again, the settings' reset (the defaults kept), the default gone when the
+            // initial place is saved; only the edited ones (a record, either layer); the approach's layers
+            {
+                var lyEd = h.SpotEditor;
+                string lyRoom = st.Location;
+                lyEd.CategoryAsNewForCheck();
+                lyEd.Toggle(true);
+                lyEd.ShowKind("play");
+                yield return null;
+                yield return null;                    // (the panel drawn: its buttons' places)
+                var lyCats = lyEd.CategoriesHere;
+                var lyAll = lyEd.Refs("play");
+                string lyFirst = lyCats.Count > 0 ? lyCats[0].Key : "";
+                bool lyStart = lyCats.Count > 0 && lyEd.Category == lyFirst;
+                // only the kind's markers, all of them
+                bool lyOnly = true;
+                var lyKinds = new List<string>();
+                foreach (var c in lyCats)
+                {
+                    lyEd.ShowCategory(c.Key);
+                    yield return null;
+                    int want = lyAll.FindAll(o => lyEd.InCategory(o, c.Key)).Count, markers = 0;
+                    foreach (var t in UnityEngine.Object.FindObjectsOfType<Transform>()) if (t.name.StartsWith("MuseStudio spot play ")) markers++;
+                    bool all = lyEd.Shown.TrueForAll(o => lyEd.InCategory(o, c.Key));
+                    lyKinds.Add(c.Key + " " + lyEd.Shown.Count + "/" + want + "/" + markers + (all ? "" : " other"));
+                    if (lyEd.Shown.Count != want || markers != want || want == 0 || !all) lyOnly = false;
+                }
+                // a spot of two kinds: the same one (one place) under each
+                var lyMulti = lyAll.Find(o => lyCats.FindAll(c => lyEd.InCategory(o, c.Key)).Count >= 2);
+                bool lyShared = true;
+                string lyMultiNote = "no spot of two kinds here";
+                if (lyMulti != null)
+                {
+                    var lyIn = lyCats.FindAll(c => lyEd.InCategory(lyMulti, c.Key));
+                    lyMultiNote = lyMulti.Id + " in " + lyIn.Count;
+                    foreach (var c in lyIn)
+                    {
+                        lyEd.ShowCategory(c.Key);
+                        yield return null;
+                        if (!lyEd.Shown.Exists(o => ReferenceEquals(o, lyMulti))) lyShared = false;
+                    }
+                }
+                // a kind by a real click (the last one's button: 全部 is after it)
+                lyEd.ShowCategory(lyFirst);
+                yield return null;
+                yield return null;
+                string lyClickTo = lyCats.Count > 1 ? lyCats[lyCats.Count - 1].Key : "";
+                Rect lyCatBtn;
+                lyEd.Buttons.TryGetValue("cat " + (lyClickTo.Length > 0 ? lyClickTo : "all"), out lyCatBtn);
+                yield return RealInput.Click(lyCatBtn);
+                yield return Wait(0.3f);
+                bool lyClicked = lyEd.Category == lyClickTo;
+                string lyClickErr = RealInput.LastError;
+                // the layers, by the panel's buttons
+                lyEd.ShowCategory(lyFirst);
+                yield return null;
+                var lySp = lyEd.Shown.Count > 0 ? lyEd.Shown[0] : null;
+                Vector3 lyP0 = lySp != null ? lySp.Pos : Vector3.zero, lyA = new Vector3(0.06f, 0f, 0f), lyB = new Vector3(0f, 0f, 0.04f);
+                var lyStep = new List<string>();
+                Func<string, IEnumerator> press = key => { Rect r; lyEd.Buttons.TryGetValue(key, out r); return RealInput.Click(r); };
+                if (lySp != null)
+                {
+                    lyEd.Selected = lySp.Id;
+                    lyEd.Change(lySp, lyA, 0f);
+                    yield return null;
+                    yield return press("default save");
+                    yield return Wait(0.2f);
+                    lyStep.Add("saved " + (lyEd.HasDefault(lyRoom, lySp.Id) && lySp.Aliases.TrueForAll(a => lyEd.HasDefault(lyRoom, a))));
+                    lyEd.Change(lySp, lyB, 0f);
+                    yield return null;
+                    yield return press("default back");
+                    yield return Wait(0.2f);
+                    lyStep.Add("back " + (Vector3.Distance(lySp.Pos, lyP0 + lyA) < 0.001f && lyEd.HasOffset(lyRoom, lySp.Id)));
+                    yield return press("init");
+                    yield return Wait(0.2f);
+                    lyStep.Add("init " + (Vector3.Distance(lySp.Pos, lyP0) < 0.001f && !lyEd.HasOffset(lyRoom, lySp.Id) && lyEd.HasDefault(lyRoom, lySp.Id)
+                                          && lyEd.Edited(lyRoom, lySp.Id)));
+                    // only the edited ones: the spot with its default (no current record) - and none without a record
+                    lyEd.ShowEditedOnly(true);
+                    yield return null;
+                    lyStep.Add("edited " + (lyEd.Shown.Exists(o => o.Id == lySp.Id) && lyEd.Shown.TrueForAll(o => lyEd.Edited(lyRoom, o.Id))));
+                    lyEd.ShowEditedOnly(false);
+                    lyEd.Selected = lySp.Id;
+                    yield return null;
+                    yield return press("default back");
+                    yield return Wait(0.2f);
+                    lyStep.Add("again " + (Vector3.Distance(lySp.Pos, lyP0 + lyA) < 0.001f));
+                    // the settings' reset: the current places go, the defaults stay
+                    lyEd.ResetAll();
+                    yield return null;
+                    var lyNow = st.Spots.Find(o => o.Id == lySp.Id);
+                    var lyDoc = Json.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(path), "spots.json"), Encoding.UTF8)) as Dictionary<string, object>;
+                    lyStep.Add("reset " + (lyNow != null && Vector3.Distance(lyNow.Pos, lyP0) < 0.001f && !lyEd.HasOffset(lyRoom, lySp.Id) && lyEd.HasDefault(lyRoom, lySp.Id)
+                                           && Json.Obj(lyDoc, "rooms") != null && Json.Obj(lyDoc, "rooms").Count == 0 && Json.Obj(Json.Obj(lyDoc, "defaults"), lyRoom) != null));
+                    // the initial place saved: the default goes (not edited any more)
+                    if (lyNow != null)
+                    {
+                        lyEd.ShowCategory(lyFirst);
+                        lyEd.Selected = lyNow.Id;
+                        yield return null;
+                        yield return press("default save");
+                        yield return Wait(0.2f);
+                        lyStep.Add("gone " + (!lyEd.HasDefault(lyRoom, lyNow.Id) && !lyEd.Edited(lyRoom, lyNow.Id) && Vector3.Distance(lyNow.Pos, lyP0) < 0.001f));
+                    }
+                }
+                bool lyLayers = lySp != null && lyStep.TrueForAll(x => x.EndsWith(" True"));
+                string lyLayerErr = RealInput.LastError;
+                // the approach's layers: set, saved, back to the camera's way (the default kept), the default back; then none
+                var lyAp = lyEd.ApproachSpot(lyRoom);
+                lyEd.Change(lyAp, new Vector3(0.12f, 0f, 0f), 10f);
+                Vector3 lyApSet, lyApNo;
+                float lyApYaw, lyApNoYaw;
+                lyEd.ApproachIn(lyRoom, out lyApSet, out lyApYaw);
+                lyEd.SaveDefault(lyAp);
+                lyEd.Reset(lyAp);
+                bool lyApInit = !lyEd.ApproachIn(lyRoom, out lyApNo, out lyApNoYaw) && lyEd.HasDefault(lyRoom, SpotEditor.ApproachId);
+                lyEd.BackToDefault(lyAp);
+                bool lyApBack = lyEd.ApproachIn(lyRoom, out lyApNo, out lyApNoYaw) && Vector3.Distance(lyApNo, lyApSet) < 0.001f && Mathf.Abs(Mathf.DeltaAngle(lyApNoYaw, lyApYaw)) < 0.1f
+                                && Vector3.Distance(lyAp.Pos, lyApSet) < 0.001f;
+                lyEd.Reset(lyAp);
+                lyEd.SaveDefault(lyAp);
+                bool lyApGone = !lyEd.ApproachIn(lyRoom, out lyApNo, out lyApNoYaw) && !lyEd.Edited(lyRoom, SpotEditor.ApproachId);
+                lyEd.ShowCategory("");
+                lyEd.Toggle(false);
+                yield return null;
+                Check("position layers: the play spots by kind (the room's first at the start, only its markers, a spot of two kinds one place, a kind by a real click); the default saved / back / the initial place (the default kept) by real clicks; the settings' reset keeps the defaults; only the edited ones; the approach's layers",
+                      lyStart && lyOnly && lyShared && lyClicked && lyLayers && lyApInit && lyApBack && lyApGone,
+                      "start " + lyStart + " (" + lyEd.Category + "/" + lyFirst + ") kinds " + string.Join(", ", lyKinds.ToArray()) + " shared " + lyShared + " (" + lyMultiNote + ") click "
+                      + lyClicked + " " + lyClickErr + " layers " + string.Join(", ", lyStep.ToArray()) + " " + lyLayerErr + " approach " + lyApInit + "/" + lyApBack + "/" + lyApGone);
             }
             h.CamKeys["turn_left"].Value = new KeyboardShortcut(KeyCode.J);
             c0 = camc.Export();
