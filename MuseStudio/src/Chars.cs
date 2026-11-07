@@ -150,6 +150,7 @@ namespace MuseStudio
             var prev = Info();
             if (h.Play.Active) h.Play.End("character");
             h.Blocks.DropPendingFor("card:" + Path.GetFileName(path));           // (what waits was for the one before - PR #24)
+            h.Stage.ReleaseMuse("character", false);                             // (her face held was the one before's - PR #46 §2)
             h.Stage.StopWalk(false);
             h.Presence.HerAt = "";                 // (the new character is with him)
             h.Stage.Heroine.ChangeChara(path);

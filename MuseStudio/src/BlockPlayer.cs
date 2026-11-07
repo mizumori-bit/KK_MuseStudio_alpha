@@ -347,7 +347,7 @@ namespace MuseStudio
             if (emo != null && Json.Has(emo, "label"))
             {
                 // an unknown label: the standard face (MUSE_GUIDE.md 4)
-                if (!stage.ApplyFace(Json.Str(emo, "label"))) stage.ApplyFace("neutral");
+                stage.MuseFace(Json.Str(emo, "label"));          // (held - PR #46 §2; an unknown label: the standard face, MUSE_GUIDE 4)
                 h.Touch.PackageFace();
                 stage.AfterClimax = null;          // (a face of Muse's own wins over a package end's after her climax)
             }
@@ -623,7 +623,14 @@ namespace MuseStudio
             if (rest && !h.Play.Active && !h.Outing.Out)      // (out on her own: her motion stays)
             {
                 if (!h.Match.Active && !h.Stage.Leaking) h.Stage.ApplyScene(Json.Str(h.Stage.Cfg, "idle_scene", "idle"), 1, 1f);      // (a match: her talk pose stays; a leak: its motion; her climax in the talk: after it)
-                Action face = () => { h.Stage.ApplyFace(Json.Str(h.Stage.Cfg, "package_end_face", "service_smile")); h.Touch.PackageFace(); };
+                // (the package's end face only when Muse holds none; held, her face of the package stays - a climax's face put back to it)
+                Action face = () =>
+                {
+                    var st = h.Stage;
+                    if (st.MuseLabel.Length == 0) st.ApplyFace(Json.Str(st.Cfg, "package_end_face", "service_smile"));
+                    else if (st.AppFace) st.RestoreFace(st.MuseLabel);
+                    h.Touch.PackageFace();
+                };
                 if (h.Stage.Climaxing) h.Stage.AfterClimax = face;
                 else face();
             }

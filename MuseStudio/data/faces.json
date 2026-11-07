@@ -346,6 +346,8 @@
    "teasing": 12.0,
    "stern": 12.0
   },
+  "transient": ["ecstasy"],
+  "_transient_note": "labels of a moment: not held when Muse gives them - after their seconds the face Muse holds under them comes back (PR #46 §2)",
   "default_seconds": 20.0,
   "defaults": {
    "talk": "service_smile",

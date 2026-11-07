@@ -574,9 +574,16 @@ namespace MuseStudio
             Check("block: the sound block in its own style", bp.Busy && bp.IsSound && bp.Text == "（コポコポ……）", bp.Text);
             bp.Advance(true);
             yield return null;
-            Check("package end: the idle scene and the end face", !bp.Busy && st.SceneKey == "idle" && st.Emotion == Json.Str(st.Cfg, "package_end_face", "service_smile"), st.SceneKey + " " + st.Emotion);
+            Check("package end: the idle scene; the package's face is Muse's, held (PR #46 §2: not the end face)",
+                  !bp.Busy && st.SceneKey == "idle" && st.Emotion == "gentle" && st.MuseLabel == "gentle", st.SceneKey + " " + st.Emotion + " held " + st.MuseLabel);
             yield return Wait(2.5f);
             var state = Json.Parse(Http("GET", "/api/state", null));
+            var stFace = Json.Obj(state, "face");
+            Check("bridge: the state's face - the face Muse holds, its time left, the face shown (PR #46 §2)",
+                  Json.Str(stFace, "muse") == "gentle" && Json.Num(stFace, "muse_left", -1) > 0 && Json.Str(stFace, "shown") == "gentle", Json.Write(stFace));
+            st.ReleaseMuse("check");                 // (the checks after this one start from the talk's own face, as before)
+            var stEndFace = st.Face;
+            Check("package end: with no face of Muse's held, the end face as before", stEndFace == Json.Str(st.Cfg, "package_end_face", "service_smile"), stEndFace);
             Check("bridge: the state carries the location, the scene and the app", Json.Str(Json.Obj(state, "location"), "key") == "myroom"
                   && Json.Str(Json.Obj(state, "scene"), "key") == "idle" && Json.Obj(state, "app") != null
                   && Json.Obj(state, "app")["connected"] is bool && (bool)Json.Obj(state, "app")["connected"], Json.Write(state).Substring(0, Math.Min(300, Json.Write(state).Length)));
@@ -1948,6 +1955,57 @@ namespace MuseStudio
                   tfNewer == "teasing" && tfNewerLeft > 11.5f && tfUnder == "preset:aroused" && tfBack == "service_smile",
                   tfNewer + " (" + tfNewerLeft.ToString("F1") + ") / " + tfUnder + " / " + tfBack);
             st.ApplyFace("service_smile");
+
+            // 4b. (PR #46 §2) Muse's face held: past its own seconds; a label of a moment (ecstasy) goes back to it; a face of the
+            //     app's with nothing to put it back comes back to it; the state tells it; the safety time ends it; so do a change
+            //     of scene and another face of Muse's; in a play it stays over the gauge's default
+            tc.PackageFace();
+            st.MuseFace("teasing");
+            st.EndTemporaryForCheck();
+            yield return null;
+            yield return null;
+            bool mhKept = st.Face == "teasing" && st.MuseLabel == "teasing";
+            st.MuseFace("ecstasy");
+            bool mhMoment = st.MuseLabel == "teasing" && st.Face == "ecstasy";
+            st.EndTemporaryForCheck();
+            yield return null;
+            yield return null;
+            bool mhBack = st.Face == "teasing";
+            st.ApplyPreset("aroused");
+            yield return null;
+            st.AgeAppFaceForCheck(5f);
+            yield return null;
+            yield return null;
+            bool mhAppBack = st.Face == "teasing";
+            var mhInfo = st.FaceInfo();
+            bool mhState = Json.Str(mhInfo, "muse") == "teasing" && Json.Num(mhInfo, "muse_left", -1) > 290;
+            st.AgeMuseForCheck(400f);
+            yield return null;
+            yield return null;
+            bool mhSafety = st.MuseLabel == "" && st.Face == st.SceneDefault() && st.MuseReleasedBy == "safety";
+            st.MuseFace("gentle");
+            st.MuseFace("teasing");
+            bool mhNext = st.MuseLabel == "teasing" && st.MuseReleasedBy == "next";
+            yield return Wait(1.2f);                 // (past the boundary's grace: not a face given for the next scene)
+            h.Gauge.Value = 0.6f;
+            string mhPlayErr = pc.Begin("aibu_00", "check", "here");
+            yield return Wait(0.8f);
+            bool mhScene = st.MuseLabel == "" && st.MuseReleasedBy == "scene";
+            tc.PackageFace();
+            st.MuseFace("desire");
+            st.EndTemporaryForCheck();
+            yield return null;
+            yield return null;
+            bool mhPlay = st.Face == "desire" && st.MuseLabel == "desire";
+            pc.End("check");
+            yield return Wait(0.5f);
+            Check("faces: Muse's face held - past its seconds; ecstasy goes back to it; an app face comes back to it; the state tells it; the safety time, Muse's next face and a change of scene end it; held over the play's gauge default",
+                  mhKept && mhMoment && mhBack && mhAppBack && mhState && mhSafety && mhNext && mhPlayErr == "" && mhScene && mhPlay,
+                  string.Format("kept {0} moment {1} back {2} app {3} state {4} safety {5} next {6} play '{7}' scene {8} in play {9}",
+                                mhKept, mhMoment, mhBack, mhAppBack, Json.Write(mhInfo), mhSafety, mhNext, mhPlayErr, mhScene, mhPlay));
+            st.ReleaseMuse("check");
+            st.ApplyFace("service_smile");
+            tc.PackageFace();
 
             // 5. Muse starts or changes a normal play (only on the user's wish in the chat): checked again as the block shows - aimed
             //    at this launch and character, a request not seen before, the play_serial Muse saw, the room, the panel's

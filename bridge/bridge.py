@@ -116,7 +116,7 @@ MAX_EVENT_IDS = 4096           # the app's event ids remembered (a resent event 
 # "rate_limits" may set others. With auth off every request is one sender ("all"); requests without a token are "anon".
 RATE_LIMITS = {"muse": [20, 100], "app": [100, 400], "all": [120, 500], "anon": [20, 100]}
 APP_SEEN_SECONDS = 5.0         # the app polls /api/packages/next every second: "connected" if it did within this
-STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "emotion", "camera", "package", "gauge", "play", "mood",
+STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "emotion", "face", "camera", "package", "gauge", "play", "mood",
                 "beat", "presence", "belief", "urges", "outing", "her_location", "relationship", "clothes", "app_name", "match")
 SPEAKERS = ("self", "opponent")        # package.speaker (the match: the opponent's package, forwarded by the local Muse)
 MATCH_PHASES = ("intro", "negotiation", "sex", "end")

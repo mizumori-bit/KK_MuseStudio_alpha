@@ -419,7 +419,7 @@ namespace MuseStudio
         bool ApplyFace(string label, bool restoring)
         {
             // (put back after a reaction or her climax when its own time is over: the scene's default, not a flash of it)
-            if (restoring && tempLabel == label && Time.realtimeSinceStartup >= tempUntil) return ApplyFace(SceneDefault(), false);
+            if (restoring && tempLabel == label && Time.realtimeSinceStartup >= tempUntil) return ApplyFace(FaceBack(), false);
             if (!ApplyCells(Json.Arr(Json.Obj(Json.Obj(faces, "labels"), label), "cells"))) return false;
             Emotion = label;
             Face = label;
@@ -430,6 +430,7 @@ namespace MuseStudio
                 tempLabel = label;
                 tempUntil = Time.realtimeSinceStartup + FaceSeconds(label);
             }
+            if (label == MuseLabel) tempLabel = "";       // (Muse's face held: no timer of its own)
             tempSerial = faceSerial;
             return true;
         }
@@ -446,6 +447,94 @@ namespace MuseStudio
         int faceSerial, tempSerial;
 
         Dictionary<string, object> FaceReturn { get { return Json.Obj(faces, "return"); } }
+
+        // ---- Muse's face held (PR #46 §2: the owner's decision of 2026-11-07, way A; handed over in PR #47) ----
+        // A face Muse gives (a block's emotion) is held: the scene's default - her gauge's in a play - does not take it over, its
+        // seconds do not end it, and the app's faces of a moment (a touch's reaction, her climax in the talk, a face with nothing
+        // to put it back) come back to it. It ends at Muse's next face, at a change of scene (the afterglow is one, as before:
+        // its own face then), at another character, or after the safety time (the setting, 300 s by default) from when it began
+        // to show; then what was kept to come back to it goes to the scene's default instead. A label of a moment (faces.json
+        // return.transient: ecstasy) is not held: after its seconds it goes back to the face held under it. The app's own
+        // faces (ApplyFace from the app) keep their timers as before - the fallback when Muse holds nothing.
+        public string MuseLabel = "";        // the face held ("": none)
+        float museSince = -1f;
+        public float MuseHoldSeconds        // (the setting "表情を保つ安全時間", 300 s by default)
+        {
+            get { var e = MuseStudioPlugin.Instance != null ? MuseStudioPlugin.Instance.FaceHoldSeconds : null; return e != null ? e.Value : 300f; }
+        }
+        public int MuseReleases;              // (checks)
+        public string MuseReleasedBy = "";    // (checks) why the last hold ended: next / scene / character / safety
+
+        public bool Transient(string label)
+        {
+            var t = Json.Arr(FaceReturn, "transient");
+            return t != null && label != null && t.Contains(label);
+        }
+
+        // Muse's face (a block's emotion): shown, and held unless it is a label of a moment
+        public bool MuseFace(string label)
+        {
+            if (!ApplyFace(label))
+            {
+                if (!ApplyFace("neutral")) return false;      // (an unknown label: the standard face - MUSE_GUIDE 4)
+                label = "neutral";
+            }
+            if (Transient(label)) return true;                // (its seconds as ever; then the face held under it)
+            if (MuseLabel.Length > 0 && MuseLabel != label) { MuseReleases++; MuseReleasedBy = "next"; }
+            MuseLabel = label;
+            museSince = Time.realtimeSinceStartup;
+            tempLabel = "";
+            return true;
+        }
+
+        // what a face of the app's comes back to: the face Muse holds, else the scene's default
+        public string FaceBack() { return MuseLabel.Length > 0 ? MuseLabel : SceneDefault(); }
+
+        // the hold ends: what was kept to come back to it goes to the scene's default; shown, it changes to that now
+        public void ReleaseMuse(string why, bool show = true)
+        {
+            if (MuseLabel.Length == 0) return;
+            string was = MuseLabel, to = SceneDefault();
+            MuseLabel = "";
+            museSince = -1f;
+            MuseReleases++;
+            MuseReleasedBy = why;
+            var host = MuseStudioPlugin.Instance;
+            if (host.Touch.RestoreFace == was) host.Touch.RestoreFace = to;
+            if (climaxFaceBack == was) climaxFaceBack = to;
+            host.HeldFaceReleased(was, to);
+            if (!show || Face != was || Heroine == null) return;
+            if (!ApplyFace(to, false)) ApplyFace("neutral", false);
+            if (Face == to) tempLabel = "";
+            faceAppliedAt = -9f;
+            SceneGaze();
+        }
+
+        public float MuseLeft { get { return MuseLabel.Length > 0 ? Mathf.Max(0f, MuseHoldSeconds - (Time.realtimeSinceStartup - museSince)) : -1f; } }
+        internal void AgeMuseForCheck(float seconds) { if (MuseLabel.Length > 0) museSince -= seconds; }
+
+        void MuseHoldTick()
+        {
+            if (MuseLabel.Length > 0 && Time.realtimeSinceStartup - museSince >= MuseHoldSeconds) ReleaseMuse("safety");     // (museSince is a time while MuseLabel is held, whatever its sign)
+        }
+
+        // the state's face (MUSE_GUIDE 7.4): the face Muse holds and its time left, the face shown, and a face of a moment over
+        // it (what it is and what ends it)
+        public Dictionary<string, object> FaceInfo()
+        {
+            var host = MuseStudioPlugin.Instance;
+            object temp = null;
+            if (AppFace && host.Gauge.Phase != "afterglow")
+            {
+                string kind = Climaxing || host.ClimaxFaceShown ? "climax" : host.Touch.RestoreFace.Length > 0 || ReactUntil >= 0f ? "touch" : "app";
+                temp = new Dictionary<string, object> { { "kind", kind }, { "ends", kind == "climax" ? "climax" : kind == "touch" ? "reaction" : "seconds" } };
+            }
+            else if (MuseLabel.Length > 0 && Face != MuseLabel && tempLabel.Length > 0 && Face == tempLabel && Transient(Face))
+                temp = new Dictionary<string, object> { { "kind", "short_label" }, { "ends", "seconds" },
+                    { "left", Math.Round(Mathf.Max(0f, tempUntil - Time.realtimeSinceStartup), 1) } };
+            return new Dictionary<string, object> { { "muse", MuseLabel.Length > 0 ? (object)MuseLabel : null },
+                { "muse_left", MuseLabel.Length > 0 ? (object)Math.Round(MuseLeft, 1) : null }, { "shown", Face }, { "temporary", temp } };
+        }
 
         float FaceSeconds(string label)
         {
@@ -505,6 +594,8 @@ namespace MuseStudio
             string was = faceSceneWas;
             faceSceneWas = now;
             SceneGaze();                                                    // (the look of the scene before: not carried over)
+            bool givenNow = Time.realtimeSinceStartup - faceAppliedAt < (float)Json.Num(FaceReturn, "boundary_grace_seconds", 1.0);
+            if (!(givenNow && MuseLabel.Length > 0 && Face == MuseLabel)) ReleaseMuse("scene", false);
             if (now == "afterglow" || Heroine == null) return;              // (her climax's own faces)
             bool appFace = AppFace;
             if (appFace && AppFacePending) return;                          // (a reaction's / her climax's face that puts its own back)
@@ -549,7 +640,7 @@ namespace MuseStudio
             if (appFaceSince < 0f) { appFaceSince = now; return; }
             if (now - appFaceSince < (float)Json.Num(FaceReturn, "app_face_seconds", 3.0)) return;
             appFaceSince = -1f;
-            string to = SceneDefault();
+            string to = FaceBack();
             if (!ApplyFace(to, false)) ApplyFace("neutral", false);
             if (Face == to) tempLabel = "";
             faceAppliedAt = -9f;
@@ -562,7 +653,7 @@ namespace MuseStudio
             AppFaceTick();
             if (tempLabel.Length == 0 || Heroine == null || Time.realtimeSinceStartup < tempUntil) return;
             if (tempSerial != faceSerial || Face != tempLabel) return;       // (another face on it now: when that one is put back)
-            string was = tempLabel, to = SceneDefault();
+            string was = tempLabel, to = FaceBack();
             tempLabel = "";
             if (to == was) return;                                          // (the scene's default already: it stays)
             if (!ApplyFace(to, false)) ApplyFace("neutral", false);
@@ -989,6 +1080,7 @@ namespace MuseStudio
             BlushTick(Time.deltaTime);
             SceneFaceTick();
             TempFaceTick();
+            MuseHoldTick();
             if (Heroine != null && !MuseStudioPlugin.Instance.Play.Active && !Walking && Heroine.animeSpeed != speedTarget)
                 Heroine.animeSpeed = Mathf.MoveTowards(Heroine.animeSpeed, speedTarget, Mathf.Max(speedRate, 0.01f) * Time.deltaTime);
             if (ReactUntil < 0f) return;

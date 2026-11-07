@@ -49,6 +49,7 @@ namespace MuseStudio
         internal ConfigEntry<Color> SilhouetteColor;
         internal ConfigEntry<float> YourHeight;
         internal ConfigEntry<float> GaugeSpeed, ArousalSpeed;      // (PR #9 adopted: the speeds the user sets on the screen; Muse told when the settings close)
+        internal ConfigEntry<float> FaceHoldSeconds;      // (PR #46 §2: Muse's face held at most this long)
         internal ConfigEntry<bool> MatchBroadcast, MatchKeepMood, MatchRecord;
         internal ConfigEntry<float> MatchArousalStart;
         internal ConfigEntry<string> MatchNotice, MatchFormat;
@@ -87,6 +88,9 @@ namespace MuseStudio
         internal ConfigEntry<string> RoomKeys;
         Ui ui;
         string climaxFace = "";       // the face to put back when the afterglow ends
+        internal bool ClimaxFaceShown { get { return climaxFace.Length > 0 && Stage != null && Stage.Face == "preset:ecstasy"; } }
+        // (Muse's held face ended while it was kept to come back to after her climax: the scene's default instead)
+        internal void HeldFaceReleased(string was, string to) { if (climaxFace == was) climaxFace = to; }
         float nextState;
         string lastState = "";
 
@@ -161,6 +165,9 @@ namespace MuseStudio
             YourHeight = Config.Bind("Play", "Your height (male body)", 0.6f, Ja("プレイ", "あなたの体の身長（男性の体）",
                 "男性の体の身長（0.35〜0.85。原作の男性は 0.6 固定で、キャラメイクに欄がありません）。体位は 0.6 の体で作られていて、ずれは腰の位置で合わせます。", 13,
                 new AcceptableValueRange<float>(0.35f, 0.85f)));
+            FaceHoldSeconds = Config.Bind("Stage", "Face hold safety seconds", 300f, Ja("舞台", "表情を保つ安全時間（秒）",
+                "Muse が付けた表情を保つ長さの上限（秒）。Muse の次の表情・場面の切り替えまで保ちますが、Muse から何も届かないままこの時間が過ぎたら、場面のふつうの表情に戻します（表情が固まらないための保険）。", 20,
+                new AcceptableValueRange<float>(30f, 3600f)));
             GaugeSpeed = Config.Bind("Gauge", "Pleasure speed", 1f, Ja("ゲージ", "快感度の上がる速さ",
                 "彼女の快感度ゲージの上がる速さの倍率（1＝今までどおり）。おさわり・プレイ・場面のすべてに掛かります。変えて設定を閉じると、変わったことが Muse に伝わります。", 0,
                 new AcceptableValueRange<float>(0.25f, 4f)));
@@ -714,7 +721,7 @@ namespace MuseStudio
                 { "character", Chars.Info() }, { "outfit", Stage.Cha != null ? CharaSummary.OutfitNow(Stage.Cha) : null },
                 { "location", Stage.LocationInfo(Outing.Out && Outing.KnownRoom.Length > 0 ? Outing.KnownRoom : Presence.Apart ? Presence.HerRoom : Stage.Location) },     // (her knowledge of where he is: out, or he went alone - where she last saw him)
                 { "scene", Play.Active ? Play.SceneInfo() : new Dictionary<string, object> { { "key", Stage.SceneKey }, { "intensity", Stage.Intensity }, { "speed", Stage.Speed } } },
-                { "emotion", Stage.Emotion }, { "camera", Stage.CameraKey }, { "package", Blocks.Info() }, { "play", Play.Info() }, { "play_serial", Play.Serial },
+                { "emotion", Stage.Emotion }, { "face", Stage.FaceInfo() }, { "camera", Stage.CameraKey }, { "package", Blocks.Info() }, { "play", Play.Info() }, { "play_serial", Play.Serial },
                 { "gauge", Gauge.Info() }, { "beat", Beat.Info() }, { "mood", Mood.Info() },
                 { "presence", Presence.Info() }, { "belief", Presence.BeliefInfo() }, { "urges", Urges.Info() }, { "outing", Outing.Info() },
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },
