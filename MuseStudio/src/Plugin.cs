@@ -42,7 +42,7 @@ namespace MuseStudio
         internal ConfigEntry<int> YourClothes;
         internal ConfigEntry<KeyboardShortcut> HitShapesKey;
         internal ConfigEntry<KeyboardShortcut> HideUiKey;
-        ConfigEntry<string> resetCameraEntry, resetPlacesEntry;
+        ConfigEntry<string> resetCameraEntry, resetPlacesEntry, scanRoomsEntry;
         internal ConfigEntry<KeyboardShortcut> BodyShownKey, PenisShownKey, SilhouetteKey, TranslucentKey;
         internal ConfigEntry<bool> YourBodyShown, YourPenisShown, YourSilhouette, YourTranslucent;
         internal ConfigEntry<float> TranslucentAlpha;
@@ -76,6 +76,8 @@ namespace MuseStudio
         internal Chars Chars;
         internal Sounds Sounds;
         internal Rooms Rooms = new Rooms();
+        internal Places Places;                    // (PR #46 §4.1: every room registered at start-up)
+        internal ConfigEntry<int> ExtraRooms;      // (PR #46 §4.1: extra rooms kept loaded)
         internal Launch Launch;
         internal Personas Personas;
         internal Presence Presence;
@@ -138,12 +140,20 @@ namespace MuseStudio
                 "部屋ごとに覚えたカメラの位置・角度を、全部の部屋で消します（次からは最初のカメラ）。ボタンを 2 回押すと消えます。", null,
                 new ConfigurationManagerAttributes { Category = "舞台", DispName = "カメラの記憶を初期値に戻す", Order = -7, HideDefaultButton = true,
                     CustomDrawer = e => ResetButton("camera", "全部の部屋のカメラの記憶を消す", () => CameraMemory.ResetAll()) }));
+            // every room's features beforehand (PR #46 §4.1: otherwise taken when a room is first loaded)
+            scanRoomsEntry = Config.Bind("Stage", "Take all rooms features", "", new ConfigDescription(
+                "登録したすべての部屋の H の場所の種類を、今まとめて調べます（部屋は読み込みません。部屋が多いと数分かかります。調べた部屋は Muse に知らせます）。ふだんは、その部屋に初めて行ったときに調べます。", null,
+                new ConfigurationManagerAttributes { Category = "舞台", DispName = "部屋の特徴を全部調べる", Order = -9, HideDefaultButton = true,
+                    CustomDrawer = e => ScanRoomsButton() }));
             resetPlacesEntry = Config.Bind("Stage", "Reset position adjustments", "", new ConfigDescription(
                 "「この部屋の位置を調整」で直したプレイ位置・行動の位置・立ち位置・近付くの行き先を、全部の部屋で原作の位置（初期値）に戻します。「今の位置をデフォルトにする」で保存したデフォルトは残り、各位置の「デフォルトに戻す」で戻せます。ボタンを 2 回押すと戻ります。", null,
                 new ConfigurationManagerAttributes { Category = "舞台", DispName = "位置の調整を初期値に戻す", Order = -8, HideDefaultButton = true,
                     CustomDrawer = e => ResetButton("places", "全部の部屋の位置の調整を戻す", () => SpotEditor.ResetAll()) }));
             RoomKeys = Config.Bind("Stage", "Rooms", "myroom,girls_room,bathroom,home_toilet,bedroom", Ja("舞台", "最初から並べて置く部屋",
                 "起動時にシーンへ並べて読み込む場所（MuseStudio/data/locations.json のキーをカンマ区切り）。並べた部屋の間の移動は一瞬で、どこからでも彼女がトイレ・シャワーへ行けます。それ以外の場所は移るときに読み込みます。再起動で効きます。", 3));
+            ExtraRooms = Config.Bind("Stage", "Extra rooms kept loaded", 6, Ja("舞台", "読み込んだまま置く部屋の数",
+                "「最初から並べて置く部屋」のほかに、行った部屋を読み込んだまま置いておく数です（多いほど戻るのが一瞬、メモリを使います。1 部屋でおよそ 0.1〜0.4 GB）。超えたら、使っていない部屋から古い順に外します（今いる部屋・彼女がいる部屋・彼女の行動の部屋は外しません）。", 3,
+                new AcceptableValueRange<int>(0, 20)));
             CondomMode = Config.Bind("Play", "Condom", "ask", Ja("プレイ", "ゴム", "挿入のプレイのゴム：ask＝毎回 Muse が聞く、on＝いつも付ける、off＝いつも付けない。", 0,
                 new AcceptableValueList<string>("ask", "on", "off")));
             YourBody = Config.Bind("Play", "Your body", "male", Ja("プレイ", "あなたの体", "プレイでのあなたの体：male＝男性の体、female＝女性の体。", 1,
@@ -323,6 +333,9 @@ namespace MuseStudio
                                                                         : Path.Combine(Paths.GameRootPath, Path.Combine("UserData", Path.Combine("MuseStudio", "moods.json"))));
             Touch.Touched = area => Mood.OnTouch(area);
             Coords = new Coordinates(this, Path.Combine(Paths.GameRootPath, Path.Combine("UserData", "coordinate")));
+            string checkRooms;
+            Places = new Places(this, Args.TryGetValue("check", out checkRooms) ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(checkRooms)), "rooms.json")
+                                                                               : Path.Combine(Paths.GameRootPath, Path.Combine("UserData", Path.Combine("MuseStudio", "rooms.json"))));
             Coords.Scan();
             ui = new Ui(this);
             // the scene raises her gauge while its block is being presented (no voice: its grace after the text is out)
@@ -500,6 +513,15 @@ namespace MuseStudio
         // a reset button in the settings: the first press arms it (4 s), the second does it
         readonly Dictionary<string, float> resetArmed = new Dictionary<string, float>();
         readonly Dictionary<string, float> resetDone = new Dictionary<string, float>();
+
+        void ScanRoomsButton()
+        {
+            if (Places == null) return;
+            if (Places.Scanning) { GUILayout.Label("調べています（残り " + Places.ScanLeft + " 部屋）"); return; }
+            int left = Places.All.FindAll(x => x.Features == null).Count;
+            if (left == 0) { GUILayout.Label("全部の部屋を調べ終えています"); return; }
+            if (GUILayout.Button("まだの " + left + " 部屋を調べる", GUILayout.ExpandWidth(true)) && Stage != null && Stage.Ready) StartCoroutine(Places.ScanAll());
+        }
 
         void ResetButton(string key, string label, Action act)
         {
@@ -708,6 +730,7 @@ namespace MuseStudio
 
         IEnumerator MoveRoutine(string key, string source)
         {
+            key = Places != null ? (Places.KeyOf(key) ?? key) : key;      // (named by its id: its key - PR #46 §4.1)
             if (key == Stage.Location || !Stage.Reachable(key)) yield break;
             if (Play.Active) Play.End("location");
             string prev = Stage.Location;
@@ -813,7 +836,8 @@ namespace MuseStudio
             Bridge.Post("/api/catalog", new Dictionary<string, object> { { "version", 1 }, { "groups", groups }, { "places", places }, { "parts", parts },
                 { "pace", Json.Arr(Json.Obj(Play.Doc, "pace_info"), "names") ?? new List<object>() },
                 { "plays", plays }, { "location", Stage.Location }, { "spots", spotRows }, { "available", ids }, { "participants", who },
-                { "coordinates", Coords != null ? Coords.Catalog() : new List<object>() } });
+                { "coordinates", Coords != null ? Coords.Catalog() : new List<object>() },
+                { "rooms", Places != null ? Places.Catalog() : new List<object>() } });
         }
 
         // the card on the stage (before one is: the last character, else stage.json's)

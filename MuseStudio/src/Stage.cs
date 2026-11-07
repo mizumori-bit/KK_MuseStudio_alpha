@@ -53,6 +53,9 @@ namespace MuseStudio
             Step("init scene");
             studio.InitScene(false);
             yield return null;
+            // every room, by name (PR #46 §4.1): Studio's maps - before the kept ones come in (their features then)
+            MuseStudioPlugin.Instance.Places.Register(locations);
+            Step("rooms registered " + MuseStudioPlugin.Instance.Places.Count);
             // the rooms kept in the scene (the setting "Rooms"): loaded once, now
             var keys = new List<string>();
             foreach (var k in MuseStudioPlugin.Instance.RoomKeys.Value.Split(',')) if (k.Trim().Length > 0) keys.Add(k.Trim());
@@ -93,37 +96,36 @@ namespace MuseStudio
 
         public IEnumerator SetLocation(string key)
         {
+            var places = MuseStudioPlugin.Instance.Places;
+            key = places != null ? (places.KeyOf(key) ?? key) : key;      // (named by its id: its key)
             var row = Json.Obj(Json.Obj(locations, "locations"), key);
             if (row == null) { MuseStudioPlugin.Log.LogWarning("MuseStudio: unknown location " + key); yield break; }
-            int no = (int)Json.Num(row, "map", -1);
-            Info.MapLoadInfo mi;
-            Rooms.Find(row, ref no, out mi);         // (a mod map: its number this run)
             var map = Singleton<Map>.Instance;
             var rooms = MuseStudioPlugin.Instance.Rooms;
             Moving = true;
             StopWalk(false);
-            if (rooms.Has(key))
+            if (!rooms.Has(key))
             {
-                // a room kept in the scene: instant (Studio's own map, if one is in, goes)
-                if (Ready && key != Location) MuseStudioPlugin.Instance.Sounds.Moving(Location, key);
-                if (map.no != -1) { map.ReleaseMap(); yield return null; }
-                rooms.Show(key);
-                yield return null;
+                // a room not loaded (PR #46 §4.1): in beside the others now, as the kept ones came in - Studio's own map beside
+                // them showed broken (the trial run of 2026-11-03); not usable before it is in
+                yield return rooms.LoadLazy(key, row);
+                if (!rooms.Has(key))
+                {
+                    Moving = false;
+                    MuseStudioPlugin.Log.LogWarning("MuseStudio: room " + key + " could not be loaded: the place stays");
+                    yield break;
+                }
             }
-            else if (map.no != no)
-            {
-                rooms.Show(null);
-                if (Ready) MuseStudioPlugin.Instance.Sounds.Moving(Location, key);      // the door (not at the start)
-                Singleton<Studio.Studio>.Instance.AddMap(no, true, false, true);
-                float t0 = Time.realtimeSinceStartup;
-                yield return null;
-                while ((map.isLoading || map.no != no) && Time.realtimeSinceStartup - t0 < 30f) yield return null;
-                Step("map " + no + " loaded=" + (map.no == no));
-                yield return null;
-            }
+            // instant from here (Studio's own map, if one is in, goes)
+            if (Ready && key != Location) MuseStudioPlugin.Instance.Sounds.Moving(Location, key);
+            if (map.no != -1) { map.ReleaseMap(); yield return null; }
+            rooms.Show(key);
+            rooms.Touch(key);
+            yield return null;
             Moving = false;
             Location = key;
             LoadSpots(row);
+            TrimRooms();
             if (Ready) MuseStudioPlugin.Instance.Sounds.Entered(key);
             if (Heroine != null && !MuseStudioPlugin.Instance.Outing.Out && MuseStudioPlugin.Instance.Presence.HerAt.Length == 0) Place(Heroine);     // (out on her own, or left where she is: she stays there)
             if (Partner != null)
@@ -272,13 +274,54 @@ namespace MuseStudio
         public Dictionary<string, object> LocationInfo(string key)
         {
             var row = Json.Obj(Json.Obj(locations, "locations"), key);
-            return new Dictionary<string, object> { { "key", key }, { "name", row != null ? Json.Str(row, "name", key) : key },
+            var places = MuseStudioPlugin.Instance.Places;
+            return new Dictionary<string, object> { { "key", key }, { "id", places != null ? places.IdOf(key) : key }, { "name", row != null ? Json.Str(row, "name", key) : key },
                 { "summary", Json.Str(row, "summary", "") }, { "tags", Json.Arr(row, "tags") ?? new List<object>() } };
         }
 
-        // the places one can go: the rooms kept in the scene (the setting Rooms), in its order. A location outside them would
-        // be Studio's own map loaded beside the kept rooms, and that shows broken (its lightmaps among theirs: the trial run of
-        // 2026-11-03) - more places are added to the setting.
+        // the extra rooms past the setting's number let go - never the room shown, hers, her outing's (PR #46 §4.1)
+        public void TrimRooms()
+        {
+            var h = MuseStudioPlugin.Instance;
+            var keep = new HashSet<string>();
+            if (!string.IsNullOrEmpty(Location)) keep.Add(Location);
+            if (!string.IsNullOrEmpty(h.Presence.HerRoom)) keep.Add(h.Presence.HerRoom);
+            if (h.Outing.Out && !string.IsNullOrEmpty(h.Outing.Room)) keep.Add(h.Outing.Room);
+            h.Rooms.Trim(h.ExtraRooms != null ? h.ExtraRooms.Value : 6, keep);
+        }
+
+        // a room loaded, without showing it (she goes there on her own, her outing's): PR #46 §4.1
+        public IEnumerator EnsureRoom(string key)
+        {
+            var rooms = MuseStudioPlugin.Instance.Rooms;
+            if (rooms.Has(key)) { rooms.Touch(key); yield break; }
+            var row = Json.Obj(Json.Obj(locations, "locations"), key);
+            if (row == null) yield break;
+            yield return rooms.LoadLazy(key, row);
+            rooms.Touch(key);
+        }
+
+        // every room one can go to (PR #46 §4.1: all registered): the kept rooms first (the home - the setting's order: the
+        // user's note of 2026-11-07, not lost among many), then the other curated ones, the original's maps, the mods'
+        public List<string> AllLocationKeys()
+        {
+            var o = new List<string>();
+            var places = MuseStudioPlugin.Instance.Places;
+            if (places == null) return o;
+            foreach (var k in LocationKeys()) if (places.ByKey(k) != null && !o.Contains(k)) o.Add(k);
+            var all = places.All;
+            foreach (var e in all) if (e.Curated && !o.Contains(e.Key)) o.Add(e.Key);
+            var orig = all.FindAll(e => !e.Curated && e.Id.StartsWith("orig:"));
+            orig.Sort((a, c) => a.MapNo.CompareTo(c.MapNo));
+            foreach (var e in orig) o.Add(e.Key);
+            var mods = all.FindAll(e => !e.Curated && !e.Id.StartsWith("orig:"));
+            mods.Sort((a, c) => string.Compare(a.Name, c.Name, StringComparison.OrdinalIgnoreCase));
+            foreach (var e in mods) o.Add(e.Key);
+            return o;
+        }
+
+        // the usual places (いつもの部屋): the rooms kept in the scene (the setting Rooms), in its order (none kept: the curated
+        // ones). Every other registered room is a place too (AllLocationKeys), loaded when one goes there (PR #46 §4.1).
         public IEnumerable<string> LocationKeys()
         {
             var d = Json.Obj(locations, "locations");
@@ -286,13 +329,14 @@ namespace MuseStudio
             var rooms = MuseStudioPlugin.Instance.Rooms;
             bool any = false;
             foreach (var k in rooms.Keys) if (d.ContainsKey(k)) { any = true; yield return k; }
-            if (!any) foreach (var k in d.Keys) yield return k;      // (no kept rooms: every location, one at a time)
+            if (!any) foreach (var k in d.Keys) if (!Json.Has(Json.Obj(d, k), "auto")) yield return k;
         }
 
+        // a place one can go: a registered room, named by its key or its id
         public bool Reachable(string key)
         {
-            foreach (var k in LocationKeys()) if (k == key) return true;
-            return false;
+            var places = MuseStudioPlugin.Instance.Places;
+            return places != null && places.KeyOf(key) != null;
         }
 
         // Where the characters stand on this map: stage.json spots (location -> [x, y, z, yaw]), else the location's stand

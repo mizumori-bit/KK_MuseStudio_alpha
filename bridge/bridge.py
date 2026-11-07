@@ -731,7 +731,9 @@ class State:
         self.app_state: dict | None = None
         self.app_state_time: str | None = None
         self.catalog: dict | None = None          # the app's play catalog (POST /api/catalog)
-        self.labels = labels.LabelStore(cfg.get("_labels_file") or Path(cfg["_events_file"]).parent / "labels.json")     # (PR #46 §1)
+        lf = Path(cfg.get("_labels_file") or Path(cfg["_events_file"]).parent / "labels.json")
+        # (PR #46 §1; the labels written beforehand, §4.3: the repository's for the original's rooms, this PC's for its mod rooms)
+        self.labels = labels.LabelStore(lf, [HERE / "room_labels.json", lf.parent / "room_labels.local.json"])
         self.catalog_time: str | None = None
         self.app_seen = 0.0
         self.instances: dict[str, dict] = {}     # app window id -> {"started": ms, "seen": time}

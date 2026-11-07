@@ -19,6 +19,22 @@ import time
 import urllib.request
 from pathlib import Path
 
+GAMES = ("CharaStudio.exe", "Koikatu.exe", "KoikatsuSunshine.exe")
+
+
+def games_running() -> list[str]:
+    """the game's programs already open on this PC (Windows' task list): a second start may end at once"""
+    try:
+        out = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    names = set()
+    for line in out.splitlines():
+        name = line.split('","')[0].strip('"')
+        if name in GAMES:
+            names.add(name)
+    return sorted(names)
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent              # the project
 GAME = HERE.parent / "game"
@@ -66,6 +82,10 @@ def main() -> int:
         else:
             print("CHECK FAIL test bridge did not start")
             return 1
+        running = games_running()
+        if running:
+            print(f"CHECK FAIL the game is already open ({', '.join(running)}): close it, then run the checks")
+            return 1
         t0 = time.time()
         game = subprocess.Popen([str(GAME / "CharaStudio.exe"), f"--muse-bridge=http://127.0.0.1:{a.port}", f"--muse-check={results}",
                                  f"--muse-bridge-tokens={tmp / 'tokens.json'}"]
@@ -87,7 +107,10 @@ def main() -> int:
         if not done and "CHECK SUMMARY" in text:
             done = True                                   # (written at the very end of the time: they did finish)
         print(text.rstrip() or "(no results)")
-        if not done:
+        if not done and quit_alone and time.time() - t0 < 120:
+            print(f"CHECK FAIL the game ended by itself {time.time() - t0:.0f} s after it started, before the checks began (exit code "
+                  f"{game.returncode}; another game open meanwhile? {', '.join(games_running()) or 'none now'})")
+        elif not done:
             print(f"CHECK FAIL the checks did not finish in {a.timeout:.0f} s (see game/BepInEx/LogOutput.log)")
         if done:
             print("NOTE the game closed by itself at the end (the quit marker: no 終了しますか？)" if quit_alone else "NOTE the game did not close by itself (killed)")

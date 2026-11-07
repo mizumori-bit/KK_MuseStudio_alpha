@@ -13,6 +13,11 @@ A label the user wrote ("by": "user") is not written over by Muse (the user's ow
 before anything is read or written the file is looked at again and an edit made outside is taken as it is - never written
 over unread; a file that does not read as labels while running (an edit half done) is kept as it is and nothing is written
 until it reads; a save finds the file changed since it was read (an edit at that very moment) and does not write over it.
+
+Labels written beforehand (PR #46 §4.3): files of {kind: {id: {"text", "tags"}}} - the repository's for the original's rooms
+(bridge/room_labels.json), this PC's own for its mod rooms (bridge/cache/room_labels.local.json, never in the repository;
+the later file wins) - put in for an id the app lists that has no label yet ("by": "preset", rev 1). Muse may write over
+one (it read its rev); the user's own still wins.
 Standard library only.
 """
 from __future__ import annotations
@@ -44,15 +49,38 @@ def _now() -> str:
 
 
 class LabelStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, presets=None):
         self.path = Path(path)
         self.doc: dict = {k: {} for k in KINDS}
+        self.presets: dict = {k: {} for k in KINDS}
+        for f in presets or []:
+            self._read_presets(Path(f))
         self.frozen = ""            # (why nothing is written now; "" - it may be)
         self.unread = False
         self.seen = None            # ((mtime_ns, size), sha256) of the file as last read or written; None: there was none
         self._load()
 
     # ---- the file ----
+    def _read_presets(self, f: Path) -> None:
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as e:
+            sys.stderr.write(f"[bridge] the labels written beforehand in {f.name} not read ({e})\n")
+            return
+        n = 0
+        for kind in KINDS:
+            for lid, rec in ((doc.get(kind) if isinstance(doc, dict) else None) or {}).items():
+                text, tags = (rec or {}).get("text"), (rec or {}).get("tags", [])
+                if not isinstance(lid, str) or not isinstance(text, str) or not 1 <= len(text) <= MAX_TEXT:
+                    continue
+                if not isinstance(tags, list) or len(tags) > MAX_TAGS or not all(isinstance(x, str) and 1 <= len(x) <= MAX_TAG for x in tags):
+                    tags = []
+                self.presets[kind][lid] = {"text": text, "tags": list(tags)}
+                n += 1
+        sys.stderr.write(f"[bridge] labels written beforehand: {n} from {f.name}\n")
+
     def _stamp(self):
         st = self.path.stat()
         return (st.st_mtime_ns, st.st_size)
@@ -203,6 +231,13 @@ class LabelStore:
                     labels[iid] = rec
                     changed = True
                     sys.stderr.write(f"[bridge] label of {kind} {old} back on {iid} (the same contents)\n")
+            # the labels written beforehand: for what is listed and has none yet (PR #46 §4.3)
+            for iid, h in have.items():
+                pre = self.presets[kind].get(iid)
+                if iid not in labels and pre is not None and len(labels) < MAX_LABELS:
+                    labels[iid] = {"text": pre["text"], "tags": list(pre["tags"]), "by": "preset", "rev": 1, "hash": h,
+                                   "status": "ok", "updated": _now()}
+                    changed = True
         if changed:
             try:
                 self._save()

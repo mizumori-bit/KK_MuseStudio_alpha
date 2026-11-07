@@ -295,6 +295,7 @@ namespace MuseStudio
         {
             if (b == null) yield break;
             string loc = Json.Str(b, "location", null);
+            if (!string.IsNullOrEmpty(loc) && h.Places != null) loc = h.Places.KeyOf(loc) ?? loc;      // (named by its id: its key - PR #46 §4.1)
             bool opp = Speaker == "opponent";
             // Muse's start of a normal play with a move to another room while a play goes on: the move would end that play before
             // the start is judged, and a refused start must leave it as it was (GPT's review of PR #3) - neither is done, both
@@ -306,10 +307,9 @@ namespace MuseStudio
             if (!string.IsNullOrEmpty(loc) && (h.Match.Active || opp)) { Refuse("location", loc, "in_match"); loc = null; }       // (the match's room stays)
             if (!string.IsNullOrEmpty(loc) && loc != h.Stage.Location && !h.Stage.Reachable(loc))
             {
-                // a place not kept in the scene (MUSE_GUIDE.md 3.4: the places are the kept rooms): refused, the block shows here
-                var kept = new List<object>();
-                foreach (var k in h.Stage.LocationKeys()) kept.Add(k);
-                Refuse("location", loc, "not_kept", kept);
+                // no such room (MUSE_GUIDE.md 3.4: every registered room is a place - the catalog's rooms; PR #46 §4.1): refused,
+                // the block shows here
+                Refuse("location", loc, "unknown_location");
                 loc = null;
             }
             if (!string.IsNullOrEmpty(loc) && h.Presence.Apart && !opp)
@@ -318,7 +318,11 @@ namespace MuseStudio
                 h.Presence.HerAt = loc == h.Stage.Location ? "" : loc;
                 if (loc == h.Stage.Location) h.Presence.Cause = "she_came";
                 if (h.Presence.HerAt.Length == 0) h.Stage.Place(h.Stage.Heroine);
-                else h.Stage.PlaceIn(h.Stage.Heroine, loc);
+                else
+                {
+                    yield return h.Stage.EnsureRoom(loc);         // (a room not loaded: in first - PR #46 §4.1)
+                    h.Stage.PlaceIn(h.Stage.Heroine, loc);
+                }
                 if (h.Presence.HerAt.Length == 0) h.SendCatalog();
                 loc = null;
             }
