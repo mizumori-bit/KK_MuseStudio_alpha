@@ -250,13 +250,16 @@ class HoverFocus:
         # a change of the foreground since the last tick, while the cursor stayed on the panel - not one this class made (its
         # own switch sets last_fg to where it went), not one while the cursor was outside (GPT's re-review of #40: the
         # panel's own restore, then a quick way back in, read as the user's switch and the panel stopped taking the keyboard)
-        changed = bool(fg_root) and bool(self.last_fg) and fg_root != self.last_fg and self.was_over and over
+        prev_over = self.was_over
+        changed = bool(fg_root) and bool(self.last_fg) and fg_root != self.last_fg and prev_over and over
         if fg_root:
             self.last_fg = fg_root
         self.was_over = bool(over)
         if self.switched and fg and not on_panel:
-            self.reset()                      # (the user went elsewhere: theirs wins)
-            self.held = bool(over)            # (and while the cursor stays: not taken back)
+            self.reset()                      # (the user went elsewhere: theirs wins - nothing given back)
+            # (held only when the cursor was on the panel already: a switch made while it was outside, then a way back in,
+            # is a new hover - GPT's re-review of #42)
+            self.held = bool(over) and prev_over
             return self._note("user_switched")
         if not allowed:
             self.reset()
