@@ -344,7 +344,7 @@ class ConnectionLimits(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.b = Bridge(18895, extra=listener_cfg(table_file({"127.0.0.1": MUSE}), cls.LP, placeholder="off", read_seconds=2,
-                                                 max_connections=2), test=True)
+                                                 max_connections=2), test=True, log=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -379,6 +379,29 @@ class ConnectionLimits(unittest.TestCase):
         finally:
             s.close()
         self.assertEqual(self.b.call("GET", "/api/packages/status?session=stalled&turn=1", role="muse")[0], 404)
+
+    def test_a_get_with_a_length_and_no_body_is_answered(self):
+        # (2026-11-07: Muse's GET /api/state ended after 20 s with no answer; a length on a GET is not waited for - the
+        # bridge's ways to read take no body)
+        s = socket.create_connection(("127.0.0.1", self.LP))
+        try:
+            s.sendall(b"GET /health HTTP/1.1\r\nHost: mypc.tailnet.example\r\nContent-Length: 2\r\n\r\n")
+            s.settimeout(1.5)
+            self.assertRegex(s.recv(4096)[:20], rb"^HTTP/1\.[01] 200")
+        finally:
+            s.close()
+
+    def test_b_a_cut_is_written_in_the_log(self):
+        s = socket.create_connection(("127.0.0.1", self.LP))
+        try:
+            s.sendall(b"POST /api/packages HTTP/1.1\r\nHost: mypc.tailnet.example\r\nContent-Type: application/json\r\n"
+                      b"Content-Length: 300\r\n\r\n{")
+            self.assertTrue(self.closed_within(s, 6))
+        finally:
+            s.close()
+        time.sleep(0.3)
+        log = self.b.log.read_text(encoding="utf-8", errors="replace")
+        self.assertRegex(log, r"muse listener cut a request not complete in 2 s: POST /api/packages - while reading its body \(Content-Length 300\)")
 
     def test_past_the_number_a_connection_is_closed_at_once(self):
         held = [socket.create_connection(("127.0.0.1", self.LP)) for _ in range(2)]
