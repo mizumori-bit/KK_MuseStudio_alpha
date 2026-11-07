@@ -333,6 +333,18 @@ namespace MuseStudio
             yield return null;
             Check("keys: the keys one can press shown at the top (the setting, default on: Space, F1, Studio's UI key, the camera's)", h.KeyHints.Value
                   && h.UiForCheck.KeyHintsNow.Contains("F1") && h.UiForCheck.KeyHintsNow.Contains("Space") && h.UiForCheck.KeyHintsNow.Contains("カメラ"), h.UiForCheck.KeyHintsNow);
+            // (PR #46 §8) the clock: on by default - this PC's time; the setting off - none
+            string ckNow = DateTime.Now.ToString("HH:mm"), ckShown = h.UiForCheck.ClockShown;
+            h.ShowClock.Value = false;
+            yield return null;
+            yield return null;
+            string ckOff = h.UiForCheck.ClockShown;
+            h.ShowClock.Value = true;
+            yield return null;
+            yield return null;
+            Check("clock: on by default, this PC's time under the presence; the setting off hides it",
+                  (ckShown == ckNow || ckShown == DateTime.Now.ToString("HH:mm")) && ckOff == "" && h.UiForCheck.ClockShown.Length == 5,
+                  "shown '" + ckShown + "' now " + ckNow + " off '" + ckOff + "'");
             bp.SetAuto(false);                 // (the checks press for each block themselves)
             yield return Wait(1.5f);
             var locs = Data.Load("locations.json");
@@ -439,11 +451,11 @@ namespace MuseStudio
                 var uih = h.UiForCheck;
                 yield return RealInput.Click(Btn(uih, "UI"));
                 yield return Wait(0.4f);
-                bool gone = uih.UiHidden && uih.KeyHintsNow == "" && !uih.Buttons.ContainsKey("場所") && uih.Buttons.ContainsKey("UI");
+                bool gone = uih.UiHidden && uih.KeyHintsNow == "" && uih.ClockShown == "" && !uih.Buttons.ContainsKey("場所") && uih.Buttons.ContainsKey("UI");
                 yield return Shot("00_ui_hidden.png");
                 yield return RealInput.Key(0x72);                    // (F3)
                 yield return Wait(0.4f);
-                bool back = !uih.UiHidden && uih.KeyHintsNow.Contains("UI を隠す") && uih.Buttons.ContainsKey("場所");
+                bool back = !uih.UiHidden && uih.KeyHintsNow.Contains("UI を隠す") && uih.ClockShown.Length == 5 && uih.Buttons.ContainsKey("場所");
                 if (uih.UiHidden) uih.UiHidden = false;
                 Check("UI: its button hides the menu, the key hints and the presence (the words and the button stay); its key (F3) shows them again",
                       gone && back, "gone " + gone + " back " + back + " " + RealInput.LastError);
