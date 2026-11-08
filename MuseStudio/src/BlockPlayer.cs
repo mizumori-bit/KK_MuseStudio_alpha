@@ -345,7 +345,7 @@ namespace MuseStudio
                 {
                     yield return h.Stage.EnsureRoom(loc);
                     there = h.Rooms.Has(loc);
-                    if (!there) Refuse("location", loc, "load_failed");
+                    if (!there) { Refuse("location", loc, "load_failed"); h.RoomNotLoaded(loc); }
                 }
                 if (there)
                 {
@@ -364,7 +364,7 @@ namespace MuseStudio
                 Moving = true;
                 yield return h.Stage.EnsureRoom(loc);
                 Moving = false;
-                if (!h.Rooms.Has(loc)) { Refuse("location", loc, "load_failed"); loc = null; }
+                if (!h.Rooms.Has(loc)) { Refuse("location", loc, "load_failed"); h.RoomNotLoaded(loc); loc = null; }
             }
             if (!string.IsNullOrEmpty(loc) && loc != h.Stage.Location)
             {

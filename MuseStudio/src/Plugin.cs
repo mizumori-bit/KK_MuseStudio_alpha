@@ -67,6 +67,8 @@ namespace MuseStudio
         public CameraMemory CameraMemory;           // the free camera per room (the user's request, PR #11)
         public SpotEditor SpotEditor;               // the rooms' play positions edited (the user's request, PR #11)
         internal Bridge Bridge;
+        internal Notices Notices;                  // (#70 adopted, 3: the app's technical notices, Muse told of those shown)
+        internal ConfigEntry<float> MuseUnreadMinutes;
         internal PlayCtl Play;
         internal BlockPlayer Blocks;
         internal Gauge Gauge;
@@ -194,6 +196,9 @@ namespace MuseStudio
             FaceHoldSeconds = Config.Bind("Stage", "Face hold safety seconds", 300f, Ja("舞台", "表情を保つ安全時間（秒）",
                 "Muse が付けた表情を保つ長さの上限（秒）。Muse の次の表情・場面の切り替えまで保ちますが、Muse から何も届かないままこの時間が過ぎたら、場面のふつうの表情に戻します（表情が固まらないための保険）。", 20,
                 new AcceptableValueRange<float>(30f, 3600f)));
+            MuseUnreadMinutes = Config.Bind("Bridge", "Muse unread notice minutes", 3f, Ja("接続", "Muse が出来事を読まないときのお知らせ（分）",
+                "Muse がアプリの出来事をこの分数読まないままだと、画面の上にお知らせを出します（Muse の側の接続を確かめる合図。0＝出さない）。出したお知らせは、つながっていれば Muse にも届きます。", 0,
+                new AcceptableValueRange<float>(0f, 60f)));
             GaugeSpeed = Config.Bind("Gauge", "Pleasure speed", 1f, Ja("ゲージ", "快感度の上がる速さ",
                 "彼女の快感度ゲージの上がる速さの倍率（1＝今までどおり）。おさわり・プレイ・場面のすべてに掛かります。変えて設定を閉じると、変わったことが Muse に伝わります。", 0,
                 new AcceptableValueRange<float>(0.25f, 4f)));
@@ -242,6 +247,7 @@ namespace MuseStudio
             ImageIndex.CachePath = Args.ContainsKey("check") ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(check0)), "match_images.json")
                                                              : Path.Combine(Paths.GameRootPath, Path.Combine("UserData", Path.Combine("MuseStudio", "match_images.json")));
             Bridge = new Bridge(BridgeBase(), (float)Json.Num(Data.Load("stage.json"), "poll_interval", 1.0), Launch.Id) { Hold = true };
+            Notices = new Notices(this);
             Launch = new Launch(this);
             Bridge.Start();
             Launch.Tell("app_starting");
@@ -478,6 +484,7 @@ namespace MuseStudio
             Presence.Tick();
             Look.Tick();
             Match.Tick();
+            if (Notices != null) Notices.Tick();
             // she moved (not by her monologue's own block): what is left of the monologue goes
             if (Stage.Location != lastLocation)
             {
@@ -739,6 +746,14 @@ namespace MuseStudio
             StartCoroutine(MoveRoutine(key, source));
         }
 
+        // a room that would not load: the notice on the screen (#70 adopted, 3)
+        internal void RoomNotLoaded(string key)
+        {
+            if (Notices == null) return;
+            string name = Json.Str(Stage.LocationInfo(key), "name", "");
+            Notices.Raise("room_load_failed", "部屋「" + (name.Length > 0 ? name : key) + "」を読み込めませんでした（場所はそのままです）", 8f);
+        }
+
         IEnumerator MoveRoutine(string key, string source)
         {
             key = Places != null ? (Places.KeyOf(key) ?? key) : key;      // (named by its id: its key - PR #46 §4.1)
@@ -746,7 +761,7 @@ namespace MuseStudio
             // the room in first: one that does not load changes nothing - the play, where she is, his place (GPT's post-review
             // of #62)
             yield return Stage.EnsureRoom(key);
-            if (!Rooms.Has(key)) { Log.LogWarning("MuseStudio: room " + key + " could not be loaded: the place stays"); yield break; }
+            if (!Rooms.Has(key)) { Log.LogWarning("MuseStudio: room " + key + " could not be loaded: the place stays"); RoomNotLoaded(key); yield break; }
             if (key == Stage.Location) yield break;
             if (Play.Active) Play.End("location");
             string prev = Stage.Location;

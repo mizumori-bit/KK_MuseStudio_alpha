@@ -167,7 +167,7 @@ namespace MuseStudio
             yield return h.Stage.EnsureRoom(room);
             goingWhenIn = false;
             if (h.Rooms.Has(room)) Go(kind, options);
-            else MuseStudioPlugin.Log.LogWarning("MuseStudio: outing " + kind + ": its room " + room + " could not be loaded");
+            else { MuseStudioPlugin.Log.LogWarning("MuseStudio: outing " + kind + ": its room " + room + " could not be loaded"); h.RoomNotLoaded(room); }
         }
 
         // the original's peeping motions: the toilet In, Loop (her pee) till the time is up, Out; the shower's loop
