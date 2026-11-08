@@ -13,6 +13,7 @@ namespace MuseStudio
     {
         readonly MuseStudioPlugin host;
         GUIStyle text, sound, nameTag, box, small, button, waitLine, marker, title, field, warn, warnButton, accentButton, wrapSmall, hintBox, openButton;
+        GUIStyle linkOn, linkOff, noticeText;
         Texture2D boxTex, lineTex, dimTex, pickTex;
         GUIStyle dialogBox;
         float styledFor = -1f;
@@ -134,6 +135,13 @@ namespace MuseStudio
             hintBox = new GUIStyle(Theme.Box(sk.box));
             hintBox.normal.background = Theme.Rounded(new Color(Theme.Ink.r, Theme.Ink.g, Theme.Ink.b, 0.55f), new Color(0f, 0f, 0f, 0f), 5, 0f);
             warn.normal.textColor = Theme.Warn;
+            // (the user's note of 2026-11-08: the bridge's link at a glance - connected green, cut red)
+            linkOn = new GUIStyle(small);
+            linkOn.normal.textColor = new Color(0.45f, 0.88f, 0.5f);
+            linkOff = new GUIStyle(small);
+            linkOff.normal.textColor = new Color(1f, 0.42f, 0.42f);
+            noticeText = new GUIStyle(small) { wordWrap = true };
+            noticeText.normal.textColor = new Color(1f, 0.55f, 0.5f);
             button = new GUIStyle(sk.button);
             warnButton = Theme.WarnButton(button);
             accentButton = Theme.AccentButton(button);
@@ -193,7 +201,6 @@ namespace MuseStudio
             DrawDialogue(s);
             if (!UiHidden)
             {
-                if (host.Notices != null) host.Notices.Draw(s, small, box, drawing);     // (#70 adopted, 3: the app's technical notices)
                 DrawPanel(s);
                 DrawPresence(s);
                 DrawClock(s);
@@ -783,9 +790,13 @@ namespace MuseStudio
             float w = 300f * s, x = PanelRight ? 12f * s : Screen.width - w - 12f * s, y = 12f * s, lh = 26f * s;
             // (a quiet panel under the column: its words readable over a bright room - its height as the last frame drew it)
             if (columnH > 0f) GUI.Box(new Rect(x - 8f * s, 4f * s, w + 16f * s, columnH + 14f * s), GUIContent.none, box);
-            string status = b == null ? "" : b.Superseded ? "○ 別のゲーム窓が使われています" : b.Connected ? "● Muse ブリッジ接続中" : "○ ブリッジ未接続（再試行中）";
-            GUI.Label(new Rect(x, y, w - 80f * s, lh), status + (b != null && b.VoiceOff ? "（声オフ）" : ""), small);     // (the UI button at its right)
+            string status = b == null ? "" : b.Superseded ? "○ 別のゲーム窓が使われています" : b.Connected ? "● Muse ブリッジ接続中" : "● ブリッジ未接続（再試行中）";
+            // (the user's note of 2026-11-08: connected green, cut red - the notice of the bridge out of reach is this line itself)
+            GUI.Label(new Rect(x, y, w - 80f * s, lh), status + (b != null && b.VoiceOff ? "（声オフ）" : ""), b == null || b.Superseded ? small : b.Connected ? linkOn : linkOff);     // (the UI button at its right)
             y += lh;
+            // the app's technical notices (#70 adopted, 3), here under the link - not at the top over the key hints (the user's
+            // note of 2026-11-08)
+            if (host.Notices != null) y = host.Notices.DrawIn(x, y, w, s, noticeText);
             GUI.Label(new Rect(x, y, w, lh), "場所：" + Json.Str(host.Stage.LocationInfo(host.Stage.Location), "name", ""), small);
             y += lh;
             // he is in her room unseen (peeping her own time): he may call out - the first she knows of him there

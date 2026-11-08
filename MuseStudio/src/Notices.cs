@@ -4,7 +4,8 @@ using UnityEngine;
 
 namespace MuseStudio
 {
-    // The app's technical notices on the screen, and Muse told of the ones shown (#70 adopted, 3: before, such errors were in
+    // The app's technical notices on the screen - in the panel under the bridge's link, which is green when connected and red
+    // when cut (the user's note of 2026-11-08) - and Muse told of the ones shown (#70 adopted, 3: before, such errors were in
     // the log only). A notice is the app's own words about the machinery - never her words, nothing said for her (the
     // owner's view and GPT's: no stand-in line of the character's). Each one shown is told to Muse as app_notice - phase
     // "shown" when it is first drawn, "cleared" when it goes, with what it said and when (one not drawn - the UI hidden all
@@ -98,18 +99,20 @@ namespace MuseStudio
                 if (n.Until >= 0f && now >= n.Until) Clear(n.Kind);
         }
 
-        // drawn at the top, in the middle (only while the UI shows: the first time drawn, told as shown)
-        public void Draw(float s, GUIStyle style, GUIStyle boxStyle, List<Rect> drawing)
+        // drawn in the panel under the bridge's link (the user's note of 2026-11-08: at the top they hid under the key hints) -
+        // only while the UI shows; the first time drawn, told as shown. The bridge out of reach is the link's own line, red: not
+        // written again, told as shown with it. -> the y under them
+        public float DrawIn(float x, float y, float w, float s, GUIStyle style)
         {
-            if (notes.Count == 0) return;
-            float w = Mathf.Min(Screen.width - 40f * s, 620f * s), lh = 30f * s, x = (Screen.width - w) / 2f, y = 10f * s;
             foreach (var n in notes)
             {
-                var r = new Rect(x, y, w, lh);
-                GUI.Box(r, GUIContent.none, boxStyle);
-                GUI.Label(new Rect(x + 10f * s, y + 3f * s, w - 20f * s, lh - 6f * s), "⚠ " + n.Text, style);
-                drawing.Add(r);
-                y += lh + 4f * s;
+                if (n.Kind != "bridge_unreachable")
+                {
+                    string line = "⚠ " + n.Text;
+                    float hgt = style.CalcHeight(new GUIContent(line), w);
+                    GUI.Label(new Rect(x, y, w, hgt), line, style);
+                    y += hgt + 2f * s;
+                }
                 if (!n.Displayed && Event.current.type == EventType.Repaint)
                 {
                     n.Displayed = true;
@@ -118,6 +121,7 @@ namespace MuseStudio
                     Tell(n, "shown");
                 }
             }
+            return y;
         }
 
         internal void ExpireForCheck(string kind) { var n = notes.Find(x => x.Kind == kind); if (n != null) n.Until = Time.realtimeSinceStartup; }

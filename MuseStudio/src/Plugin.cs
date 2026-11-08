@@ -396,6 +396,7 @@ namespace MuseStudio
             // setting's, and not while the wheel is the touch's (an item over her) or over the UI
             Singleton<Studio.Studio>.Instance.cameraCtrl.zoomCondition = () => CamWheelZoom.Value && !Touch.WheelTaken && !UiOver(Input.mousePosition);
             Log.LogMessage(string.Format("MuseStudio: stage ready at {0:F1} s ({1}, {2})", Time.realtimeSinceStartup, Stage.Location, Stage.Name));
+            StudioAutosaveOff();
             Mood.LoadFor(CharacterId());
             Sounds.Entered(Stage.Location);
             // the character is chosen: told (the greeting's cue), then Muse's packages may come
@@ -562,6 +563,25 @@ namespace MuseStudio
 
         // (the settings window open: the mouse is its - no touch, no camera)
         internal bool UiOver(Vector2 mouse) { return SettingsShown || (ui != null && (ui.Modal || ui.Over(mouse))); }
+
+        // Studio's autosave (KK_Plugins' Autosave): its countdown and "Autosaving" text over the stage break the scene (the user's
+        // note of 2026-11-08), and MuseStudio keeps no Studio scenes to save - off in this launch folder's own setting (setup.py
+        // sets it too; the user's own Studio and the original install are left alone). Not there: nothing to do
+        internal static string StudioAutosaveOff()
+        {
+            try
+            {
+                BepInEx.PluginInfo pi;
+                if (!BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue("com.deathweasel.bepinex.autosave", out pi) || pi == null || pi.Instance == null) return "none";
+                ConfigEntry<bool> on;
+                if (!pi.Instance.Config.TryGetEntry("Config", "Autosave Enabled", out on)) return "no setting";
+                if (!on.Value) return "off";
+                on.Value = false;
+                Log.LogInfo("MuseStudio: Studio's autosave turned off in this launch folder (its countdown over the stage)");
+                return "turned off";
+            }
+            catch (Exception e) { Log.LogWarning("MuseStudio: Studio's autosave: " + e.Message); return "error"; }
+        }
 
         // The settings: the ConfigurationManager plugin's window (F1, or the panel's 設定), where this plugin's settings are too
         static object ConfigManager()
