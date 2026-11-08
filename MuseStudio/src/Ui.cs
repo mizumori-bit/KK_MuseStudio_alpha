@@ -17,6 +17,7 @@ namespace MuseStudio
         GUIStyle dialogBox;
         float styledFor = -1f;
         string menu = "";             // "", "location", "play"
+        public string MenuNow { get { return menu; } }      // (checks)
         string playGroup = "sonyu";
         bool bodyList;                         // the play menu's list of your bodies
         string bodyNameFor, bodyName = "標準の体";
@@ -993,10 +994,14 @@ namespace MuseStudio
                     ItemsNote = "";
                 }
                 y += lh + 4f * s;
-                // the way into a match (the trial run of 2026-11-04: nowhere to be found): the user asks Muse - the invitation
-                // goes between the two Muses' chats
-                Buttons["通信対戦"] = new Rect(x, y, w, lh);
-                if (GUI.Button(new Rect(x, y, w, lh), menu == "match" ? "閉じる" : "通信対戦（Muse 同士）…", menu == "match" ? openButton : accentButton)) menu = menu == "match" ? "" : "match";
+                // the contents (#78 adopted, the owner's of 2026-11-08: the way into what is more than the talk, its one place -
+                // the match first, more later): コンテンツ opens their list, the match's own menu from it (the way into a match:
+                // the trial run of 2026-11-04 - the user asks Muse, the invitation goes between the two Muses' chats). 閉じる and
+                // 戻る only close or go back in the menu: a match goes on (its own way out stays in its menu, as a play's)
+                bool contentOpen = menu == "content" || menu == "match";
+                Buttons["コンテンツ"] = new Rect(x, y, w, lh);
+                if (GUI.Button(new Rect(x, y, w, lh), contentOpen ? "閉じる" : "コンテンツ…" + (host.Match.Active ? "（対戦中）" : ""), contentOpen ? openButton : accentButton))
+                    menu = contentOpen ? "" : "content";
                 y += lh + 6f * s;
             }
             drawing.Add(new Rect(x, 12f * s, w, y - 12f * s));
@@ -1010,6 +1015,7 @@ namespace MuseStudio
             else if (menu == "clothes") DrawClothes(MenuRect = new Rect(x, y, w, Mathf.Min(Screen.height * 0.5f, left)), s);
             else if (menu == "play") DrawPlays(MenuRect = new Rect(x, y, w, Mathf.Min(Screen.height * 0.6f, left)), s);
             else if (menu == "replay") DrawReplays(x, y, w, s);
+            else if (menu == "content") DrawContentMenu(x, y, w, s);
             else if (menu == "match") DrawMatchMenu(x, y, w, s);
             else if (menu == "items") DrawItems(MenuRect = new Rect(x, y, w, Mathf.Min(Screen.height * 0.6f, left)), s);
         }
@@ -1020,10 +1026,27 @@ namespace MuseStudio
         float matchMenuH, askedAt = -100f;
         string askedRole = "";
 
+        // the contents' list (#78): the match for now - each one opens its own menu, 戻る back here
+        void DrawContentMenu(float x, float y, float w, float s)
+        {
+            float lh = 26f * s, top = y;
+            GUI.Box(new Rect(x - 8f * s, y - 2f * s, w + 16f * s, lh * 2f + 14f * s), GUIContent.none, box);
+            GUI.Label(new Rect(x + 6f, y, w - 12f, lh), "コンテンツ", small);
+            y += lh;
+            Buttons["通信対戦"] = new Rect(x, y, w, lh);
+            if (GUI.Button(new Rect(x, y, w, lh), "通信対戦（Muse 同士）…" + (host.Match.Active ? "（対戦中）" : ""), accentButton)) menu = "match";
+            y += lh + 6f * s;
+            drawing.Add(new Rect(x, top, w, y - top));
+        }
+
         void DrawMatchMenu(float x, float y, float w, float s)
         {
             float lh = 26f * s, top = y, w2 = (w - 4f) / 2f;
             if (matchMenuH > 0f) GUI.Box(new Rect(x - 8f * s, y - 2f * s, w + 16f * s, matchMenuH + 8f * s), GUIContent.none, box);
+            // (#78) back to the contents' list - the menu only: a match goes on
+            Buttons["コンテンツへ戻る"] = new Rect(x, y, w, lh);
+            if (GUI.Button(new Rect(x, y, w, lh), "← コンテンツへ戻る", button)) { menu = "content"; return; }
+            y += lh + 4f * s;
             // (the user's note of 2026-11-04: one looks for a start button here - in this game Muse starts and runs the match)
             const string about = "対戦の開始と進行は Muse が受け持ちます。下の「招く／招かれる」は Muse への依頼です。部屋づくり・招待コードのやり取り・開始は、Muse がチャットで進めます（Muse に「対戦したい」と話すだけでも始められます）。";
             float ah = wrapSmall.CalcHeight(new GUIContent(about), w - 12f);
