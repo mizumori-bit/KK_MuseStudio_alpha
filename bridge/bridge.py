@@ -32,10 +32,14 @@ Irodori and the app (MuseStudio; the Godot app spoke the same contract, MUSE_GUI
   POST /api/choices           {"session", "turn", "kind", "value"} -> choice queue, and a "choice" event
   GET  /api/choices           the choice queue (emptied; kept for older callers - the event feed is the main path)
   POST /api/events            an app event {"type", ...} -> the event feed (gets "id" and "time")
-  GET  /api/events            peek: the unacknowledged events, oldest first (?after=<id>&limit=<n>); nothing is removed
+  GET  /api/events            peek: the unacknowledged events, oldest first (?after=<id>&limit=<n>); nothing is removed; with
+                              next_id (the next event's number), acked_upto (nothing at or below it is left in the feed: acked, or
+                              dropped - events_dropped tells which) and dropped (the last range the full feed dropped, if any)
   POST /api/events/ack        {"ids": [...]} and/or {"upto": <id>} -> those events leave the feed
   POST /api/state             the app's current state (replaces the last one)
-  GET  /api/state             that state + whether the app is connected, the package queue and the pending events
+  GET  /api/state             that state + whether the app is connected, the package queue and the pending events; events_upto:
+                              the feed's last event when this state came - the app's events up to it are in this state (the app
+                              sends its events and its state in one ordered line)
   GET  /api/characters        the characters and the active one: MuseStudio's cards (characters_source "cards": the card folders
                               read on each request) or the Godot app's saves ("saves": the project's characters/ folder)
   GET  /api/voices            the voices Irodori knows, named by voice_catalog.json (the creation's voice list)
@@ -724,6 +728,8 @@ class State:
         # the app's own ids of its events (header X-MMS-Event-Id) -> the feed's id: a resend after a lost answer is the same event
         self.event_ids: "collections.OrderedDict[str, int]" = collections.OrderedDict()
         self.event_sizes: dict[int, int] = {}       # feed id -> its size as saved (MAX_EVENTS_BYTES)
+        self.events_lost: dict | None = None         # (#70 adopted, 2) the last range the full feed dropped, and the total
+        self.state_events_upto: int | None = None    # (#70 adopted, 2) the feed's last event when the app's state came
         self.events_frozen = ""                    # (why the feed's file is not written: an oversized old one not kept aside, one not readable)
         self.events_unread = False                 # (the file there but not readable at the start: read again before each use)
         self.packages_frozen = ""                  # (why the package file is not written: not readable at the start, or garbled
@@ -1131,6 +1137,7 @@ class State:
         sizes = dict(self.event_sizes)
         sizes[ev["id"]] = size
         dropped = _trim_events(events, sizes)
+        gone = events[:dropped]
         if dropped > 0:
             for e in events[:dropped]:
                 sizes.pop(e["id"], None)
@@ -1141,10 +1148,44 @@ class State:
             ids[cid] = ev["id"]
             while len(ids) > MAX_EVENT_IDS:
                 ids.popitem(last=False)
-        self._save_events(events, self.next_event_id + 1, ids)
-        self.events, self.next_event_id, self.event_ids, self.event_sizes = events, self.next_event_id + 1, ids, sizes
+        nxt = self.next_event_id + 1
+        lost = None
         if dropped > 0:
-            sys.stderr.write(f"[bridge] event feed full: dropped the {dropped} oldest unacknowledged event(s)\n")
+            # (#70 adopted, 2) the events the full feed dropped, unread: told in the feed itself (events_dropped, after this
+            # event) and kept as the last range lost (GET /api/events, /health) - before, only the bridge's log knew. One
+            # marker in the feed at a time: the one before (dropped with the rest, or still there) taken into the new one -
+            # its range joined, its count added - so a feed full for long does not fill with markers
+            olds = [e for e in gone if e.get("type") == "events_dropped"] + [e for e in events if e.get("type") == "events_dropped"]
+            events = [e for e in events if e.get("type") != "events_dropped"]
+            for e in olds:
+                sizes.pop(e["id"], None)
+            real = [e["id"] for e in gone if e.get("type") != "events_dropped"]
+            gone_n = len(real) + sum(int(m.get("count", 0)) for m in olds)
+            gone_from = min([m["from"] for m in olds] + real) if (olds or real) else None
+            gone_to = max([m["to"] for m in olds] + real) if (olds or real) else None
+            marker = {"id": nxt, "time": _now(), "type": "events_dropped", "from": gone_from, "to": gone_to, "count": gone_n,
+                      "reason": "feed_full"}
+            events = events + [marker]
+            sizes[nxt] = _size(marker)
+            more = _trim_events(events, sizes)
+            if more > 0:                                # (the marker itself made room for one more: its range grows)
+                for e in events[:more]:
+                    sizes.pop(e["id"], None)
+                gone_to = max(gone_to, events[more - 1]["id"])
+                gone_n += more
+                real.extend(e["id"] for e in events[:more])
+                marker.update({"to": gone_to, "count": gone_n})
+                sizes[nxt] = _size(marker)
+                events = events[more:]
+            nxt += 1
+            lost = {"from": gone_from, "to": gone_to, "count": gone_n, "time": marker["time"],
+                    "total": (self.events_lost or {}).get("total", 0) + len(real)}
+        self._save_events(events, nxt, ids)
+        self.events, self.next_event_id, self.event_ids, self.event_sizes = events, nxt, ids, sizes
+        if lost is not None:
+            self.events_lost = lost
+            sys.stderr.write(f"[bridge] event feed full: dropped the {lost['count']} oldest unacknowledged event(s) "
+                             f"({lost['from']}-{lost['to']}) - told as events_dropped\n")
         return ev["id"]
 
     def add_app_event(self, ev: dict, cid: str | None) -> tuple[int, bool]:
@@ -1156,6 +1197,16 @@ class State:
                 self.duplicates += 1
                 return self.event_ids[cid], True
             return self._add_event_locked(ev, cid), False
+
+    def acked_upto_locked(self) -> int:
+        # (#70 adopted, 2) the feed holds nothing at or below this: acked by Muse, or dropped by the full feed (events_dropped)
+        return (self.events[0]["id"] - 1) if self.events else (self.next_event_id - 1)
+
+    def feed_marks(self) -> dict:
+        # the three watermarks' feed side, for /health and GET /api/events
+        with self.lock:
+            return {"next_id": self.next_event_id, "acked_upto": self.acked_upto_locked(), "pending": len(self.events),
+                    "dropped": dict(self.events_lost) if self.events_lost else None}
 
     def peek_events(self, after: int, limit: int) -> list[dict]:
         with self.lock:
@@ -1187,6 +1238,7 @@ class State:
                           "reported": self.app_state_time}
             out["queue"] = len(self.packages)
             out["events_pending"] = len(self.events)
+            out["events_upto"] = self.state_events_upto             # (#70 adopted, 2) this state has the app's events up to it
             return out
 
     def set_launch(self, lid: str, phase: str, character) -> list[tuple[dict, str]] | None:
@@ -1520,10 +1572,11 @@ def make_handler(state: State):
                 with state.lock:
                     launch = dict(state.launch)
                     frozen = state.packages_ready_locked()
+                marks = state.feed_marks()
                 return self._json(200, {"ok": True, "irodori": state.irodori.health(), "voice": state.irodori.enabled,
                                         "queue": len(state.packages), "packages_unavailable": frozen or None,
-                                        "events": len(state.events), "app": time.time() - state.app_seen < APP_SEEN_SECONDS,
-                                        "launch": launch})
+                                        "events": marks["pending"], "app": time.time() - state.app_seen < APP_SEEN_SECONDS,
+                                        "launch": launch, "event_feed": marks})
             if path == "/api/packages/next":
                 if not self._active_window():
                     return self._json(409, {"error": "another app window is active"})
@@ -1592,8 +1645,9 @@ def make_handler(state: State):
                 except ValueError:
                     return self._json(400, {"error": "after and limit must be integers"})
                 events = state.peek_events(after, limit)
-                with state.lock:
-                    return self._json(200, {"events": events, "pending": len(state.events), "next_id": state.next_event_id})
+                marks = state.feed_marks()
+                return self._json(200, {"events": events, "pending": marks["pending"], "next_id": marks["next_id"],
+                                        "acked_upto": marks["acked_upto"], "dropped": marks["dropped"]})
             if path == "/api/state":
                 return self._json(200, state.state_view())
             if path == "/api/characters":
@@ -1854,6 +1908,7 @@ def make_handler(state: State):
                 with state.lock:
                     state.app_state = {k: body.get(k) for k in STATE_FIELDS if k in body}
                     state.app_state_time = _now()
+                    state.state_events_upto = state.next_event_id - 1      # (#70 adopted, 2: the app's events before it are in)
                     if self.headers.get("X-MMS-Instance"):
                         state.app_seen = time.time()     # the app's heartbeat (it does not poll during a long block)
                 return self._json(200, {"ok": True})

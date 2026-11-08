@@ -36,8 +36,11 @@ class EventBytes(unittest.TestCase):
             self.st.add_event({"type": "t", "n": i, "pad": "x" * 1000})
         feed = self.st.peek_events(0, 1000)
         self.assertLessEqual(sum(bridge._size(e) for e in feed), 10000)
-        self.assertEqual(feed[-1]["n"], 29)                  # (the newest kept, the oldest gone)
-        self.assertGreater(feed[0]["n"], 0)
+        kept = [e for e in feed if e["type"] != "events_dropped"]
+        self.assertEqual(kept[-1]["n"], 29)                  # (the newest kept, the oldest gone)
+        self.assertEqual(feed[-1]["type"], "events_dropped")  # (#70 adopted, 2: what went told in the feed)
+        self.assertGreater(kept[0]["n"], 0)
+        self.assertEqual(sum(1 for e in feed if e["type"] == "events_dropped"), 1)     # (one marker: the ranges joined)
         self.assertEqual(set(self.st.event_sizes), {e["id"] for e in feed})
         self.st.ack_events({feed[0]["id"]}, None)
         self.assertEqual(set(self.st.event_sizes), {e["id"] for e in self.st.peek_events(0, 1000)})
@@ -53,7 +56,7 @@ class EventBytes(unittest.TestCase):
             self.st.add_event({"type": "t", "n": i, "pad": "あ" * 1000})
         feed = self.st.peek_events(0, 1000)
         self.assertLessEqual(sum(len(json.dumps(e, ensure_ascii=False).encode("utf-8")) for e in feed), 10000)
-        self.assertEqual(feed[-1]["n"], 29)
+        self.assertEqual([e for e in feed if e["type"] != "events_dropped"][-1]["n"], 29)
 
     def test_one_event_too_big(self):                       # its own limit: the app's refused (413), the bridge's told as such
         keep = bridge.MAX_EVENT_BYTES

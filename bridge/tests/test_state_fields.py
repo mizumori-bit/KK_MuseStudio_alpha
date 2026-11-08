@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _helpers import ROOT, Bridge  # noqa: E402
 
-BRIDGE_OWN = {"app", "queue", "events_pending"}         # (the bridge's own: not the app's)
+BRIDGE_OWN = {"app", "queue", "events_pending", "events_upto"}         # (the bridge's own: not the app's)
 
 
 def contract_fields() -> list[str]:
