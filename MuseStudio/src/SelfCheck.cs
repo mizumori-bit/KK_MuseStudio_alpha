@@ -1370,16 +1370,47 @@ namespace MuseStudio
                 bp.Advance(true);
                 bool itPending = h.Mood.PendingCountForCheck >= 2 && it.Count(her, "beer") == 0 && EventCount("item_used") == itUsedEv0 + 1;
                 // (the owner's note on #70) held as the original holds a drink: its bottle on the right hand's item point, her
-                // body the original's standing drink; over, the bottle gone and her scene again
+                // body the original's standing drinking - held (f_tachi_00_09), then a sip (f_tachi_00_10: the user's note of
+                // 2026-11-08, she never drank); over, the bottle gone and her scene again
                 yield return Wait(0.4f);
-                bool itHold = st.PropShown == "p_o_koi_ei_petboto00" && st.PropParent == "k_f_handR_00" && st.PropMotionNow == "Drink3"
-                              && st.Cha.animBody.GetCurrentAnimatorStateInfo(0).IsName("Drink3");
-                string itHoldWhy = st.PropShown + " on " + st.PropParent + " motion " + st.PropMotionNow + " playing Drink3 " + st.Cha.animBody.GetCurrentAnimatorStateInfo(0).IsName("Drink3");
+                var itAn = st.Cha.animBody;
+                bool itHold = st.PropShown == "p_o_koi_ei_petboto00" && st.PropParent == "k_f_handR_00" && st.PropMotionNow == "f_tachi_00_09"
+                              && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
+                string itHoldWhy = st.PropShown + " on " + st.PropParent + " motion " + st.PropMotionNow + " playing the hold " + itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
+                int itSips0 = st.PropSips;
+                st.SipNowForCheck();
+                yield return Wait(0.8f);
+                bool itSip = st.PropSips == itSips0 + 1 && st.PropMotionNow == "f_tachi_00_10" && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_10");
+                itHoldWhy += " | sip " + (st.PropSips - itSips0) + " " + st.PropMotionNow + " playing " + itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_10");
                 st.EndPropForCheck();
                 yield return Wait(0.6f);
-                bool itHoldOver = st.PropShown == "" && st.PropMotionNow == "" && !st.Cha.animBody.GetCurrentAnimatorStateInfo(0).IsName("Drink3");
-                Check("items: her drink held as the original holds one - its bottle on the right hand's item point, her body its standing drink (Drink3); over, the bottle gone and her scene again (the owner's note on #70)",
-                      itHold && itHoldOver, itHoldWhy + " over " + itHoldOver);
+                bool itHoldOver = st.PropShown == "" && st.PropMotionNow == "" && !itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09")
+                                  && !itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_10");
+                Check("items: her drink held as the original holds one - its bottle on the right hand's item point, her body its standing drinking (held f_tachi_00_09, a sip f_tachi_00_10); over, the bottle gone and her scene again (the owner's note on #70, the user's of 2026-11-08)",
+                      itHold && itSip && itHoldOver, itHoldWhy + " over " + itHoldOver);
+                // (the user's note of 2026-11-08: the cup went through her hand standing) a cup held as the original holds it -
+                // only seated, the wait points' Drink: her body stands still, her right arm (shoulder to fingers, the item point)
+                // the seated cup drink's (Studio's 椅子・机 飲む待機 / 飲む): the cup upright, its sip the arm's; over, the arm hers
+                // again and the item point where it was
+                var cupPoint = Illusion.Game.Elements.EasyLoader.Item.Data.GetParent(Illusion.Game.Elements.EasyLoader.Item.Data.Type.k_f_handR_00, st.Cha);
+                Vector3 cupPointWas = cupPoint != null ? cupPoint.localPosition : Vector3.zero;
+                st.HoldProp(Json.Obj(it.ItemDef("coffee"), "hold"), 30f, Json.Obj(it.Def, "drinking"));
+                yield return Wait(0.8f);
+                var cupObj = cupPoint != null && cupPoint.childCount > 0 ? cupPoint.GetChild(cupPoint.childCount - 1) : null;
+                float cupUp = cupObj != null ? Vector3.Dot(cupObj.up, Vector3.up) : -1f;
+                bool cupHeld = st.PropShown == "p_o_koi_ei_cup00" && st.PropArmBones > 20 && st.PropArmNow == "f_suwari_00_08_00"
+                               && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09") && cupUp > 0.8f;
+                string cupWhy = st.PropShown + " arm " + st.PropArmNow + " bones " + st.PropArmBones + " up " + cupUp.ToString("F2");
+                int cupSips0 = st.PropSips;
+                st.SipNowForCheck();
+                yield return Wait(1.0f);
+                bool cupSip = st.PropSips == cupSips0 + 1 && st.PropArmNow == "f_suwari_00_08_01" && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
+                cupWhy += " | sip " + (st.PropSips - cupSips0) + " arm " + st.PropArmNow + " body held " + itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
+                st.EndPropForCheck();
+                yield return Wait(0.6f);
+                bool cupOver = st.PropShown == "" && st.PropArmBones == 0 && cupPoint != null && (cupPoint.localPosition - cupPointWas).magnitude < 0.001f;
+                Check("items: a cup held as the original holds it - her body standing still, her right arm the seated cup drink's (f_suwari_00_08_00 held, upright; the sip f_suwari_00_08_01); over, her arm and the item point as they were (the user's note of 2026-11-08)",
+                      cupHeld && cupSip && cupOver, cupWhy + " over " + cupOver);
                 h.Mood.FlowForCheck(0.3f);
                 yield return Wait(0.8f);
                 float ix1 = h.Mood.ValueForCheck("intoxication");

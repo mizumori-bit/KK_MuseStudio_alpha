@@ -41,6 +41,12 @@ namespace MuseStudio
             if (room.StartsWith("touchenable:")) { yield return TouchEnable(room.Substring(12)); yield break; }
             if (room == "shoes") { yield return ShoesTry(); yield break; }
             if (room == "drinks") { yield return DrinksTry(); yield break; }
+            if (room == "drinkplay") { yield return DrinkPlayTry(); yield break; }
+            if (room == "gripview") { yield return GripViewTry(); yield break; }
+            if (room == "advitems") { yield return AdvItemsTry(); yield break; }
+            if (room == "animeoptions") { yield return AnimeOptionsTry(); yield break; }
+            if (room == "sipcurve") { yield return SipCurveTry(); yield break; }
+            if (room == "drinkitems" || room.StartsWith("drinkitems:")) { yield return DrinkItemsTry(room.Length > 11 ? room.Substring(11) : ""); yield break; }
             if (room == "pushup") { yield return PushupTry(); yield break; }
             if (room == "mouth") { yield return MouthTry(); yield break; }
             if (room == "mouth2") { yield return Mouth2Try(); yield break; }
@@ -1559,6 +1565,449 @@ namespace MuseStudio
                             lines.AppendLine(string.Format("CHARA {0} personality {1} motion {2} | {3}", bn, pa.Personality, pa.MotionBundle, pa.MotionAsset));
             }
             catch (Exception e) { lines.AppendLine("charainfo: " + e.Message); }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=drinkplay (the user's note of 2026-11-08: the original's drinking, and its hold by the drink's shape):
+        // the original's drink motions on her - the action controller's Drink / Drink3 / Drink4 (the wait points': the cup
+        // seated, the bottle standing and seated) and Studio's own standing and chair 飲む待機 / 飲む - each with the bottle or
+        // the cup on the right hand's item point: the clips, their length, the item point's distance to her mouth over two
+        // loops (raised to the mouth or held), four pictures over a loop; then the map items and Studio's items with a drink's
+        // name
+        IEnumerator DrinkPlayTry()
+        {
+            yield return new WaitForSeconds(2f);
+            var st = h.Stage;
+            var cha = st.Cha;
+            var an = cha.animBody;
+            var headT = cha.objHeadBone.transform;
+            Transform mouth = HIK.Find(headT, "cf_J_MouthBase_tr") ?? HIK.Find(headT, "cf_J_MouthBase_s") ?? headT;
+            var point = Illusion.Game.Elements.EasyLoader.Item.Data.GetParent(Illusion.Game.Elements.EasyLoader.Item.Data.Type.k_f_handR_00, cha);
+            var ctl = Stage.ActionController(cha.chaFile.parameter.personality);
+            lines.AppendLine("mouth bone " + mouth.name + "; hand point " + (point != null ? point.name : "none") + "; personality "
+                             + cha.chaFile.parameter.personality + " controller " + (ctl != null ? ctl[0] + " | " + ctl[1] : "none"));
+            var cases = new[] {
+                new[] { "action", "Drink3", "p_o_koi_ei_petboto00" },
+                new[] { "action", "Drink3", "p_o_koi_ei_cup00" },
+                new[] { "action", "Drink", "p_o_koi_ei_cup00" },
+                new[] { "action", "Drink4", "p_o_koi_ei_petboto00" },
+                new[] { "studio", "0/4/10", "p_o_koi_ei_petboto00" },
+                new[] { "studio", "0/4/11", "p_o_koi_ei_petboto00" },
+                new[] { "studio", "0/4/11", "p_o_koi_ei_cup00" },
+                new[] { "studio", "0/6/8", "p_o_koi_ei_cup00" },
+            };
+            int k = 0;
+            foreach (var cs in cases)
+            {
+                k++;
+                var hold = new Dictionary<string, object> { { "asset", cs[2] }, { "type", "k_f_handR_00" } };
+                if (cs[0] == "action") hold["motion"] = cs[1];
+                st.HoldProp(hold, 120f);
+                if (cs[0] == "studio")
+                {
+                    var g = cs[1].Split('/');
+                    st.Heroine.LoadAnime(int.Parse(g[0]), int.Parse(g[1]), int.Parse(g[2]), 0f);
+                }
+                yield return new WaitForSeconds(1.0f);
+                var si = an.GetCurrentAnimatorStateInfo(0);
+                float len = Mathf.Max(0.5f, si.length);
+                var seen = new List<string>();
+                var sb = new StringBuilder();
+                foreach (var c in an.GetCurrentAnimatorClipInfo(0))
+                    if (c.clip != null) sb.Append(c.clip.name + " " + c.clip.length.ToString("F2") + "s loop " + c.clip.isLooping + " w " + c.weight.ToString("F2") + "; ");
+                lines.AppendLine(string.Format("CASE {0} {1} {2} {3}: state length {4:F2}s loop {5} speed {6:F2} | clips {7}| shown {8} on {9} motion {10}",
+                    k, cs[0], cs[1], cs[2], si.length, si.loop, an.speed, sb, st.PropShown, st.PropParent, st.PropMotionNow));
+                // (the camera: from her front right, at the chest, on the hand and the face)
+                var fwd = cha.transform.forward;
+                var eye = headT.position + fwd * 0.95f + cha.transform.right * 0.35f - Vector3.up * 0.2f;
+                var target = point != null ? Vector3.Lerp(headT.position, point.position, 0.5f) : headT.position;
+                st.SetCamera(eye, target, 35f, 0f);
+                yield return new WaitForSeconds(0.3f);
+                float span = Mathf.Min(2f * len, 16f), t0 = Time.time, dMin = 99f, dMax = 0f, tMin = 0f, nMin = 0f;
+                int shot = 0;
+                var trace = new StringBuilder();
+                while (Time.time - t0 < span)
+                {
+                    float el = Time.time - t0;
+                    var s2 = an.GetCurrentAnimatorStateInfo(0);
+                    foreach (var c in an.GetCurrentAnimatorClipInfo(0)) if (c.clip != null && !seen.Contains(c.clip.name)) seen.Add(c.clip.name);
+                    float d = point != null ? Vector3.Distance(point.position, mouth.position) : -1f;
+                    if (d < dMin) { dMin = d; tMin = el; nMin = s2.normalizedTime; }
+                    if (d > dMax) dMax = d;
+                    if (trace.Length < 1600) trace.Append(el.ToString("F1") + ":" + d.ToString("F2") + " ");
+                    if (shot < 4 && el >= shot * len / 4f)
+                    {
+                        Application.CaptureScreenshot(System.IO.Path.Combine(outDir, string.Format("drink_{0}_{1}.png", k, shot)));
+                        shot++;
+                    }
+                    yield return new WaitForSeconds(0.1f);
+                }
+                lines.AppendLine(string.Format("  hand to mouth {0:F3}-{1:F3} m, nearest at {2:F1}s (normalized {3:F2}); clips seen {4}", dMin, dMax, tMin, nMin, string.Join(",", seen.ToArray())));
+                lines.AppendLine("  trace " + trace);
+            }
+            st.EndPropForCheck();
+            yield return new WaitForSeconds(0.5f);
+            // the map items' bundle: every prefab's name
+            try
+            {
+                var names = new List<string>();
+                foreach (var go in AssetBundleManager.LoadAllAsset("action/mapitem/00.unity3d", typeof(GameObject), null).GetAllAssets<GameObject>()) names.Add(go.name);
+                names.Sort();
+                lines.AppendLine("MAPITEMS " + names.Count + ": " + string.Join(" ", names.ToArray()));
+            }
+            catch (Exception e) { lines.AppendLine("mapitem: " + e.Message); }
+            // the action controller's clips
+            try
+            {
+                if (ctl != null)
+                {
+                    var rac = CommonLib.LoadAsset<RuntimeAnimatorController>(ctl[0], ctl[1], false, string.Empty);
+                    var cl = new List<string>();
+                    if (rac != null) foreach (var c in rac.animationClips) if (c != null && !cl.Contains(c.name)) cl.Add(c.name + " " + c.length.ToString("F1"));
+                    cl.Sort();
+                    lines.AppendLine("ACTION CLIPS " + cl.Count + ": " + string.Join(" | ", cl.ToArray()));
+                }
+            }
+            catch (Exception e) { lines.AppendLine("action clips: " + e.Message); }
+            // Studio's items with a drink's name
+            try
+            {
+                var rx = new System.Text.RegularExpressions.Regex("缶|コップ|グラス|ボトル|カップ|ジョッキ|湯呑|湯飲|茶碗|盃|杯|徳利|瓶|ワイン|ビール|ジュース|マグ|飲|ドリンク|ペット|cup|glass|bottle|can|drink",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var info = Singleton<Studio.Info>.Instance;
+                int n = 0;
+                foreach (var g in info.dicItemLoadInfo)
+                    foreach (var c in g.Value)
+                        foreach (var it in c.Value)
+                        {
+                            var v = it.Value;
+                            if (!rx.IsMatch(v.name ?? "") && !rx.IsMatch(v.fileName ?? "")) continue;
+                            n++;
+                            lines.AppendLine(string.Format("SITEM {0}/{1}/{2} {3} | {4} | {5}", g.Key, c.Key, it.Key, v.name, v.bundlePath, v.fileName));
+                        }
+                lines.AppendLine("studio items matched " + n);
+            }
+            catch (Exception e) { lines.AppendLine("studio items: " + e.Message); }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=drinkitems[:bundle|asset|x,y,z|ax,ay,az;...] (the user's note of 2026-11-08: the cup in her hand standing):
+        // items in her right hand's item point with the original's standing drinking (items.json drinking: held, a sip) - the
+        // original's map items (the bottle, the cup, the tea bottle, the tea bowl) and Studio's drinks (a can, a beer, a paper
+        // cup, a coffee cup), or the ones given: a picture held and two in the sip, the item point's nearest to her head
+        IEnumerator DrinkItemsTry(string given)
+        {
+            yield return new WaitForSeconds(2f);
+            var st = h.Stage;
+            var cha = st.Cha;
+            var headT = cha.objHeadBone.transform;
+            var point = Illusion.Game.Elements.EasyLoader.Item.Data.GetParent(Illusion.Game.Elements.EasyLoader.Item.Data.Type.k_f_handR_00, cha);
+            var drinking = Json.Obj(h.Items.Def, "drinking");
+            var cases = new List<string[]>();
+            if (given.Length > 0) foreach (var g in given.Split(';')) cases.Add(g.Split('|'));
+            else
+            {
+                cases.Add(new[] { "action/mapitem/00.unity3d", "p_o_koi_ei_petboto00" });
+                cases.Add(new[] { "action/mapitem/00.unity3d", "p_o_koi_ei_cup00", "", "", "chair_desk", "f_suwari_00_08_00", "f_suwari_00_08_01" });
+            }
+            int k = 0;
+            foreach (var cs in cases)
+            {
+                k++;
+                var hold = new Dictionary<string, object> { { "bundle", cs[0] }, { "asset", cs[1] }, { "type", "k_f_handR_00" } };
+                if (cs.Length > 2 && cs[2].Length > 0) { var p = cs[2].Split(','); hold["pos"] = new List<object> { double.Parse(p[0]), double.Parse(p[1]), double.Parse(p[2]) }; }
+                if (cs.Length > 3 && cs[3].Length > 0) { var a = cs[3].Split(','); hold["angle"] = new List<object> { double.Parse(a[0]), double.Parse(a[1]), double.Parse(a[2]) }; }
+                if (cs.Length > 4 && cs[4].Length > 0) hold["arm"] = new Dictionary<string, object> { { "asset", cs[4] }, { "hold", cs[5] }, { "drink", cs[6] }, { "hand", cs.Length > 7 ? cs[7] : "R" } };
+                int sips0 = st.PropSips, done0 = st.PropSipsDone;
+                st.HoldProp(hold, 30f, drinking);
+                yield return new WaitForSeconds(0.8f);
+                var fwd = cha.transform.forward;
+                st.SetCamera(headT.position + fwd * 0.95f + cha.transform.right * 0.35f - Vector3.up * 0.2f,
+                             point != null ? Vector3.Lerp(headT.position, point.position, 0.5f) : headT.position, 35f, 0f);
+                yield return new WaitForSeconds(0.6f);
+                string heldAs = st.PropShown + " on " + st.PropParent + " " + st.PropMotionNow + " arm " + st.PropArmNow + " bones " + st.PropArmBones;
+                Application.CaptureScreenshot(System.IO.Path.Combine(outDir, string.Format("item_{0}_0.png", k)));
+                yield return new WaitForSeconds(0.2f);
+                st.SipNowForCheck();
+                float t0 = Time.time, dMin = 99f, tMin = 0f;
+                int shot = 1;
+                while (Time.time - t0 < 15f)
+                {
+                    float el = Time.time - t0;
+                    float d = point != null ? Vector3.Distance(point.position, headT.position) : -1f;
+                    if (d < dMin) { dMin = d; tMin = el; }
+                    if ((shot == 1 && el >= 2.6f) || (shot == 2 && el >= 3.6f) || (shot == 3 && el >= 6f) || (shot == 4 && el >= 9f))
+                    {
+                        Application.CaptureScreenshot(System.IO.Path.Combine(outDir, string.Format("item_{0}_{1}.png", k, shot)));
+                        shot++;
+                    }
+                    if (st.PropSipsDone > done0 && el > 4f) break;
+                    yield return new WaitForSeconds(0.1f);
+                }
+                lines.AppendLine(string.Format("ITEM {0} {1} | {2} {3}: held as {4}; sips {5} done {6}; hand point to head nearest {7:F3} m at {8:F1}s; after the sip {9}",
+                    k, cs[0], cs[1], cs.Length > 2 ? string.Join(" ", cs, 2, cs.Length - 2) : "", heldAs, st.PropSips - sips0, st.PropSipsDone - done0, dMin, tMin, st.PropMotionNow));
+                st.EndPropForCheck();
+                yield return new WaitForSeconds(0.8f);
+                lines.AppendLine("  over: shown '" + st.PropShown + "' motion '" + st.PropMotionNow + "'");
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=sipcurve: the sip's course with the bottle - her hand's point against her head in her own frame (up,
+        // forward, right), the animator's state (the hold's / the sip's, normalized time, in a transition, speed, layers) every
+        // 0.2 s, a picture every 0.6 s; then the same clip by Studio's own LoadAnime (0/4/11) for comparison
+        IEnumerator SipCurveTry()
+        {
+            yield return new WaitForSeconds(2f);
+            var st = h.Stage;
+            var cha = st.Cha;
+            var an = cha.animBody;
+            var headT = cha.objHeadBone.transform;
+            var point = Illusion.Game.Elements.EasyLoader.Item.Data.GetParent(Illusion.Game.Elements.EasyLoader.Item.Data.Type.k_f_handR_00, cha);
+            var drinking = Json.Obj(h.Items.Def, "drinking");
+            for (int pass = 0; pass < 2; pass++)
+            {
+                var hold = new Dictionary<string, object> { { "asset", "p_o_koi_ei_petboto00" }, { "type", "k_f_handR_00" } };
+                if (pass == 0) st.HoldProp(hold, 30f, drinking);
+                else { st.HoldProp(hold, 30f, null); st.Heroine.LoadAnime(0, 4, 11, 0f); }
+                st.SetCamera(headT.position + cha.transform.forward * 1.3f - Vector3.up * 0.1f, headT.position - Vector3.up * 0.2f, 40f, 0f);
+                yield return new WaitForSeconds(pass == 0 ? 1.0f : 0.05f);
+                if (pass == 0) st.SipNowForCheck();
+                lines.AppendLine(string.Format("PASS {0}: layers {1} speed {2:F2} controller {3}", pass, an.layerCount, an.speed, an.runtimeAnimatorController != null ? an.runtimeAnimatorController.name : "-"));
+                float t0 = Time.time;
+                int shot = 0;
+                while (Time.time - t0 < 8f)
+                {
+                    float el = Time.time - t0;
+                    var si = an.GetCurrentAnimatorStateInfo(0);
+                    string nm = si.IsName("f_tachi_00_10") ? "sip" : si.IsName("f_tachi_00_09") ? "hold" : si.shortNameHash.ToString();
+                    var rel = cha.transform.InverseTransformDirection(point.position - headT.position);
+                    var sb = new StringBuilder();
+                    for (int l = 1; l < an.layerCount; l++) sb.Append(" L" + l + " w" + an.GetLayerWeight(l).ToString("F2"));
+                    lines.AppendLine(string.Format("  {0:F1}s {1} n{2:F2} tr {3} | hand up {4:F2} fwd {5:F2} right {6:F2} | phase motion {7}{8}", el, nm, si.normalizedTime,
+                        an.IsInTransition(0), rel.y, rel.z, rel.x, st.PropMotionNow, sb));
+                    if (el >= shot * 0.6f && shot < 12)
+                    {
+                        Application.CaptureScreenshot(System.IO.Path.Combine(outDir, string.Format("sip_{0}_{1:00}.png", pass, shot)));
+                        shot++;
+                    }
+                    yield return new WaitForSeconds(0.2f);
+                }
+                st.EndPropForCheck();
+                yield return new WaitForSeconds(1f);
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=animeoptions (the user's note of 2026-11-08: a can or a cup held as the original holds it): every
+        // Studio motion with option items (Info.AnimeLoadInfo.option - the original's props for that motion, loaded by
+        // OptionItemCtrl.LoadAnimeItem: parented to the bones named, no offsets, an animator of its own playing the clip) -
+        // the motion, its clip, each item's bundle / asset, its animator, its parents; then every option item's prefab: its
+        // children (the parts the parentage names) and its renderers' meshes
+        IEnumerator AnimeOptionsTry()
+        {
+            yield return new WaitForSeconds(1f);
+            var info = Singleton<Studio.Info>.Instance;
+            int n = 0;
+            var assets = new List<string>();
+            foreach (var g in info.dicAnimeLoadInfo)
+            {
+                Studio.Info.GroupInfo gi;
+                info.dicAGroupCategory.TryGetValue(g.Key, out gi);
+                foreach (var c in g.Value)
+                {
+                    string cname = null;
+                    if (gi != null) gi.dicCategory.TryGetValue(c.Key, out cname);
+                    foreach (var it in c.Value)
+                    {
+                        var a = it.Value;
+                        if (a.option == null || a.option.Count == 0) continue;
+                        n++;
+                        var sb = new StringBuilder();
+                        foreach (var o in a.option)
+                        {
+                            sb.Append(" || " + o.bundlePath + " | " + o.fileName + " | anm " + (o.anmInfo != null ? o.anmInfo.bundlePath + " " + o.anmInfo.fileName : "-") + " | parents ");
+                            if (o.parentageInfo != null) foreach (var p in o.parentageInfo) sb.Append(p.parent + "/" + p.child + " ");
+                            string key = o.bundlePath + "|" + o.fileName;
+                            if (!assets.Contains(key)) assets.Add(key);
+                        }
+                        lines.AppendLine(string.Format("ANIME {0}/{1}/{2} {3} / {4} / {5} | {6} {7} clip {8}{9}", g.Key, c.Key, it.Key, gi != null ? gi.name : "", cname, a.name,
+                            a.bundlePath, a.fileName, a.clip, sb));
+                    }
+                }
+            }
+            lines.AppendLine("motions with options " + n + ", items " + assets.Count);
+            foreach (var key in assets)
+            {
+                var kv = key.Split('|');
+                try
+                {
+                    var go = CommonLib.LoadAsset<GameObject>(kv[0], kv[1], false, string.Empty);
+                    if (go == null) { lines.AppendLine("ITEM " + key + ": none"); continue; }
+                    var sb = new StringBuilder();
+                    foreach (var tr in go.GetComponentsInChildren<Transform>(true))
+                        if (tr != go.transform) sb.Append(tr.name + " ");
+                    var ms = new StringBuilder();
+                    foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                    {
+                        var mf = r.GetComponent<MeshFilter>();
+                        var mesh = mf != null ? mf.sharedMesh : (r is SkinnedMeshRenderer ? ((SkinnedMeshRenderer)r).sharedMesh : null);
+                        ms.Append(r.name + (mesh != null ? " " + mesh.bounds.size.ToString("F3") : "") + "; ");
+                    }
+                    lines.AppendLine("ITEM " + key + " animator " + (go.GetComponent<Animator>() != null) + " | parts " + sb + "| meshes " + ms);
+                }
+                catch (Exception e) { lines.AppendLine("ITEM " + key + ": " + e.Message); }
+                yield return null;
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=advitems (the user's note of 2026-11-08: a can or a cup held as the original holds it): the original's
+        // ADV - every scenario (adv/scenario/) with an item or object command: those commands and the motions around them (the
+        // character's number, bundle, asset, state; the item's bundle, asset, the bone it is put on); every event CG
+        // (adv/eventcg/: ADV.EventCG.Data) whose characters hold items: the motion and each item's data (type, offsets)
+        IEnumerator AdvItemsTry()
+        {
+            yield return new WaitForSeconds(1f);
+            var want = new HashSet<ADV.Command> { ADV.Command.Motion, ADV.Command.CharaMotion, ADV.Command.CharaItemCreate, ADV.Command.CharaItemDelete,
+                ADV.Command.CharaItemAnime, ADV.Command.CharaItemFind, ADV.Command.ObjectCreate, ADV.Command.ObjectLoad, ADV.Command.ObjectPosition, ADV.Command.ObjectParent };
+            var items = new HashSet<ADV.Command> { ADV.Command.CharaItemCreate, ADV.Command.CharaItemAnime, ADV.Command.ObjectCreate, ADV.Command.ObjectLoad };
+            List<string> bundles = null;
+            try { bundles = CommonLib.GetAssetBundleNameListFromPath("adv/scenario/", true); bundles.Sort(); }
+            catch (Exception e) { lines.AppendLine("scenario list: " + e.Message); }
+            int scen = 0, withItems = 0;
+            foreach (var bn in bundles ?? new List<string>())
+            {
+                ADV.ScenarioData[] all = null;
+                try { all = AssetBundleManager.LoadAllAsset(bn, typeof(ADV.ScenarioData), null).GetAllAssets<ADV.ScenarioData>(); }
+                catch (Exception e) { lines.AppendLine("BUNDLE " + bn + ": " + e.Message); }
+                foreach (var sd in all ?? new ADV.ScenarioData[0])
+                {
+                    scen++;
+                    bool has = false;
+                    foreach (var p in sd.list) if (items.Contains(p.Command)) { has = true; break; }
+                    if (!has) continue;
+                    withItems++;
+                    lines.AppendLine("SCENARIO " + bn + " | " + sd.name);
+                    for (int i = 0; i < sd.list.Count; i++)
+                    {
+                        var p = sd.list[i];
+                        if (!want.Contains(p.Command)) continue;
+                        lines.AppendLine("  " + i + " " + p.Command + " " + string.Join(" | ", p.Args ?? new string[0]));
+                    }
+                }
+                try { AssetBundleManager.UnloadAssetBundle(bn, false, null, false); } catch (Exception) { }
+                yield return null;
+            }
+            lines.AppendLine("scenarios " + scen + ", with items " + withItems);
+            List<string> cgs = null;
+            try { cgs = CommonLib.GetAssetBundleNameListFromPath("adv/eventcg/", true); cgs.Sort(); }
+            catch (Exception e) { lines.AppendLine("eventcg list: " + e.Message); }
+            foreach (var bn in cgs ?? new List<string>())
+            {
+                GameObject[] gos = null;
+                try { gos = AssetBundleManager.LoadAllAsset(bn, typeof(GameObject), null).GetAllAssets<GameObject>(); }
+                catch (Exception e) { lines.AppendLine("CG BUNDLE " + bn + ": " + e.Message); }
+                foreach (var go in gos ?? new GameObject[0])
+                {
+                    foreach (var d in go.GetComponentsInChildren<ADV.EventCG.Data>(true))
+                    {
+                        if (d.scenes == null) continue;
+                        for (int s = 0; s < d.scenes.Length; s++)
+                        {
+                            var sc = d.scenes[s];
+                            if (sc == null || sc.charas == null) continue;
+                            foreach (var ch in sc.charas)
+                            {
+                                var mi = ch.motionAndItem;
+                                if (mi == null || mi.items == null || mi.items.Length == 0) continue;
+                                var m = mi.motion;
+                                lines.AppendLine(string.Format("CG {0} | {1} scene {2} chara {3} motion {4} | {5} | {6}", bn, go.name, s, ch.no, m != null ? m.bundle : "", m != null ? m.asset : "", m != null ? m.state : ""));
+                                foreach (var it in mi.items) lines.AppendLine("  CGITEM " + it.name + " " + ItemLine(it.data));
+                            }
+                        }
+                    }
+                }
+                yield return null;
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=gripview: the cup in her right hand seen from the hand (a camera placed by the hand bone, the same for
+        // each) - the original's seated drink (Drink on her action controller), the standing hold, the standing hold with the
+        // seated grip (fingers' turns); for each the item point's parent chain and place in the hand, the cup's place and
+        // turn in the hand, the hand's turn against the forearm
+        IEnumerator GripViewTry()
+        {
+            yield return new WaitForSeconds(2f);
+            var st = h.Stage;
+            var cha = st.Cha;
+            var an = cha.animBody;
+            var hand = HIK.Find(cha.objBodyBone.transform, "cf_j_hand_R");
+            var arm = HIK.Find(cha.objBodyBone.transform, "cf_j_forearm01_R");
+            var point = Illusion.Game.Elements.EasyLoader.Item.Data.GetParent(Illusion.Game.Elements.EasyLoader.Item.Data.Type.k_f_handR_00, cha);
+            var chain = new StringBuilder();
+            for (var t = point; t != null && t != cha.transform; t = t.parent) chain.Append(t.name + " < ");
+            lines.AppendLine("point chain " + chain);
+            var drinking = Json.Obj(h.Items.Def, "drinking");
+            var ctl = Stage.ActionController(cha.chaFile.parameter.personality);
+            for (int k = 0; k < 3; k++)
+            {
+                var hold = new Dictionary<string, object> { { "asset", "p_o_koi_ei_cup00" }, { "type", "k_f_handR_00" } };
+                if (k == 0) hold["motion"] = "x";
+                if (k == 2) hold["arm"] = new Dictionary<string, object> { { "asset", "chair_desk" }, { "hold", "f_suwari_00_08_00" }, { "drink", "f_suwari_00_08_01" } };
+                if (k == 0)
+                {
+                    st.HoldProp(hold, 30f, new Dictionary<string, object> { { "bundle", ctl[0] }, { "asset", ctl[1] }, { "hold", "Drink" } });
+                }
+                else st.HoldProp(hold, 30f, drinking);
+                yield return new WaitForSeconds(1.5f);
+                var cup = point.childCount > 0 ? point.GetChild(point.childCount - 1) : null;
+                // (the camera from the hand: its own frame - the same view of the hand for each)
+                var eye = hand.position + hand.TransformDirection(new Vector3(0f, 0.12f, 0.22f));
+                st.SetCamera(eye, hand.position, 40f, 0f);
+                yield return new WaitForSeconds(0.4f);
+                Application.CaptureScreenshot(System.IO.Path.Combine(outDir, string.Format("grip_{0}_a.png", k)));
+                yield return new WaitForSeconds(0.2f);
+                st.SetCamera(hand.position + hand.TransformDirection(new Vector3(0.22f, 0.05f, 0f)), hand.position, 40f, 0f);
+                yield return new WaitForSeconds(0.4f);
+                Application.CaptureScreenshot(System.IO.Path.Combine(outDir, string.Format("grip_{0}_b.png", k)));
+                yield return new WaitForSeconds(0.2f);
+                var si = an.GetCurrentAnimatorStateInfo(0);
+                lines.AppendLine(string.Format("CASE {0}: motion {1} playing hold {2} | point in hand {3} turn {4} | cup {5} in hand {6} turn {7} | hand against forearm {8} | world up of the cup {9}",
+                    k, st.PropMotionNow + " arm " + st.PropArmNow, si.IsName("Drink") || si.IsName("f_tachi_00_09"),
+                    hand.InverseTransformPoint(point.position).ToString("F4"), (Quaternion.Inverse(hand.rotation) * point.rotation).eulerAngles.ToString("F1"),
+                    cup != null ? cup.name : "-", cup != null ? hand.InverseTransformPoint(cup.position).ToString("F4") : "-",
+                    cup != null ? (Quaternion.Inverse(hand.rotation) * cup.rotation).eulerAngles.ToString("F1") : "-",
+                    arm != null ? (Quaternion.Inverse(arm.rotation) * hand.rotation).eulerAngles.ToString("F1") : "-",
+                    cup != null ? cup.up.ToString("F2") : "-"));
+                st.EndPropForCheck();
+                yield return new WaitForSeconds(1f);
+            }
             File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
             File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
             MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
