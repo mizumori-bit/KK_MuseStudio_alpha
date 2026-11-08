@@ -718,6 +718,36 @@ namespace MuseStudio
 
         public int SceneResets;                                             // (checks)
 
+        // In a play her default face follows her gauge as it rises (faces.json return.defaults.play: [[from, label], ...]), not
+        // only as the scene changes (the user's note of 2026-11-08: flushed through the 40 s to her climax, past 0.5's
+        // aroused - the default was chosen only at the play's start): when nothing holds her face (Muse's hold none, no face of
+        // the app's, no face of a moment) and the face shown is one of the play's defaults, the gauge's default once it has
+        // stood for gauge_face_seconds (a gauge about a step: no flicker)
+        float playDefaultSince = -1f;
+        string playDefaultWant = "";
+        public int GaugeFaceSwitches;                                       // (checks)
+
+        void PlayDefaultTick()
+        {
+            if (Heroine == null || FaceScene != "play" || MuseLabel.Length > 0 || AppFace || tempLabel.Length > 0) { playDefaultSince = -1f; return; }
+            var rows = Json.Arr(Json.Obj(FaceReturn, "defaults"), "play");
+            bool isDefault = false;
+            if (rows != null)
+                foreach (var row in rows) { var rr = row as List<object>; if (rr != null && rr.Count >= 2 && Convert.ToString(rr[1]) == Face) isDefault = true; }
+            string want = SceneDefault();
+            if (!isDefault || want == Face) { playDefaultSince = -1f; return; }
+            float now = Time.realtimeSinceStartup;
+            if (want != playDefaultWant || playDefaultSince < 0f) { playDefaultWant = want; playDefaultSince = now; return; }
+            if (now - playDefaultSince < (float)Json.Num(FaceReturn, "gauge_face_seconds", 1.0)) return;
+            playDefaultSince = -1f;
+            if (!ApplyFace(want, false)) return;
+            tempLabel = "";                                                 // (a default stays: no timer of its own)
+            faceAppliedAt = -9f;
+            GaugeFaceSwitches++;
+        }
+
+        internal void DefaultFaceNowForCheck() { if (ApplyFace(SceneDefault(), false)) { tempLabel = ""; faceAppliedAt = -9f; } }    // (checks)
+
         // The app's own faces - a touch's reaction (a preset in a play, the original talk's expression outside), her climax's and
         // the afterglow's - put their face back themselves; when nothing will (the afterglow ended while a package was showing -
         // in a play nearly always, its last line stays; a reaction over a reaction kept the first one's face as the one to put
@@ -1491,6 +1521,7 @@ namespace MuseStudio
             SceneFaceTick();
             TempFaceTick();
             MuseHoldTick();
+            PlayDefaultTick();
             if (Heroine != null && !MuseStudioPlugin.Instance.Play.Active && !Walking && Heroine.animeSpeed != speedTarget)
                 Heroine.animeSpeed = Mathf.MoveTowards(Heroine.animeSpeed, speedTarget, Mathf.Max(speedRate, 0.01f) * Time.deltaTime);
             if (ReactUntil < 0f) return;

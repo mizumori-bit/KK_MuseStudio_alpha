@@ -1686,6 +1686,11 @@ namespace MuseStudio
                       "climax " + climax0 + " -> " + EventCount("climax") + " refused " + refused0 + " -> " + EventCount("block_refused") + " gauge " + gauge0 + " -> " + h.Gauge.Value);
                 bp.Advance(true);
                 yield return Wait(1f);
+                // (the user's note of 2026-11-08: her face looked stuck through the checks that followed - the block's gentle,
+                // held by Muse's hold (contract 1.27) until the play's scene) the hold let go here: the checks after it show her
+                // ordinary face; a real talk's hold is as it was
+                st.ReleaseMuse("check");
+                yield return Wait(0.3f);
             }
 
             // touch: the hit shapes on her bones, her talk reaction, the gauge, one touch event per area
@@ -1922,6 +1927,32 @@ namespace MuseStudio
             bp.Advance(true);
             yield return Wait(1.5f);
             yield return Shot("03_play.png");
+            // (the user's note of 2026-11-08: flushed through the 40 s to her climax) in a play her default face follows her
+            // gauge as it rises, nothing holding her face: 0.2 flushed; 0.6 aroused after a second; Muse's hold over it kept
+            {
+                st.ReleaseMuse("check");
+                float gfV0 = h.Gauge.Value;
+                int gfSw0 = st.GaugeFaceSwitches;
+                h.Gauge.Value = 0.2f;
+                st.DefaultFaceNowForCheck();
+                yield return Wait(0.3f);
+                string gfLow = st.Face;
+                h.Gauge.Value = 0.6f;
+                yield return Wait(0.5f);
+                string gfSoon = st.Face;
+                yield return Wait(1.2f);
+                string gfHigh = st.Face;
+                int gfSw = st.GaugeFaceSwitches - gfSw0;
+                st.MuseFace("teasing");
+                h.Gauge.Value = 0.2f;
+                yield return Wait(1.5f);
+                string gfHeld = st.Face;
+                st.ReleaseMuse("check");
+                h.Gauge.Value = gfV0;
+                Check("faces: in a play her default face follows her gauge as it rises - 0.2 flushed, 0.6 aroused after a second (not at once); Muse's held face stays over it (the user's note of 2026-11-08)",
+                      gfLow == "flushed" && gfSoon == "flushed" && gfHigh == "aroused" && gfSw == 1 && gfHeld == "teasing",
+                      gfLow + " / " + gfSoon + " / " + gfHigh + " switches " + gfSw + " held " + gfHeld);
+            }
             // your body as the original H's male: hidden but its penis (Z), a see-through silhouette (C), the penis hidden (X)
             var ptc = st.Partner.charInfo;
             var objBody = ptc.GetReferenceInfo(ChaReference.RefObjKey.ObjBody);
