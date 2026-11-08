@@ -599,10 +599,15 @@ namespace MuseStudio
             var st = h.Stage;
             bool self = side == Side;
             if (h.Play.Active) h.Play.Climax.PresentDeclared(self ? "character" : "player", Lesbian);
-            if (self) { faceBack = st.Face; st.ApplyPreset("ecstasy"); }
-            else if (HasBody) st.ApplyPresetOn(st.Partner, "ecstasy");
-            faceSide = side;
-            faceUntil = Time.realtimeSinceStartup + (float)Json.Num(Json.Obj(st.Cfg, "match"), "climax_face_seconds", 5.0);
+            float secs = (float)Json.Num(Json.Obj(st.Cfg, "match"), "climax_face_seconds", 5.0);
+            if (self)
+            {
+                faceBack = st.Face;
+                st.ApplyPreset("ecstasy");
+                faceSide = side;
+                faceUntil = Time.realtimeSinceStartup + secs;
+            }
+            else if (HasBody) st.OpponentClimaxFace(secs);      // (the opponent's: its own timer - GPT's post-review of #92)
         }
 
         void FaceTick()
@@ -610,8 +615,7 @@ namespace MuseStudio
             if (faceUntil < 0f || Time.realtimeSinceStartup < faceUntil) return;
             faceUntil = -1f;
             var st = h.Stage;
-            if (faceSide == Side) { if (st.Face == "preset:ecstasy") st.RestoreFace(faceBack); }
-            else if (HasBody && st.Partner != null) st.OpponentFaceBack();         // (the face it held, as its own side puts it back)
+            if (faceSide == Side && st.Face == "preset:ecstasy") st.RestoreFace(faceBack);     // (hers: the opponent's is its own timer's)
         }
 
         // the broadcast view's camera (Ui: 中継風): outside a play it goes slowly round the two

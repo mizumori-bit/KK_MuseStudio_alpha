@@ -81,7 +81,7 @@ namespace MuseStudio
             {
                 if (unreachableSince < 0f) unreachableSince = now;
                 if (now - unreachableSince >= UnreachableSeconds && !Has("bridge_unreachable"))
-                    Raise("bridge_unreachable", "ブリッジにつながりません（つながるまで試し続けます。出来事は、つながってから Muse に届きます）");
+                    Raise("bridge_unreachable", "ブリッジ未接続（再試行中）");     // (its words as drawn: the panel's link line, ShownAs)
             }
             else
             {
@@ -106,9 +106,9 @@ namespace MuseStudio
         {
             foreach (var n in notes)
             {
-                if (n.Kind != "bridge_unreachable")
+                if (n.Kind == "bridge_unreachable") continue;     // (the link's own red line: told as shown by ShownAs, with its words)
                 {
-                    string line = "⚠ " + n.Text;
+                    string line = n.Text;                       // (drawn as told: the words Muse hears of are these - #90)
                     float hgt = style.CalcHeight(new GUIContent(line), w);
                     GUI.Label(new Rect(x, y, w, hgt), line, style);
                     y += hgt + 2f * s;
@@ -122,6 +122,19 @@ namespace MuseStudio
                 }
             }
             return y;
+        }
+
+        // a notice whose words are drawn elsewhere (the bridge out of reach: the panel's red link line) - told as shown with the
+        // words drawn there (GPT's post-review of #90: the longer words never drawn were told as seen); cleared with the same
+        public void ShownAs(string kind, string drawn)
+        {
+            var n = notes.Find(x => x.Kind == kind);
+            if (n == null || n.Displayed || Event.current.type != EventType.Repaint) return;
+            n.Text = drawn;
+            n.Displayed = true;
+            n.DisplayedAt = Time.realtimeSinceStartup;
+            n.ShownAt = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+            Tell(n, "shown");
         }
 
         internal void ExpireForCheck(string kind) { var n = notes.Find(x => x.Kind == kind); if (n != null) n.Until = Time.realtimeSinceStartup; }

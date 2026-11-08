@@ -87,6 +87,14 @@ class Interrupted(unittest.TestCase):
         self.launch("L2", "app_starting")
         self.assertEqual(self.status("m-5")["stage"], "finished")
 
+    # (GPT's post-review of #83) a monologue cut short: finished with its reason, its count as it came (not made fewer)
+    def test_a_cut_keeps_its_count(self):
+        self.launch("L1")
+        self.begin("m-8", 3, (0,))
+        self.assertEqual(self.ack(["m-8"], "finished", reason="monologue", block=0, blocks=1)[0], 200)     # (a fewer count: kept 3)
+        s = self.status("m-8")
+        self.assertEqual((s["stage"], s["reason"], s["last_block"], s["blocks"]), ("finished", "monologue", 0, 3))
+
     def test_an_older_apps_start_is_left_as_it_is(self):
         self.launch("L1")
         self.b.call("POST", "/api/packages", self.pkg("古いアプリ。", id="m-6"))

@@ -1811,8 +1811,8 @@ def make_handler(state: State):
                             if block is not None and block > r.get("last_block", -1):
                                 r["last_block"] = block
                                 r["block_at"] = _now()
-                            if blocks is not None:
-                                r["blocks"] = blocks
+                            if blocks is not None and blocks > r.get("blocks", -1):
+                                r["blocks"] = blocks          # (the count as it came: never made fewer - GPT's post-review of #83)
                         state._take_out(pid)               # (received, begun or dropped by the app: no body kept)
                     try:
                         state._save_packages()

@@ -340,6 +340,28 @@ class Release(unittest.TestCase):
         self.assertEqual(install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT), "")
         self.assert_set(self.new_set())
 
+    # (GPT's post-review of #81) a journal that names no set of the plugin's files - empty, an unknown name, one twice, its
+    # had not matching - is refused with nothing touched: not taken for put back, its journal and backups kept
+    def test_a_journal_naming_no_set_is_refused(self):
+        dest = self.plugins / "MuseStudio"
+        for bad_names, bad_had in (([], {}), (["not-a-plugin-file"], {"not-a-plugin-file": True}),
+                                   (["MuseStudio.dll", "MuseStudio.dll"], {"MuseStudio.dll": True}),
+                                   (list(install_dll.WANT), {"MuseStudio.dll": True}),
+                                   (list(install_dll.WANT), {n: "yes" for n in install_dll.WANT})):
+            if dest.exists():
+                import shutil
+                shutil.rmtree(dest)
+            old, names = self.swapping_state()
+            install_dll._journal_write(dest, {"phase": "swapping", "names": bad_names, "had": bad_had})
+            journal = (dest / install_dll.JOURNAL).read_text(encoding="utf-8")
+            with self.assertRaises(install_dll.JournalUnreadable):
+                install_dll.recover(dest)
+            self.assertIn("not finished", install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT))
+            self.assertEqual((dest / install_dll.JOURNAL).read_text(encoding="utf-8"), journal, bad_names)
+            self.assertEqual((dest / (names[0] + ".bak")).read_bytes(), old[names[0]], bad_names)     # (the backup kept)
+            for n in names[1:]:
+                self.assertEqual((dest / n).read_bytes(), old[n], bad_names)
+
     def test_a_dll_not_built_now_is_not_packed(self):
         out = self.tmp / "build_out"
         out.mkdir()
