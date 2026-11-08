@@ -19,7 +19,7 @@ MuseStudio/
   src/      プラグインのソース（C# 7.3、Unity 5.6 の .NET 3.5）
   data/     舞台の設定。plays・locations・touch・sounds・talk の 5 つは、tools/derive_data.py がその PC の原作から作る（原作由来なので
             リポジトリに入れない）。ほかは、この企画で決めた値で、リポジトリに入っている
-  tools/    setup.py（起動用のフォルダを作る）・build.py（ビルド）・install_dll.py（ビルド済みの DLL を入れる）・derive_data.py（データ）・
+  tools/    setup.py（起動用のフォルダを作る）・doctor.py（導入診断。読むだけ）・build.py（ビルド）・install_dll.py（ビルド済みの DLL を入れる）・derive_data.py（データ）・
             run_checks.py（確認）・make_release.py（ビルド済みの DLL を GitHub Releases に出す。作者用）
             base/：5 つのデータの、この企画で書いた部分（名前・説明・設定と、原作の中を引くための名前）
 ```
@@ -92,6 +92,26 @@ MuseStudio/
 - 原作の場所：`MuseStudio/tools/original_path.txt` に 1 行で書くか、環境変数 `MUSESTUDIO_ORIGINAL` に入れます（どちらもリポジトリには入りません）。
 - **リポジトリは浅い場所に置いてください**（例：ドライブの直下の `KK_MuseStudio`）。`game/mods` は原作の `mods` へのリンクなので、深い場所だと Mod のファイルのパスが Windows の 260 文字を超え、Sideloader が Mod を一つも読めません（Mod の部屋・AL の体位・ペニスバンドが無くなり、3 の `no match:` にそれらが並びます）。
 - 動いている CharaStudio・コイカツは閉じておきます（2〜4 はゲームを起動します）。
+
+### 前提をまとめて確かめる（導入診断）
+
+始める前と、うまくいかないときに、次を実行します（#70 で採用）。読むだけで、何も書き換えません。
+
+```bash
+python -B MuseStudio/tools/doctor.py
+```
+
+- 確かめるもの：
+  - Python の版。
+  - 原作の場所と BepInEx の版。
+  - 前提の Mod（KKAPI・Sideloader・ExtensibleSaveFormat）の有無と版。あれば使う Mod（Push Up・HideAllUI）。
+  - 起動用のフォルダと原作へのリンク。
+  - MuseStudio の DLL（配布版なら、その目録のコミットがこのクローンと同じか）。
+  - .NET SDK。
+  - ブリッジ（設定、ポートで動いているか空いているか、鍵のファイル、Muse の受け口）。
+- 結果は「OK／要対応／未確認」と、次にすることです。要対応が 1 つでもあれば、終了コードは 1 です。
+- **出さないもの**：鍵の値（長さと指紋だけ）、tailnet の名前やアドレス、Muse の機械の指定、フォルダの場所（「見つかった／見つからない」だけ）。
+- **確かめた環境**：作者の PC（2026-11-08、15 項目すべて OK）。原作や Mod の構成が違う PC では、まだ通していません。
 
 ### 順番と、うまくいったかの見分け方
 
