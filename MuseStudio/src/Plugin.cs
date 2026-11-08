@@ -41,6 +41,9 @@ namespace MuseStudio
         internal ConfigEntry<string> StraponItem;
         internal ConfigEntry<string> YourBodyCard;
         internal ConfigEntry<int> YourClothes;
+        internal ConfigEntry<bool> ShowGaugePercent;     // (#70 adopted: the gauge's % on the screen - off by default, the setting kept)
+        // (#70 adopted, 5) the contract's version this app speaks (MUSE_GUIDE.md's: the bridge's tests hold them together)
+        public const string Contract = "1.38";
         internal ConfigEntry<KeyboardShortcut> HitShapesKey;
         internal ConfigEntry<KeyboardShortcut> HideUiKey;
         ConfigEntry<string> resetCameraEntry, resetPlacesEntry, scanRoomsEntry;
@@ -170,6 +173,8 @@ namespace MuseStudio
             YourBody = Config.Bind("Play", "Your body", "male", Ja("プレイ", "あなたの体", "プレイでのあなたの体：male＝男性の体、female＝女性の体。", 1,
                 new AcceptableValueList<string>("male", "female")));
             YourFutanari = Config.Bind("Play", "Your futanari", false, Ja("プレイ", "あなたの体をふたなりにする", "女性の体にもペニスがあることにします。", 2));
+            ShowGaugePercent = Config.Bind("Play", "Show the pleasure percent", false, Ja("プレイ", "快感度の％を出す",
+                "プレイ中に、画面に彼女の快感度を％で出します（既定は出さない。持ち主の判断 2026-11-08）。Muse には、これまでどおり状態で数値が届きます。", 4));
             YourClothes = Config.Bind("Play", "Your clothes", 2, Ja("プレイ", "あなたの服", "プレイでのあなたの体の服：0＝着たまま、1＝半脱ぎ、2＝脱ぐ。", 3, new AcceptableValueRange<int>(0, 2)));
             YourBodyCard = Config.Bind("Play", "Your body card", "", Ja("プレイ", "あなたの体のカード", "クリエイトで作ったあなたの体（game/UserData/chara のカード）。空なら標準の体。", 4));
             // your body as the original H shows the male (HSceneProc: Z the body, X the penis, C the silhouette in its colour)
@@ -807,7 +812,7 @@ namespace MuseStudio
                 { "character", Chars.Info() }, { "outfit", Stage.Cha != null ? CharaSummary.OutfitNow(Stage.Cha) : null },
                 { "location", Stage.LocationInfo(Outing.Out && Outing.KnownRoom.Length > 0 ? Outing.KnownRoom : Presence.Apart ? Presence.HerRoom : Stage.Location) },     // (her knowledge of where he is: out, or he went alone - where she last saw him)
                 { "scene", Play.Active ? Play.SceneInfo() : new Dictionary<string, object> { { "key", Stage.SceneKey }, { "intensity", Stage.Intensity }, { "speed", Stage.Speed } } },
-                { "emotion", Stage.Emotion }, { "face", Stage.FaceInfo() }, { "camera", Stage.CameraKey }, { "package", Blocks.Info() }, { "play", Play.Info() }, { "play_serial", Play.Serial },
+                { "emotion", Stage.Emotion }, { "face", Stage.FaceInfo() }, { "camera", Stage.CameraKey }, { "package", Blocks.Info() }, { "play", Play.Info() }, { "play_serial", Play.Serial }, { "contract", Contract },
                 { "gauge", Gauge.Info() }, { "beat", Beat.Info() }, { "mood", Mood.Info() },
                 { "presence", Presence.Info() }, { "belief", Presence.BeliefInfo() }, { "urges", Urges.Info() }, { "outing", Outing.Info() },
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },

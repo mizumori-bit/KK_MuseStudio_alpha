@@ -917,8 +917,11 @@ namespace MuseStudio
                 string fin = pc.Climax.Running ? (pc.Climax.Holding ? "　フィニッシュ待ち" : "　フィニッシュ中") : "";
                 GUI.Label(new Rect(x, y, w, lh), string.Format("ペース：{0}（Muse）{1}", Json.Str(pc.Info(), "pace_name"), fin), small);
                 y += lh;
-                GUI.Label(new Rect(x, y, w, lh), string.Format("彼女 {0:P0}", host.Gauge.Value), small);
-                y += lh;
+                if (host.ShowGaugePercent.Value)
+                {
+                    GUI.Label(new Rect(x, y, w, lh), string.Format("彼女 {0:P0}", host.Gauge.Value), small);     // (off by default: #70 adopted)
+                    y += lh;
+                }
                 if (pc.Group == "sonyu")
                 {
                     string ct = "ゴム：" + (pc.Condom == null ? "未定（Muse が聞きます）" : pc.Condom == true ? "あり" : "なし");

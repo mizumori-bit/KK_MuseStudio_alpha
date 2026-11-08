@@ -302,7 +302,7 @@ python -B -m unittest discover -s MuseStudio/tools/tests
   - イベント：`character_selected`・`location_changed`・`character_changed`・`persona_changed`・`creation_completed`・`touch`・`block_refused`・`play_started`・`play_pace_changed`・`play_insertion_changed`・`play_condom_changed`・`play_finish`・`play_ended`・`player_clothes_changed`・`gauge_milestone`・`climax`・`mood_changed`・`mood_applied`・`urge`・`urge_cleared`・`action_started`・`outing_started`・`outing_ended`・`presence_changed`・`person_assigned`・`package_dropped`
   - プレイの一覧（`/api/catalog`）は、使える場所・攻守交代の可否・参加者付きで送ります。
 - **声**はオフです（ブリッジの設定に従います）。
-- **確認**：349 項目と、続けて原作のキャラメイクを開いてクリエイトの変更点の 12 項目（あわせて約 17 分。実際のマウスとキーで、対戦のパネル・リプレイの一覧と再生・カメラのドラッグとホイールとキーを操作する確認を含みます。同じ PC でほかの窓が前に出ると、実クリック・実キーの項目が落ちることがあります。`tools/run_checks.py`、予備のポートのブリッジで、ユーザーのキャラ・設定・気分・登録性格には触れません）。FPS は待機で約 170〜220、プレイ中で約 120〜160、並べた部屋ごとに約 110〜200 です（1536×864。回によって揺れます）。
+- **確認**：351 項目と、続けて原作のキャラメイクを開いてクリエイトの変更点の 12 項目（あわせて約 17 分。実際のマウスとキーで、対戦のパネル・リプレイの一覧と再生・カメラのドラッグとホイールとキーを操作する確認を含みます。同じ PC でほかの窓が前に出ると、実クリック・実キーの項目が落ちることがあります。`tools/run_checks.py`、予備のポートのブリッジで、ユーザーのキャラ・設定・気分・登録性格には触れません）。FPS は待機で約 170〜220、プレイ中で約 120〜160、並べた部屋ごとに約 110〜200 です（1536×864。回によって揺れます）。
 
 ## まだ無いもの（Godot 版にあって、こちらに移していないもの）
 
