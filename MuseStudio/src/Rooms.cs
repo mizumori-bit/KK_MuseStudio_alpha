@@ -43,6 +43,9 @@ namespace MuseStudio
         public readonly List<string> Failed = new List<string>();
         public int Unloaded;                 // (checks) lazy rooms let go
         public float LastLazySeconds;        // (checks) the last lazy room's loading
+        public string FailForCheck = "";     // (checks) this room's loading fails, as a missing file would
+        string inFlight;                     // the room loading now: one at a time (GPT's post-review of #62)
+        float inFlightSince;
 
         public bool Has(string key) { return key != null && rooms.ContainsKey(key); }
 
@@ -90,35 +93,55 @@ namespace MuseStudio
         }
 
         // one room's scene added beside Studio's (AssetBundleManager.LoadLevel, additive), its roots moved to its slot's place
-        // and kept off until it is shown; then its features taken (Places.Loaded)
+        // and kept off until it is shown; then its features taken (Places.Loaded). One room at a time (GPT's post-review of #62:
+        // two rooms loading at once - his move and her own - each took the last scene that came in, both the same one): the
+        // others wait their turn, and the scene taken is the one of this map (its scene's name), new since the load began and
+        // no other room's
         IEnumerator LoadOne(string key, Dictionary<string, object> row, bool lazy)
         {
             int no = (int)Json.Num(row, "map", -1);
             Info.MapLoadInfo info;
             if (!Find(row, ref no, out info)) { Failed.Add(key + " (no map)"); yield break; }
             loading.Add(key);
+            // (a load cut off - its coroutine stopped - does not hold the others for ever: past 90 s its turn is over)
+            while (inFlight != null && Time.realtimeSinceStartup - inFlightSince < 90f) yield return null;
+            if (Has(key)) { loading.Remove(key); yield break; }
+            inFlight = key;
+            inFlightSince = Time.realtimeSinceStartup;
             var before = new HashSet<int>();
             for (int s = 0; s < SceneManager.sceneCount; s++) before.Add(SceneManager.GetSceneAt(s).GetHashCode());
+            var owned = new HashSet<int>();
+            foreach (var r in rooms.Values) owned.Add(r.Scene.GetHashCode());
             bool started = true;
-            try { AssetBundleManager.LoadLevel(info.bundlePath, info.fileName, true, info.manifest); }
-            catch (Exception e) { Failed.Add(key + " (" + e.Message + ")"); started = false; }
-            // the scene that came in (by its handle, GetHashCode: names may repeat), loaded
-            Scene sc = new Scene();
+            if (key == FailForCheck) { Failed.Add(key + " (check: as a missing file)"); started = false; }
+            else
+            {
+                try { AssetBundleManager.LoadLevel(info.bundlePath, info.fileName, true, info.manifest); }
+                catch (Exception e) { Failed.Add(key + " (" + e.Message + ")"); started = false; }
+            }
+            // the scene that came in (by its handle, GetHashCode: names may repeat), loaded: this map's by its name; another
+            // new one only when none has that name (a bundle whose scene is named otherwise)
+            Scene sc = new Scene(), other = new Scene();
+            string want = System.IO.Path.GetFileNameWithoutExtension(info.fileName ?? "");
             float w0 = Time.realtimeSinceStartup;
             while (started && Time.realtimeSinceStartup - w0 < 60f)
             {
                 for (int s = 0; s < SceneManager.sceneCount; s++)
                 {
                     var c = SceneManager.GetSceneAt(s);
-                    if (!before.Contains(c.GetHashCode()) && c.isLoaded) sc = c;
+                    if (before.Contains(c.GetHashCode()) || owned.Contains(c.GetHashCode()) || !c.isLoaded) continue;
+                    if (string.Equals(c.name, want, StringComparison.OrdinalIgnoreCase)) sc = c;
+                    else other = c;
                 }
                 if (sc.IsValid()) break;
+                if (other.IsValid() && Time.realtimeSinceStartup - w0 > 0.5f) { sc = other; break; }      // (named otherwise: the new one)
                 yield return null;
             }
             if (!sc.IsValid())
             {
                 if (started) Failed.Add(key + " (did not load)");
                 loading.Remove(key);
+                if (inFlight == key) inFlight = null;
                 yield break;
             }
             int slot = 1;
@@ -133,6 +156,7 @@ namespace MuseStudio
             }
             rooms[key] = room;
             loading.Remove(key);
+            if (inFlight == key) inFlight = null;
             MuseStudioPlugin.Log.LogInfo(string.Format("MuseStudio: room {0} (map {1}, {2} roots) at x {3}{4}", key, no, room.Roots.Count, room.Offset.x, lazy ? " (lazy)" : ""));
             if (MuseStudioPlugin.Instance.Places != null) MuseStudioPlugin.Instance.Places.Loaded(key);
             yield return null;
@@ -150,6 +174,13 @@ namespace MuseStudio
             int over = inUse + lazy.Count - Mathf.Max(0, limit);
             for (int i = 0; i < over && i < lazy.Count; i++) MuseStudioPlugin.Instance.StartCoroutine(Unload(lazy[i]));
         }
+
+        // (checks) a room's scene, and a lazy room let go now
+        public Scene SceneOf(string key) { Room r; return key != null && rooms.TryGetValue(key, out r) ? r.Scene : new Scene(); }
+
+        public List<GameObject> RootsOf(string key) { Room r; return key != null && rooms.TryGetValue(key, out r) ? r.Roots : new List<GameObject>(); }
+
+        public IEnumerator UnloadForCheck(string key) { Room r; if (key != null && rooms.TryGetValue(key, out r) && r.Lazy) yield return Unload(r); }
 
         IEnumerator Unload(Room r)
         {

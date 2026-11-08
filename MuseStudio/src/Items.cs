@@ -79,7 +79,13 @@ namespace MuseStudio
             return o;
         }
 
-        void Persist() { h.Mood.Persist(); }
+        // written now - within a block's operation not yet: its one write comes with its request (FromBlock)
+        bool inTx;
+        List<Action> afterTx;
+        void Persist() { if (!inTx) h.Mood.Persist(); }
+
+        // what is told and shown of a change: at once, or - within a block's operation - once its write is done
+        void After(Action a) { if (inTx && afterTx != null) afterTx.Add(a); else a(); }
 
         public int Budget { get { return (int)Json.Num(doc, "budget", 0); } }
         public double Fraction { get { return Json.Num(doc, "fraction", 0); } }
@@ -223,9 +229,12 @@ namespace MuseStudio
                 Persist();
             }
             offers.Remove(o);
-            h.Bridge.Event("item_given", new Dictionary<string, object> { { "offer", o.Id }, { "item", ItemInfo(o.Item) }, { "from", o.From }, { "to", o.To },
-                { "taken", take } });
-            Log.Add((take ? "taken " : "declined ") + o.Id);
+            After(() =>
+            {
+                h.Bridge.Event("item_given", new Dictionary<string, object> { { "offer", o.Id }, { "item", ItemInfo(o.Item) }, { "from", o.From }, { "to", o.To },
+                    { "taken", take } });
+                Log.Add((take ? "taken " : "declined ") + o.Id);
+            });
             return "";
         }
 
@@ -251,6 +260,44 @@ namespace MuseStudio
             var done = Json.Arr(doc, "requests");
             if (done == null) { done = new List<object>(); doc["requests"] = done; }
             if (done.Contains(req)) return "";                  // (a resend: done once)
+            // one commit (GPT's post-review of #65: the use was written, then its request in a second write - a stop between
+            // them, and the same request used it again): the change, her effects to come and the request in one write, its
+            // events and her drink once it is written; a write that fails puts all back as it was - refused save_failed,
+            // nothing changed, the same request may come again
+            string before = Json.Write(doc);
+            var offersWas = new List<Offer>(offers);
+            var suggestionsWas = new List<Suggestion>(suggestions);
+            int pendingWas = h.Mood.PendingCount;
+            inTx = true;
+            afterTx = new List<Action>();
+            string why;
+            try { why = Operate(it); }
+            finally { inTx = false; }
+            var after = afterTx;
+            afterTx = null;
+            if (why.Length > 0) return why;
+            done = Json.Arr(doc, "requests");
+            if (done == null) { done = new List<object>(); doc["requests"] = done; }
+            done.Add(req);
+            while (done.Count > 500) done.RemoveAt(0);
+            if (!h.Mood.Persist())
+            {
+                doc = Json.Parse(before) as Dictionary<string, object> ?? doc;
+                offers.Clear();
+                offers.AddRange(offersWas);
+                suggestions.Clear();
+                suggestions.AddRange(suggestionsWas);
+                h.Mood.TruncatePending(pendingWas);
+                MuseStudioPlugin.Log.LogWarning("MuseStudio: items: " + req + " not written - put back, refused (save_failed)");
+                return "save_failed";
+            }
+            foreach (var a in after) a();
+            return "";
+        }
+
+        // a block's one operation, in memory (FromBlock writes it): "" done, else why not (nothing changed)
+        string Operate(Dictionary<string, object> it)
+        {
             string why;
             if (Json.Has(it, "accept")) why = Answer(Json.Str(it, "accept"), true, "character");
             else if (Json.Has(it, "decline")) why = Answer(Json.Str(it, "decline"), false, "character");
@@ -265,12 +312,6 @@ namespace MuseStudio
             else if (Json.Has(it, "use")) why = Use(Json.Str(it, "use"), "character", Json.Str(it, "on", "self"), Json.Str(it, "from", "own"));
             else if (Json.Has(it, "give")) why = HerOffer(Json.Str(it, "give"), Json.Str(it, "from", "own"));
             else why = "no_operation";
-            if (why.Length == 0)
-            {
-                done.Add(req);
-                while (done.Count > 500) done.RemoveAt(0);
-                Persist();
-            }
             return why;
         }
 
@@ -284,7 +325,7 @@ namespace MuseStudio
             var o = new Offer { Id = "o" + (++offerSerial) + "-" + Launch.Id.Substring(0, Math.Min(6, Launch.Id.Length)), Item = item, From = "character", To = "user",
                                 Char = Her, At = Time.realtimeSinceStartup };
             offers.Add(o);
-            Log.Add("she offered " + item + " " + o.Id);
+            After(() => Log.Add("she offered " + item + " " + o.Id));
             return "";
         }
 
@@ -317,17 +358,20 @@ namespace MuseStudio
                     float amount = (float)Json.Num(e, "amount", 0) * Mathf.Pow(1f - dull, doses);
                     float room = Mathf.Max(0f, cap - h.Mood.Values[mood] - h.Mood.PendingOf(mood));
                     amount = Mathf.Min(amount, room);
-                    if (amount > 0f) h.Mood.AddPending(mood, amount, (float)Json.Num(e, "minutes", 10), item);
+                    if (amount > 0f) h.Mood.AddPending(mood, amount, (float)Json.Num(e, "minutes", 10), item, cap);
                     Dose(mood);
                     applied.Add(new Dictionary<string, object> { { "mood", mood }, { "amount", Math.Round(amount, 3) } });
                 }
             }
             Persist();
-            if (!onUser) h.Stage.HoldProp(Json.Arr(d, "prop"), (float)Json.Num(Def, "drink_seconds", 12));
-            Log.Add("used " + item + " by " + by + " on " + (onUser ? "user" : "character") + " " + Json.Write(applied));
             var ev = new Dictionary<string, object> { { "item", ItemInfo(item) }, { "by", by }, { "on", onUser ? "user" : "character" },
                 { "from", holder == "shelf" ? "shelf" : holder == "user" ? "user" : "hers" } };
-            h.Bridge.Event("item_used", ev);
+            After(() =>
+            {
+                if (!onUser) h.Stage.HoldProp(Json.Arr(d, "prop"), (float)Json.Num(Def, "drink_seconds", 12));
+                Log.Add("used " + item + " by " + by + " on " + (onUser ? "user" : "character") + " " + Json.Write(applied));
+                h.Bridge.Event("item_used", ev);
+            });
             return "";
         }
 

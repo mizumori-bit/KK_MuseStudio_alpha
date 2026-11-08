@@ -70,19 +70,22 @@ namespace MuseStudio
         }
 
         // the app still alive (every 30 s, at each save, at the start): what its next start counts its closed time from
-        void Alive()
+        bool Alive()
         {
             try
             {
                 var all = ReadAll();
-                if (all == null) return;               // (not readable: left as it is)
+                if (all == null) return false;         // (not readable: left as it is)
                 if (!appRead) TakeApp(all);            // (its record first: never written over unread - GPT's re-review of #42)
                 all[AppKey] = AppDoc();
                 if (h.Items != null && h.Items.Imported) all[ItemsKey] = h.Items.Export();
                 WriteWhole(Json.Write(all));
+                return true;
             }
-            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); }
+            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); return false; }
         }
+
+        public bool FailWritesForCheck;        // (checks) the next writes fail, as a full disk would
 
         // (checks) a moods file at another path: what the start does to it
         public static Mood ForFileCheck(MuseStudioPlugin host, string path) { return new Mood(host, path); }
@@ -146,6 +149,7 @@ namespace MuseStudio
         // into in place (GPT's re-review of #42: the fallback copied over it)
         void WriteWhole(string text)
         {
+            if (FailWritesForCheck) throw new IOException("check: the write fails");
             Directory.CreateDirectory(Path.GetDirectoryName(savePath));
             string part = savePath + ".part", bak = savePath + ".bak";
             File.WriteAllText(part, text);
@@ -197,7 +201,8 @@ namespace MuseStudio
                 {
                     var pd = po as Dictionary<string, object>;
                     if (pd != null && Json.Num(pd, "left") > 0)
-                        pending.Add(new Pending { Mood = Json.Str(pd, "mood", ""), Left = (float)Json.Num(pd, "left"), Rate = (float)Json.Num(pd, "rate"), Item = Json.Str(pd, "item", "") });
+                        pending.Add(new Pending { Mood = Json.Str(pd, "mood", ""), Left = (float)Json.Num(pd, "left"), Rate = (float)Json.Num(pd, "rate"), Item = Json.Str(pd, "item", ""),
+                                                  Cap = (float)Json.Num(pd, "cap", 1.0) });
                 }
             foreach (var kv in Moods)
             {
@@ -225,13 +230,16 @@ namespace MuseStudio
         public void ResumeForCheck(string id, Dictionary<string, object> mine) { Apply(id, mine); }
         public static double UnixNowForCheck { get { return Unix; } }
 
-        public void Save()
+        public void Save() { Write(); }
+
+        // written now: true when the file has it (false: not readable - left as it was - or the write failed)
+        bool Write()
         {
-            if (charId.Length == 0) { Alive(); return; }      // (no character yet: the app's own time still told)
+            if (charId.Length == 0) return Alive();      // (no character yet: the app's own time still told)
             try
             {
                 var all = ReadAll();
-                if (all == null) return;               // (not readable: left as it is)
+                if (all == null) return false;         // (not readable: left as it is)
                 if (!appRead) TakeApp(all);
                 if (!charRead)
                 {
@@ -246,14 +254,16 @@ namespace MuseStudio
                 var dn = new Dictionary<string, object>();
                 foreach (var kv in done) dn[kv.Key] = kv.Value;
                 var pend = new List<object>();
-                foreach (var pe in pending) pend.Add(new Dictionary<string, object> { { "mood", pe.Mood }, { "left", Math.Round(pe.Left, 5) }, { "rate", Math.Round(pe.Rate, 7) }, { "item", pe.Item } });
+                foreach (var pe in pending) pend.Add(new Dictionary<string, object> { { "mood", pe.Mood }, { "left", Math.Round(pe.Left, 5) }, { "rate", Math.Round(pe.Rate, 7) }, { "item", pe.Item },
+                                                                      { "cap", Math.Round(pe.Cap, 4) } });
                 all[charId] = new Dictionary<string, object> { { "values", vals }, { "saved", Unix }, { "launch", Launch.Id }, { "done", dn },
                     { "closed_total", Math.Round(closedTotal, 3) }, { "pending", pend } };
                 all[AppKey] = AppDoc();
                 if (h.Items != null && h.Items.Imported) all[ItemsKey] = h.Items.Export();
                 WriteWhole(Json.Write(all));
+                return true;
             }
-            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); }
+            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: moods: " + e.Message); return false; }
         }
 
         public string LevelOf(string key)
@@ -385,15 +395,19 @@ namespace MuseStudio
         public void ForgetClimaxForCheck() { satisfiable.Clear(); }
 
         // ---- items' effects (PR #46 §7): an amount flowing into a mood over its minutes ----
-        public class Pending { public string Mood = "", Item = ""; public float Left, Rate; }
+        public class Pending { public string Mood = "", Item = ""; public float Left, Rate, Cap = 1f; }
         readonly List<Pending> pending = new List<Pending>();
         const string ItemsKey = "_items";
 
-        public void AddPending(string mood, float amount, float minutes, string item)
+        public void AddPending(string mood, float amount, float minutes, string item, float cap = 1f)
         {
             if (amount <= 0f) return;
-            pending.Add(new Pending { Mood = mood, Left = amount, Rate = amount / Mathf.Max(1f, minutes * 60f), Item = item });
+            pending.Add(new Pending { Mood = mood, Left = amount, Rate = amount / Mathf.Max(1f, minutes * 60f), Item = item, Cap = cap });
         }
+
+        // (Items: a block's item put back when its write failed) the effects to come as they were before it
+        public int PendingCount { get { return pending.Count; } }
+        public void TruncatePending(int n) { if (n >= 0 && n < pending.Count) pending.RemoveRange(n, pending.Count - n); }
 
         public float PendingOf(string mood) { float s = 0f; foreach (var pe in pending) if (pe.Mood == mood) s += pe.Left; return s; }
 
@@ -403,8 +417,9 @@ namespace MuseStudio
         // (checks) the effects come in now
         public void FlowForCheck(float seconds) { foreach (var pe in pending) pe.Rate = pe.Left / Mathf.Max(0.01f, seconds); }
 
-        // written now (the items' ledger changed): her record and the app's, or the app's alone before a character
-        public void Persist() { if (charId.Length == 0) Alive(); else Save(); }
+        // written now (the items' ledger changed): her record and the app's, or the app's alone before a character - true when
+        // the file has it
+        public bool Persist() { return Write(); }
 
         public void Tick(float dt)
         {
@@ -428,7 +443,15 @@ namespace MuseStudio
             {
                 var pe = pending[i];
                 float step = Mathf.Min(pe.Left, pe.Rate * dt);
-                if (step > 0f) Add(pe.Mood, step, "item");
+                if (step > 0f)
+                {
+                    // never past the item's grade cap (GPT's post-review of #65): the arousal's speed multiplies what comes in
+                    // (Add) - the room under the cap measured after it, as the multiplier is now
+                    float mult = pe.Mood == "arousal" && h.ArousalSpeed != null ? Mathf.Max(0f, h.ArousalSpeed.Value) : 1f;
+                    float room = Values.ContainsKey(pe.Mood) ? Mathf.Max(0f, pe.Cap - Values[pe.Mood]) : 0f;
+                    float give = Mathf.Min(step * mult, room);
+                    if (give > 0f && mult > 0f) Add(pe.Mood, give / mult, "item");
+                }
                 pe.Left -= step;
                 if (pe.Left <= 1e-6f) pending.RemoveAt(i);
             }

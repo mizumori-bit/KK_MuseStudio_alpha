@@ -359,7 +359,11 @@ namespace MuseStudio
         public OCIChar AddPartner(string card, bool male = true)
         {
             if (Partner != null && (Partner.charInfo.sex == 0) != male) RemovePartner();
-            if (Partner == null) Partner = AddChara(male, card);
+            if (Partner == null)
+            {
+                Partner = AddChara(male, card);
+                if (Partner != null) TakeCardFace(Partner.charInfo);       // (its own face for card - GPT's post-review of #63)
+            }
             return Partner;
         }
 
@@ -395,6 +399,7 @@ namespace MuseStudio
         public void RemovePartner()
         {
             if (Partner == null) return;
+            if (Partner.charInfo != null) cardFaces.Remove(Partner.charInfo);
             Singleton<Studio.Studio>.Instance.treeNodeCtrl.DeleteNode(Partner.treeNodeObject);
             Partner = null;
         }
@@ -448,29 +453,41 @@ namespace MuseStudio
         // another body's face by a label (the match: the opponent's)
         public bool ApplyFaceOn(OCIChar who, string label)
         {
-            return who != null && ApplyCells(label == "card" && who != Heroine ? CellsOf("neutral") : CellsOf(label), who);
+            return who != null && ApplyCells(CellsOf(label, who), who);
         }
 
         // Her card's own face (the owner's choice of 2026-11-07: the face her card was saved with is her ordinary face - the
         // start face, the talk's default, the package's end face; faces.json's labels stay Muse's emotions): the label "card".
         // Taken from her status as she is loaded (and when the user switches characters), before any face is put on: the
         // eyebrow / eyes / mouth patterns and their openings, the cheek, the highlight, the tears, the blink (her gaze stays
-        // the look's).
-        List<object> cardCells;
-        public List<object> CardCells { get { return cardCells; } }
+        // the look's). Each body its own (GPT's post-review of #63: the opponent's card was the standard face): hers, and the
+        // opponent's taken as its body is made from its card (a match) - card on a body is that body's own face.
+        readonly Dictionary<ChaControl, List<object>> cardFaces = new Dictionary<ChaControl, List<object>>();
+        public List<object> CardCells { get { return CardCellsOf(Cha); } }
 
-        public void TakeCardFace()
+        public List<object> CardCellsOf(ChaControl c) { List<object> l; return c != null && cardFaces.TryGetValue(c, out l) ? l : null; }
+
+        public void TakeCardFace() { TakeCardFace(Cha); }
+
+        public void TakeCardFace(ChaControl c)
         {
-            var s = Cha != null ? Cha.fileStatus : null;
-            if (s == null) { cardCells = null; return; }
-            cardCells = new List<object> { s.eyebrowPtn, s.eyesPtn, s.mouthPtn, s.eyebrowOpenMax, s.eyesOpenMax, s.mouthOpenMax, -1,
-                                           s.hohoAkaRate, !s.hideEyesHighlight, (int)s.tearsLv, s.eyesBlink };
+            var s = c != null ? c.fileStatus : null;
+            if (s == null) return;
+            cardFaces[c] = new List<object> { s.eyebrowPtn, s.eyesPtn, s.mouthPtn, s.eyebrowOpenMax, s.eyesOpenMax, s.mouthOpenMax, -1,
+                                              s.hohoAkaRate, !s.hideEyesHighlight, (int)s.tearsLv, s.eyesBlink };
         }
 
-        // a label's cells: faces.json's, her card's for "card" (none taken: the standard face's)
-        List<object> CellsOf(string label)
+        internal void SetCardFaceForCheck(ChaControl c, List<object> cells) { if (c != null) cardFaces[c] = cells; }      // (checks)
+
+        // a label's cells: faces.json's, the body's own card face for "card" (hers when none named; none taken: the standard
+        // face's)
+        List<object> CellsOf(string label, OCIChar who = null)
         {
-            if (label == "card" && cardCells != null) return cardCells;
+            if (label == "card")
+            {
+                var own = CardCellsOf(who != null ? who.charInfo : Cha);
+                if (own != null) return own;
+            }
             return Json.Arr(Json.Obj(Json.Obj(faces, "labels"), label == "card" ? "neutral" : label), "cells");
         }
 
@@ -1167,6 +1184,37 @@ namespace MuseStudio
         float Intoxication { get { float v; return MuseStudioPlugin.Instance.Mood != null && MuseStudioPlugin.Instance.Mood.Values.TryGetValue("intoxication", out v) ? v : 0f; } }
         public float DrunkEyes { get { return 1f - 0.3f * Mathf.Clamp01((Intoxication - 0.3f) / 0.7f); } }
 
+        // Her eyes wander a little with her drink (PR #46 §7, its gaze; GPT's post-review of #65: adopted, still to be done): in
+        // the talk, while her eyes are at the camera (pattern 1), from tipsy on her gaze is at a point drifting slowly about
+        // the camera - up to gaze_sway_degrees off it when she is very drunk (Perlin noise, two slow channels); sober again,
+        // at the camera itself. Never over another look (a match's, a play's, out on her own, a reaction's turn).
+        Transform swayAt;
+        public Transform SwayTarget { get { return swayAt; } }          // (checks)
+
+        void GazeSwayTick()
+        {
+            var host = MuseStudioPlugin.Instance;
+            var cam = Camera.main;
+            if (Cha == null || Cha.eyeLookCtrl == null || cam == null) return;
+            var look = Cha.eyeLookCtrl;
+            bool mine = swayAt != null && look.target == swayAt;
+            float s = Mathf.Clamp01((Intoxication - 0.2f) / 0.6f);
+            bool may = s > 0f && !host.Play.Active && !host.Match.Active && !host.Outing.Out && host.Presence.HerAt.Length == 0
+                       && ReactUntil < 0f && !Climaxing && Cha.fileStatus.eyesLookPtn == 1 && (look.target == cam.transform || mine);
+            if (!may)
+            {
+                if (mine) look.target = cam.transform;
+                return;
+            }
+            if (swayAt == null) swayAt = new GameObject("MuseGazeSway").transform;
+            float deg = (float)Json.Num(cfg, "gaze_sway_degrees", 6.0) * s, tt = Time.realtimeSinceStartup * 0.35f;
+            float ax = (Mathf.PerlinNoise(tt, 0.3f) - 0.5f) * 2f * deg, ay = (Mathf.PerlinNoise(0.7f, tt + 11f) - 0.5f) * 2f * deg * 0.6f;
+            var head = Cha.objHeadBone != null ? Cha.objHeadBone.transform.position : Cha.transform.position;
+            float d = Mathf.Max(0.3f, Vector3.Distance(head, cam.transform.position));
+            swayAt.position = cam.transform.position + cam.transform.right * (d * Mathf.Tan(ax * Mathf.Deg2Rad)) + cam.transform.up * (d * Mathf.Tan(ay * Mathf.Deg2Rad));
+            if (look.target != swayAt) look.target = swayAt;
+        }
+
         // the drink in her right hand while she drinks (PR #46 §7): the first of Studio's items whose name has one of these
         // words, its seconds; none found - nothing held
         GameObject heldProp;
@@ -1297,6 +1345,7 @@ namespace MuseStudio
             WalkTick(Time.deltaTime);
             BlushTick(Time.deltaTime);
             PushupTick();
+            GazeSwayTick();                // (her drink: her eyes wander a little - PR #46 §7)
             Pushup.Tick(Cha);              // (Push Up kept to its own result: PushupKeeper.cs)
             if (propUntil > 0f && (Time.realtimeSinceStartup >= propUntil || MuseStudioPlugin.Instance.Play.Active)) DropProp();
             SceneFaceTick();
