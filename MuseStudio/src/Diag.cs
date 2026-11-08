@@ -15,6 +15,11 @@ namespace MuseStudio
     //   pushup  - Push Up's bra and top: on and in effect, enabled, flattening; the nipple's and the areola's depth (shapes 13
     //             and 11); looked at every frame for the depths and the top's and the bra's states, so a moment shorter than a
     //             second is written too
+    //   face motion - what the face does, measured (GPT's post-review of #72: the settings above do not show a blink or a mouth
+    //             stopped half-way, nor where the eyes turn): each frame the eyes' and the mouth's opening as shown (the
+    //             original's FBSBase: its fixed rate if fixed, else its open range by its open rate - the blink's, the voice's)
+    //             and the eyes' turn (EyeLookCalc's angle rates, -1..1, as the original's FaceBlendShape reads them); every
+    //             second its smallest-largest opening and the turn at its end, rounded to 0.05 - written when that changes
     public class Diag
     {
         const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
@@ -23,8 +28,24 @@ namespace MuseStudio
         {
             public ChaControl Of;
             public MonoBehaviour Pushup;
-            public string Face = "", Clothes = "", PushupLine = "", PushupKey = "";
+            public string Face = "", Clothes = "", PushupLine = "", PushupKey = "", Motion = "";
+            public float EyesMin = 9f, EyesMax = -9f, MouthMin = 9f, MouthMax = -9f, MotionEnd;
         }
+
+        static readonly FieldInfo OpenRate = typeof(FBSBase).GetField("openRate", F);
+        static readonly FieldInfo CorrectOpenMax = typeof(FBSBase).GetField("correctOpenMax", F);
+
+        // the opening a face part shows now (the original's FBSBase.CalculateBlendShape: fixed, else its open range by its open rate)
+        static float Shown(FBSBase c)
+        {
+            if (c == null) return -1f;
+            if (c.FixedRate >= 0f) return c.FixedRate;
+            float rate = OpenRate != null ? (float)OpenRate.GetValue(c) : 1f;
+            float cmax = CorrectOpenMax != null ? (float)CorrectOpenMax.GetValue(c) : -1f;
+            return Mathf.Lerp(c.OpenMin, cmax < 0f ? c.OpenMax : cmax, rate);
+        }
+
+        static float Round(float v) { return Mathf.Round(v * 20f) / 20f; }
 
         readonly Dictionary<string, Watch> watch = new Dictionary<string, Watch>();
         float nextFace;
@@ -69,6 +90,26 @@ namespace MuseStudio
                         w.PushupLine = line;
                         MuseStudioPlugin.Log.LogInfo(string.Format("MuseStudio: pushup {0} {1} at {2:F2} s", who, line, t));
                     }
+                }
+            }
+            // the face measured: each frame's opening, each second's summary
+            float eyes = Shown(cha.eyesCtrl), mouth = Shown(cha.mouthCtrl);
+            if (eyes >= 0f) { w.EyesMin = Mathf.Min(w.EyesMin, eyes); w.EyesMax = Mathf.Max(w.EyesMax, eyes); }
+            if (mouth >= 0f) { w.MouthMin = Mathf.Min(w.MouthMin, mouth); w.MouthMax = Mathf.Max(w.MouthMax, mouth); }
+            if (t >= w.MotionEnd)
+            {
+                w.MotionEnd = t + 1f;
+                float gh = 0f, gv = 0f;
+                var calc = cha.eyeLookCtrl != null ? cha.eyeLookCtrl.eyeLookScript : null;
+                if (calc != null) { gh = calc.GetAngleHRate(EYE_LR.EYE_L); gv = calc.GetAngleVRate(); }
+                string motion = string.Format("eyes open {0:F2}-{1:F2} | mouth open {2:F2}-{3:F2} | eyes turned h {4:F2} v {5:F2}",
+                    Round(w.EyesMin), Round(w.EyesMax), Round(w.MouthMin), Round(w.MouthMax), Round(gh), Round(gv));
+                w.EyesMin = w.MouthMin = 9f;
+                w.EyesMax = w.MouthMax = -9f;
+                if (motion != w.Motion)
+                {
+                    w.Motion = motion;
+                    MuseStudioPlugin.Log.LogInfo(string.Format("MuseStudio: face motion {0} {1} (as shown over the last second, smallest-largest; the caps are the face parts' max) at {2:F2} s", who, motion, t));
                 }
             }
             if (!faceNow) return;

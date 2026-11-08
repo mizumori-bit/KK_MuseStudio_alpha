@@ -12,10 +12,11 @@ It checks, before anything is written:
   its contract, so a DLL of another commit may not fit them;
 - tools/setup.py has made the launch folder (game/BepInEx/plugins).
 Then the files go into game/BepInEx/plugins/MuseStudio/ as one set (GPT's post-review of #74: a write failing half-way left
-the new and the old mixed): each new file written beside its place first (<name>.new) and read back; then each old one put
-aside (<name>.bak) and the new one moved in; any failure on the way puts every old one back and removes the new ones - the
-install refused with why, the old set as it was. An install cut off before (its .bak / .new left) is put back to its old set
-first. The folder's other files are left as they are. Nothing is downloaded: the zip is the one you took from the release
+the new and the old mixed): each new file written beside its place first (<name>.new) and read back; a journal says
+"swapping"; each old one put aside (<name>.bak) and the new one moved in; the journal says "done"; the leftovers removed. A
+failure on the way puts the old set back as a whole - the install refused with why, saying so only when it is so. An install
+cut off before is finished by its journal first (GPT's re-review of #75): "swapping" - the old set back as a whole; "done" -
+only the leftovers removed, the new set kept. The folder's other files are left as they are. Nothing is downloaded: the zip is the one you took from the release
 page. Standard library only.
 """
 from __future__ import annotations
@@ -66,7 +67,7 @@ def read_release(zip_path: Path) -> tuple[dict, dict[str, bytes]]:
     return man, data
 
 
-# (the writes and the moves: the tests put failures in here)
+# (the writes, the moves and the removals: the tests put failures in here)
 def _write(path: Path, data: bytes) -> None:
     path.write_bytes(data)
 
@@ -75,39 +76,98 @@ def _replace(src: Path, dst: Path) -> None:
     os.replace(src, dst)
 
 
-def recover(dest: Path) -> list[str]:
-    """an install cut off before (a .bak beside its file): the old set back - each .bak over its file, the .new ones gone"""
-    back = []
-    for n in WANT:
-        bak, new = dest / (n + ".bak"), dest / (n + ".new")
-        if bak.exists():
-            os.replace(bak, dest / n)
-            back.append(n)
-        if new.exists():
-            new.unlink()
-    return back
+def _remove(path: Path) -> None:
+    path.unlink()
 
 
-def _rollback(dest: Path, names: list[str], swapped: list[str]) -> None:
-    """every old one back (its .bak), a new one where there was none taken out, the .new ones gone"""
+# The install's journal (GPT's re-review of #75: a .bak left after the swap - its removal failing or cut off - was put back
+# alone by the next run, the new and the old mixed): "swapping" before the first file is moved - an install cut off then is
+# put back as a whole to the old set; "done" once every new file is in - only the leftovers removed then, the new set kept.
+# Each file's being there before is in it (a first install: nothing to put back, the new file taken out).
+JOURNAL = "musestudio_install.json"
+
+
+def _journal_write(dest: Path, doc: dict) -> None:
+    tmp = dest / (JOURNAL + ".tmp")
+    _write(tmp, (json.dumps(doc) + "\n").encode("utf-8"))
+    _replace(tmp, dest / JOURNAL)
+
+
+def _journal_read(dest: Path) -> dict | None:
+    try:
+        return json.loads((dest / JOURNAL).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _restore(dest: Path, names: list[str], had: dict) -> list[str]:
+    """the old set back as a whole: each .bak over its file, a new file where there was none taken out, the .new ones gone -
+    the names that could not be (empty: all back)"""
+    failed = []
     for n in names:
         cur, bak, new = dest / n, dest / (n + ".bak"), dest / (n + ".new")
         try:
             if bak.exists():
-                os.replace(bak, cur)
-            elif n in swapped and cur.exists():
-                cur.unlink()
+                _replace(bak, cur)
+            elif not had.get(n, True) and cur.exists():
+                _remove(cur)
         except OSError:
-            pass
+            failed.append(n)
         try:
             if new.exists():
-                new.unlink()
+                _remove(new)
         except OSError:
             pass
+    return failed
+
+
+def _cleanup(dest: Path, names) -> list[str]:
+    """the leftovers of a set put in: the .bak and .new ones, then the journal - the names left (removed next time)"""
+    left = []
+    for n in names:
+        for side in (dest / (n + ".bak"), dest / (n + ".new")):
+            try:
+                if side.exists():
+                    _remove(side)
+            except OSError:
+                left.append(side.name)
+    if not left:
+        for j in (dest / JOURNAL, dest / (JOURNAL + ".tmp")):
+            try:
+                if j.exists():
+                    _remove(j)
+            except OSError:
+                left.append(j.name)
+    return left
+
+
+def recover(dest: Path) -> str:
+    """an install cut off before, by its journal: "swapping" - the old set put back as a whole; "done" - the leftovers
+    removed, the new set kept. No journal (an older tool's leftovers): its .new ones removed, nothing put back alone - the
+    install that follows puts in a whole set. "" nothing to do, else what was done; OSError when the old set could not be put
+    back (nothing claimed)"""
+    j = _journal_read(dest)
+    if j is None:
+        for n in WANT:
+            new = dest / (n + ".new")
+            if new.exists():
+                _remove(new)
+        baks = [n for n in WANT if (dest / (n + ".bak")).exists()]
+        return ("files left by an install cut off with an older tool (" + ", ".join(baks) + ") - not put back alone; this install "
+                "puts in a whole set") if baks else ""
+    names = [n for n in j.get("names", WANT) if n in WANT]
+    if j.get("phase") == "done":
+        left = _cleanup(dest, names)
+        return "an install done before had leftovers - removed" + (" (still there: " + ", ".join(left) + ")" if left else "")
+    failed = _restore(dest, names, j.get("had", {}))
+    if failed:
+        raise OSError("could not put back " + ", ".join(failed))
+    _cleanup(dest, names)
+    return "an install cut off before - its old set put back"
 
 
 def put_in_place(dest: Path, files: dict[str, bytes]) -> str:
-    """the files into dest as one set: "" done, else why not - the set there before as it was"""
+    """the files into dest as one set: "" done, else why not - and whether the set there before is as it was"""
     names = list(files)
     try:
         for n, b in files.items():
@@ -116,26 +176,31 @@ def put_in_place(dest: Path, files: dict[str, bytes]) -> str:
             if tmp.read_bytes() != b:
                 raise OSError(f"{n} was not written as it is")
     except OSError as e:
-        _rollback(dest, names, [])
+        _cleanup(dest, names)
         return f"could not write the new files ({e}) - the installed ones are as they were"
-    swapped: list[str] = []
+    had = {n: (dest / n).exists() for n in names}
+    try:
+        _journal_write(dest, {"phase": "swapping", "names": names, "had": had})
+    except OSError as e:
+        _cleanup(dest, names)
+        return f"could not write the install's journal ({e}) - the installed ones are as they were"
     try:
         for n in names:
             cur = dest / n
             if cur.exists():
                 _replace(cur, dest / (n + ".bak"))
             _replace(dest / (n + ".new"), cur)
-            swapped.append(n)
+        _journal_write(dest, {"phase": "done", "names": names, "had": had})
     except OSError as e:
-        _rollback(dest, names, swapped)
+        failed = _restore(dest, names, had)
+        if failed:
+            return (f"could not put the new files in place ({e}; is the game running?), and could not put all of the old ones back "
+                    f"({', '.join(failed)}) - run the install again to put the old set back (its journal is kept: {dest / JOURNAL})")
+        _cleanup(dest, names)
         return f"could not put the new files in place ({e}; is the game running?) - the installed ones are back as they were"
-    for n in names:
-        try:
-            bak = dest / (n + ".bak")
-            if bak.exists():
-                bak.unlink()
-        except OSError:
-            pass
+    left = _cleanup(dest, names)
+    if left:
+        print("install: done; leftovers not removed now (removed by the next run): " + ", ".join(left))
     return ""
 
 
@@ -155,11 +220,11 @@ def install(zip_path: Path, any_source: bool = False, plugins: Path = PLUGINS, c
     dest = plugins / "MuseStudio"
     dest.mkdir(parents=True, exist_ok=True)
     try:
-        back = recover(dest)
+        note = recover(dest)
     except OSError as e:
-        return f"an install cut off before could not be put back ({e}) - nothing changed; see {dest}"
-    if back:
-        print("install: an install cut off before - its old files put back: " + ", ".join(back))
+        return f"an install cut off before could not be put back ({e}) - nothing else changed; see {dest} (its journal {JOURNAL})"
+    if note:
+        print("install: " + note)
     files = dict(data)
     files[MANIFEST] = (json.dumps(man, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     return put_in_place(dest, files)

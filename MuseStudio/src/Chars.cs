@@ -155,7 +155,7 @@ namespace MuseStudio
             h.Presence.HerAt = "";                 // (the new character is with him)
             h.Blocks.SpeakerChanging();            // (the line being said was the one before's: said no more - GPT's post-review of #60)
             h.Stage.Heroine.ChangeChara(path);
-            h.Stage.TakeCardFace();                // (the new one's own face: her ordinary face from now)
+            h.Stage.TakeCardFace(path);            // (the new one's own face, from her card: her ordinary face from now)
             CardPath = path;
             h.CharacterCard.Value = path;          // the last character
             h.Stage.Name = h.Stage.Cha.chaFile.parameter.fullname.Trim();

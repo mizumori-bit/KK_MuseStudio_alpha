@@ -75,7 +75,7 @@ namespace MuseStudio
             if (!File.Exists(card)) MuseStudioPlugin.Log.LogWarning("MuseStudio: no character card " + card + " (the default body)");
             Step("character " + card);
             Heroine = AddChara(false, card);
-            TakeCardFace();                    // (her card's own face, before any is put on: the start face and the talk's default)
+            TakeCardFace(card);                // (her card's own face: the start face and the talk's default)
             MuseStudioPlugin.Instance.Chars.CardPath = File.Exists(card) ? card : "";
             if (File.Exists(card)) Name = Cha.chaFile.parameter.fullname.Trim();     // the card's name (stage.json's for the default body)
             Step("character added");
@@ -362,7 +362,7 @@ namespace MuseStudio
             if (Partner == null)
             {
                 Partner = AddChara(male, card);
-                if (Partner != null) TakeCardFace(Partner.charInfo);       // (its own face for card - GPT's post-review of #63)
+                if (Partner != null) TakeCardFace(Partner.charInfo, card);       // (its own face for card - GPT's post-review of #63)
             }
             return Partner;
         }
@@ -467,13 +467,33 @@ namespace MuseStudio
 
         public List<object> CardCellsOf(ChaControl c) { List<object> l; return c != null && cardFaces.TryGetValue(c, out l) ? l : null; }
 
-        public void TakeCardFace() { TakeCardFace(Cha); }
+        // (read from the card itself, with its status: Studio's ChangeChara loads a card without it - LoadCharaFile(path, 255,
+        // true, true) - and the body keeps the face it had, so the body's status after a switch or a replay's swap was the face
+        // shown then, the climax's among them: her eyes shut on as her "card" face - the user's sighting of 2026-11-08. No card
+        // file: the body's own status, as it was made)
+        public string CardFaceFrom = "";      // (checks) where the last card face came from: "card" / "body"
 
-        public void TakeCardFace(ChaControl c)
+        public void TakeCardFace(string card) { TakeCardFace(Cha, card); }
+
+        public void TakeCardFace(ChaControl c, string card)
         {
-            var s = c != null ? c.fileStatus : null;
+            if (c == null) return;
+            ChaFileStatus s = null;
+            if (!string.IsNullOrEmpty(card) && File.Exists(card))
+            {
+                try
+                {
+                    var cf = new ChaFileControl();
+                    if (cf.LoadCharaFile(card, 255, true, false)) s = cf.status;
+                }
+                catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: the card's face: " + e.Message); }
+            }
+            CardFaceFrom = s != null ? "card" : "body";
+            if (s == null) s = c.fileStatus;
             if (s == null) return;
-            cardFaces[c] = new List<object> { s.eyebrowPtn, s.eyesPtn, s.mouthPtn, s.eyebrowOpenMax, s.eyesOpenMax, s.mouthOpenMax, -1,
+            // (the mouth's open max 1, as every face of faces.json: it is the voice's reach - her mouth at rest is Studio's own
+            // 口の開き, fixed; a card saved with it 0 would keep her lips still as she speaks)
+            cardFaces[c] = new List<object> { s.eyebrowPtn, s.eyesPtn, s.mouthPtn, s.eyebrowOpenMax, s.eyesOpenMax, 1f, -1,
                                               s.hohoAkaRate, !s.hideEyesHighlight, (int)s.tearsLv, s.eyesBlink };
         }
 
