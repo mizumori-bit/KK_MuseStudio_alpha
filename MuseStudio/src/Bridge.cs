@@ -120,11 +120,14 @@ namespace MuseStudio
         public void ReceiveForCheck(Dictionary<string, object> pkg) { Received(pkg); }
 
         // a package's delivery stage for the bridge: received (taken here), started (it began), dropped (with the reason)
-        public void Ack(string pid, string stage, string reason = null)
+        // (#70 adopted, 1) block: the block shown (its operations done), blocks: their count - started / finished
+        public void Ack(string pid, string stage, string reason = null, int block = -1, int blocks = -1)
         {
             if (string.IsNullOrEmpty(pid)) return;          // (a replay's, a test's own: not the bridge's)
             var body = new Dictionary<string, object> { { "ids", new List<object> { pid } }, { "stage", stage } };
             if (reason != null) body["reason"] = reason;
+            if (block >= 0) body["block"] = block;
+            if (blocks >= 0) body["blocks"] = blocks;
             Post("/api/packages/ack", body);
         }
 

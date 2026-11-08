@@ -136,7 +136,7 @@ namespace MuseStudio
         public void Clear()
         {
             pending.Clear();
-            if (Busy) End(false);
+            if (Busy) End(false, "cleared");
         }
 
         public bool Revealing { get { return Busy && !Moving && Visible < Text.Length; } }
@@ -188,7 +188,7 @@ namespace MuseStudio
                 var next = pending.Dequeue();
                 if (h.Launch.Accept(next))
                 {
-                    if (Busy) End(false);
+                    if (Busy) End(false, "superseded");
                     Begin(next);
                 }
             }
@@ -274,7 +274,11 @@ namespace MuseStudio
 
         void Begin(Dictionary<string, object> pkg)
         {
-            if (!h.Replay.Playing && !h.Match.Replaying) h.Bridge.Ack(Json.Str(pkg, "_pid"), "started");     // (from here its operations may apply: never again)
+            // (from here its operations may apply: never again) - with its blocks' count (#70 adopted, 1: each block shown is told,
+            // then finished; a new launch finds it begun and not finished - interrupted, the last block known shown)
+            var blocksOf = Json.Arr(pkg, "blocks");
+            if (Acks) h.Bridge.Ack(Json.Str(pkg, "_pid"), "started", null, -1, blocksOf != null ? blocksOf.Count : 0);
+            shownBlock = -1;
             var rel = Json.Obj(pkg, "relationship");
             if (rel != null && !h.Match.Replaying) h.Relationship.Apply(rel);       // Muse's values for the person (the state shows the last taken)
             var sets = Json.Obj(pkg, "settings");
@@ -520,8 +524,19 @@ namespace MuseStudio
         }
 
         // the block's words on the screen (hers or the opponent's)
+        // the bridge told of this package's stages (not a replay's or a match's replay: not Muse's to know)
+        bool Acks { get { return !h.Replay.Playing && !h.Match.Replaying; } }
+        int shownBlock = -1;                  // the last block shown (its operations done)
+        public int AcksForCheck;              // (checks) block acks sent
+
         void Present(Dictionary<string, object> b)
         {
+            // (#70 adopted, 1) this block's operations are done: told (the one after it, if the app goes now, not known)
+            if (Pkg != null && Index > shownBlock)
+            {
+                shownBlock = Index;
+                if (Acks) { h.Bridge.Ack(Json.Str(Pkg, "_pid"), "started", null, Index, Blocks != null ? Blocks.Count : 0); AcksForCheck++; }
+            }
             IsSound = Json.Str(b, "type", "dialogue") == "sound";
             // (a sound block's （） are its own: shown; a dialogue's words: its inner thoughts gone, then its ruby - the one
             // parse for her Muse's, the opponent's and a replay's: PR #46 §6)
@@ -720,8 +735,11 @@ namespace MuseStudio
             waitLeft = on && Busy ? (Text.Length * perChar + baseSec) / Pace : -1f;
         }
 
-        void End(bool rest)
+        void End(bool rest, string cut = null)
         {
+            // (#70 adopted, 1) finished: all its blocks shown, or cut short (cut: superseded - Muse's next package in, or cleared)
+            if (Pkg != null && Acks)
+                h.Bridge.Ack(Json.Str(Pkg, "_pid"), "finished", rest ? null : (cut ?? "cut"), shownBlock, Blocks != null ? Blocks.Count : 0);
             Pkg = null;
             Blocks = null;
             Index = -1;
