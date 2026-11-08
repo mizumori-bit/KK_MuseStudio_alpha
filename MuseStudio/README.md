@@ -19,7 +19,8 @@ MuseStudio/
   src/      プラグインのソース（C# 7.3、Unity 5.6 の .NET 3.5）
   data/     舞台の設定。plays・locations・touch・sounds・talk の 5 つは、tools/derive_data.py がその PC の原作から作る（原作由来なので
             リポジトリに入れない）。ほかは、この企画で決めた値で、リポジトリに入っている
-  tools/    setup.py（起動用のフォルダを作る）・build.py（ビルド）・derive_data.py（データ）・run_checks.py（確認）
+  tools/    setup.py（起動用のフォルダを作る）・build.py（ビルド）・install_dll.py（ビルド済みの DLL を入れる）・derive_data.py（データ）・
+            run_checks.py（確認）・make_release.py（ビルド済みの DLL を GitHub Releases に出す。作者用）
             base/：5 つのデータの、この企画で書いた部分（名前・説明・設定と、原作の中を引くための名前）
 ```
 
@@ -68,7 +69,11 @@ MuseStudio/
 
 - コイカツ本体と CharaStudio（原作のインストール。場所は `tools/original_path.txt`、または環境変数 `MUSESTUDIO_ORIGINAL`）。
 - Python 3（ブリッジ・起動役・ツールは標準ライブラリだけ。**通信対戦だけ `cryptography` が要ります**。無ければブリッジの対戦の口が 503 を返し、ほかは動きます）。
-- .NET SDK（プラグインのビルド。`build.py` が `dotnet` の C# コンパイラを使う）。このリポジトリには DLL を入れていません。
+- .NET SDK：**ソースからビルドするときだけ**です（`build.py` が `dotnet` の C# コンパイラを使う）。
+  - ビルド済みのプラグインの DLL を [GitHub Releases](https://github.com/mizumori-bit/KK_MuseStudio_alpha/releases) に置いています（持ち主の決定、2026-11-07）。
+  - これを使えば .NET SDK は要りません（下の 2 の「ビルド済みを入れる」）。
+  - リポジトリには DLL を入れていません。DLL はリリースごとに、どのコミットのソースから作ったかを示します。
+  - ソースは公開のままです。DLL は導入を楽にするためのもので、改変を防いだり、ブリッジ・スキル・契約を隠したりするためのものではありません。
 - 声を使うときだけ Irodori の TTS サーバー（ブリッジの `irodori_client.py`）。
 
 ## 新しい環境で始める（最初から最後まで）
@@ -83,7 +88,7 @@ MuseStudio/
 ### 前もって用意するもの
 
 - コイカツ本体と CharaStudio（原作のインストール）と、上の「無いと動かない」Mod。使う機能に要る Mod（「特定の機能が使えなくなる」の表）。
-- Python 3 と .NET SDK（上の「Mod でない前提」）。
+- Python 3（上の「Mod でない前提」）。ソースからビルドするときだけ、.NET SDK も。
 - 原作の場所：`MuseStudio/tools/original_path.txt` に 1 行で書くか、環境変数 `MUSESTUDIO_ORIGINAL` に入れます（どちらもリポジトリには入りません）。
 - **リポジトリは浅い場所に置いてください**（例：ドライブの直下の `KK_MuseStudio`）。`game/mods` は原作の `mods` へのリンクなので、深い場所だと Mod のファイルのパスが Windows の 260 文字を超え、Sideloader が Mod を一つも読めません（Mod の部屋・AL の体位・ペニスバンドが無くなり、3 の `no match:` にそれらが並びます）。
 - 動いている CharaStudio・コイカツは閉じておきます（2〜4 はゲームを起動します）。
@@ -96,7 +101,25 @@ MuseStudio/
    python -B MuseStudio/tools/setup.py
    ```
 
-2. プラグインをビルドする。`build: …MuseStudio.dll (… bytes, … sources)` と、キャラメイクの部品の `build: …MuseMaker.dll …` の 2 行が出れば成功です（`FAILED` なら失敗で、コンパイラの出力がその上に出ます）。
+2. プラグインを入れる。どちらか一つです。
+
+   **ビルド済みを入れる（.NET SDK 不要）**
+
+   - [Releases](https://github.com/mizumori-bit/KK_MuseStudio_alpha/releases) から、**このクローンのコミットと同じ**リリースの `MuseStudio-dll-<タグ>.zip` を落とします。
+     - リリースの本文に、対応するコミットがあります。
+     - DLL は、そのコミットの `data/` と契約と組で動きます。違うコミットなら、`git checkout <コミット>` で合わせます。
+   - zip の SHA-256 は、隣の `.sha256` で確かめられます。
+   - 次を実行します。zip の中の各ファイルの SHA-256 と、対応するコミットがこのクローンと同じかを確かめてから、`game/BepInEx/plugins/MuseStudio/` に入れます。
+   - `install: MuseStudio … -> …` が出れば成功です。違うコミットの DLL は入れずに理由を出します。
+
+   ```bash
+   python -B MuseStudio/tools/install_dll.py MuseStudio-dll-<タグ>.zip
+   ```
+
+   **ソースからビルドする（.NET SDK が要る）**
+
+   - `build: …MuseStudio.dll (… bytes, … sources)` と、キャラメイクの部品の `build: …MuseMaker.dll …` の 2 行が出れば成功です。
+   - `FAILED` なら失敗で、コンパイラの出力がその上に出ます。
 
    ```bash
    python -B MuseStudio/tools/build.py
@@ -159,6 +182,12 @@ python -B -m unittest discover -s bridge/tests
 
 ```bash
 python -B -m unittest discover -s launcher/tests
+```
+
+ビルド済みの DLL の入れ方のテスト（zip の中身・SHA-256・コミットの確かめ。ゲームもネットも使いません）：
+
+```bash
+python -B -m unittest discover -s MuseStudio/tools/tests
 ```
 
 ## 使い方
