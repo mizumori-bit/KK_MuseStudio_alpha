@@ -40,6 +40,7 @@ namespace MuseStudio
             if (room.StartsWith("ikdata:")) { yield return IkData(room.Substring(7)); yield break; }
             if (room.StartsWith("touchenable:")) { yield return TouchEnable(room.Substring(12)); yield break; }
             if (room == "shoes") { yield return ShoesTry(); yield break; }
+            if (room == "drinks") { yield return DrinksTry(); yield break; }
             if (room == "pushup") { yield return PushupTry(); yield break; }
             if (room == "mouth") { yield return MouthTry(); yield break; }
             if (room == "mouth2") { yield return Mouth2Try(); yield break; }
@@ -1476,6 +1477,101 @@ namespace MuseStudio
                 if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(o, null);
             }
             return null;
+        }
+
+        // --muse-probe=drinks: every original map loaded in turn, its wait points' motions with items written - the motion's
+        // layer, id, state and motion (the action controller's state), each item's bundle / asset / type / offsets / own motion;
+        // then the personalities' action controllers (action/list/chara)
+        IEnumerator DrinksTry()
+        {
+            yield return new WaitForSeconds(2f);
+            // (the original's own wait points: map/waitpoint/ - prefabs, each map's points under them; ActionGame.CharacterPosSet)
+            int wps = 0, withItems = 0;
+            List<string> files = null;
+            try { files = CommonLib.GetAssetBundleNameListFromPath("map/waitpoint/", true); files.Sort(); }
+            catch (Exception e) { lines.AppendLine("waitpoint list: " + e.Message); }
+            lines.AppendLine("waitpoint bundles " + (files != null ? files.Count : 0));
+            foreach (var file in files ?? new List<string>())
+            {
+                GameObject[] prefabs = null;
+                try { prefabs = AssetBundleManager.LoadAllAsset(file, typeof(GameObject), null).GetAllAssets<GameObject>(); }
+                catch (Exception e) { lines.AppendLine("BUNDLE " + file + ": " + e.Message); continue; }
+                foreach (var pf in prefabs ?? new GameObject[0])
+                {
+                    GameObject go = null;
+                    try
+                    {
+                        go = UnityEngine.Object.Instantiate(pf);
+                        go.SetActive(false);
+                        foreach (var wp in go.GetComponentsInChildren<ActionGame.WaitPoint>(true))
+                        {
+                            wps++;
+                            foreach (var par in wp.parameterList)
+                                foreach (var m in par.motionList)
+                                {
+                                    bool any = m.itemList.Count > 0 || (m.motionElse != null && m.motionElse.itemList.Count > 0);
+                                    if (!any) continue;
+                                    withItems++;
+                                    lines.AppendLine(string.Format("WP {0} map {1} {2} layer '{3}' id {4} state {5} motion '{6}' else '{7}' offset {8} {9}", file, wp.MapNo, wp.name, par.layer, m.ID, m.state,
+                                        m.motion, m.motionElse != null ? m.motionElse.motion : "", m.offsetPos.ToString("F3"), m.offsetAngle.ToString("F1")));
+                                    foreach (var it in m.itemList) lines.AppendLine("  ITEM " + ItemLine(it));
+                                    if (m.motionElse != null) foreach (var it in m.motionElse.itemList) lines.AppendLine("  ELSE ITEM " + ItemLine(it));
+                                }
+                        }
+                    }
+                    catch (Exception e) { lines.AppendLine("PREFAB " + file + " " + (pf != null ? pf.name : "-") + ": " + e.Message); }
+                    if (go != null) UnityEngine.Object.Destroy(go);
+                }
+                yield return null;
+            }
+            lines.AppendLine("wait points " + wps + ", motions with items " + withItems);
+            // the map items' bundle: every prefab's name (a can, a glass?)
+            try
+            {
+                foreach (var go in AssetBundleManager.LoadAllAsset("action/mapitem/00.unity3d", typeof(GameObject), null).GetAllAssets<GameObject>())
+                    lines.AppendLine("MAPITEM " + go.name);
+            }
+            catch (Exception e) { lines.AppendLine("mapitem: " + e.Message); }
+            // her personality's action controller: its drink states and clips
+            try
+            {
+                var a = AssetBundleManager.LoadAsset("action/animator/00.unity3d", "c00", typeof(RuntimeAnimatorController), null);
+                var rac = a != null ? a.GetAsset<RuntimeAnimatorController>() : null;
+                if (rac != null)
+                {
+                    foreach (var c in rac.animationClips) if (c != null && c.name.ToLower().Contains("drink")) lines.AppendLine("CLIP " + c.name + " " + c.length.ToString("F2") + "s");
+                    var go = new GameObject("MuseStudio_drinks");
+                    var an = go.AddComponent<Animator>();
+                    an.runtimeAnimatorController = rac;
+                    foreach (var s in new[] { "Drink", "Drink1", "Drink2", "Drink3", "Drink4", "Drink5", "Drink_Can", "Drink3_End" })
+                        lines.AppendLine("STATE " + s + " " + an.HasState(0, Animator.StringToHash(s)));
+                    UnityEngine.Object.Destroy(go);
+                }
+                else lines.AppendLine("c00: none");
+            }
+            catch (Exception e) { lines.AppendLine("controller: " + e.Message); }
+            // the personalities' action controllers
+            try
+            {
+                foreach (var bn in CommonLib.GetAssetBundleNameListFromPath("action/list/chara/", true))
+                    foreach (var ci in AssetBundleManager.LoadAllAsset(bn, typeof(ActionGame.CharaInfo), null).GetAllAssets<ActionGame.CharaInfo>())
+                        foreach (var pa in ci.param)
+                            lines.AppendLine(string.Format("CHARA {0} personality {1} motion {2} | {3}", bn, pa.Personality, pa.MotionBundle, pa.MotionAsset));
+            }
+            catch (Exception e) { lines.AppendLine("charainfo: " + e.Message); }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        static string ItemLine(Illusion.Game.Elements.EasyLoader.Item.Data it)
+        {
+            if (it == null) return "-";
+            var mo = it.motion;
+            return string.Format("{0} | {1} type {2} pos {3} angle {4} motion {5} | {6} | {7}", it.bundle, it.asset, it.type, it.offsetPos.ToString("F4"), it.offsetAngle.ToString("F2"),
+                                 mo != null ? mo.bundle : "", mo != null ? mo.asset : "", mo != null ? mo.state : "");
         }
 
         IEnumerator ShoesTry()

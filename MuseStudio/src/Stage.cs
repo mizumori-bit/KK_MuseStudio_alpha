@@ -1215,54 +1215,108 @@ namespace MuseStudio
             if (look.target != swayAt) look.target = swayAt;
         }
 
-        // the drink in her right hand while she drinks (PR #46 §7): the first of Studio's items whose name has one of these
-        // words, its seconds; none found - nothing held
+        // Her drink held as the original holds one (PR #46 §7; the owner's note on #70: not as the original did). The original's
+        // wait points (ActionGame.WaitPoint, map/waitpoint/: read by --muse-probe=drinks) drink standing with the state Drink3 and
+        // the bottle p_o_koi_ei_petboto00 on the right hand's item point k_f_handR_00, no offsets, the item's own motion none
+        // (seated: Drink with the cup p_o_koi_ei_cup00). So: the item's hold (data/items.json: the original's map item - the
+        // bundle, the asset, the hand's point, the offsets) loaded by the original's own loader (EasyLoader.Item.Data.Load: its
+        // parent by the type, its offsets, its own motion); in the talk, her body the original's drink (hold.motion) on her
+        // personality's action controller (action/list/chara), her scene again when it is over (drink_seconds) or a play takes
+        // her. A hand's point not there (a body without it): the hand's bone.
         GameObject heldProp;
         float propUntil = -1f;
-        readonly Dictionary<string, Info.ItemLoadInfo> propFound = new Dictionary<string, Info.ItemLoadInfo>();
+        bool propMotion;
+        RuntimeAnimatorController propRacWas, propRacDrink;      // (her motion before the drink, and the drink's controller)
+        int propStateWas;
+        float propTimeWas;
         public string PropShown = "";        // (checks) the item held now ("" none)
+        public string PropParent = "";       // (checks) what it is held on
+        public string PropMotionNow = "";    // (checks) the motion she drinks with ("" none)
+        static Dictionary<int, string[]> actionControllers;
 
-        public void HoldProp(List<object> words, float seconds)
+        // her personality's action controller (the original's ActionScene: action/list/chara - [bundle, asset])
+        static string[] ActionController(int personality)
+        {
+            if (actionControllers == null)
+            {
+                actionControllers = new Dictionary<int, string[]>();
+                try
+                {
+                    foreach (var bn in CommonLib.GetAssetBundleNameListFromPath("action/list/chara/", true))
+                        foreach (var ci in AssetBundleManager.LoadAllAsset(bn, typeof(ActionGame.CharaInfo), null).GetAllAssets<ActionGame.CharaInfo>())
+                            foreach (var pa in ci.param) actionControllers[pa.Personality] = new[] { pa.MotionBundle, pa.MotionAsset };
+                }
+                catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: the action controllers: " + e.Message); }
+            }
+            string[] c;
+            return actionControllers.TryGetValue(personality, out c) ? c : null;
+        }
+
+        public void HoldProp(Dictionary<string, object> hold, float seconds)
         {
             DropProp();
-            if (words == null || Cha == null) return;
-            Info.ItemLoadInfo info = null;
-            foreach (var w in words)
-            {
-                string word = Convert.ToString(w);
-                if (!propFound.TryGetValue(word, out info))
-                {
-                    info = null;
-                    foreach (var g in Singleton<Info>.Instance.dicItemLoadInfo.Values)
-                    {
-                        foreach (var c in g.Values)
-                        {
-                            foreach (var it in c.Values) if (it != null && it.name != null && it.name.Contains(word)) { info = it; break; }
-                            if (info != null) break;
-                        }
-                        if (info != null) break;
-                    }
-                    propFound[word] = info;
-                }
-                if (info != null) break;
-            }
-            if (info == null) return;
+            if (hold == null || Cha == null) return;
+            var host = MuseStudioPlugin.Instance;
             try
             {
-                var prefab = CommonLib.LoadAsset<GameObject>(info.bundlePath, info.fileName, true, info.manifest);
-                var hand = HIK.Find(Cha.objBodyBone.transform, "cf_j_hand_R");
-                if (prefab == null || hand == null) return;
-                heldProp = UnityEngine.Object.Instantiate(prefab);
+                var data = new Illusion.Game.Elements.EasyLoader.Item.Data();
+                data.bundle = Json.Str(hold, "bundle", "action/mapitem/00.unity3d");
+                data.asset = Json.Str(hold, "asset", "");
+                var type = Illusion.Game.Elements.EasyLoader.Item.Data.Type.k_f_handR_00;
+                try { type = (Illusion.Game.Elements.EasyLoader.Item.Data.Type)Enum.Parse(typeof(Illusion.Game.Elements.EasyLoader.Item.Data.Type), Json.Str(hold, "type", "k_f_handR_00")); }
+                catch (Exception) { }
+                data.type = type;
+                var pos = Json.Arr(hold, "pos");
+                var ang = Json.Arr(hold, "angle");
+                if (pos != null && pos.Count >= 3) data.offsetPos = new Vector3(Float(pos[0]), Float(pos[1]), Float(pos[2]));
+                if (ang != null && ang.Count >= 3) data.offsetAngle = new Vector3(Float(ang[0]), Float(ang[1]), Float(ang[2]));
+                if (data.asset.Length == 0) return;
+                bool hasPoint = Illusion.Game.Elements.EasyLoader.Item.Data.GetParent(type, Cha) != null;
+                if (hasPoint) heldProp = data.Load(Cha);
+                else
+                {
+                    // (no such point on this body: on the hand's bone, as the original's offsets say)
+                    var prefab = CommonLib.LoadAsset<GameObject>(data.bundle, data.asset, true, string.Empty);
+                    var hand = HIK.Find(Cha.objBodyBone.transform, type == Illusion.Game.Elements.EasyLoader.Item.Data.Type.k_f_handL_00 ? "cf_j_hand_L" : "cf_j_hand_R");
+                    if (prefab == null || hand == null) return;
+                    heldProp = UnityEngine.Object.Instantiate(prefab, hand, false);
+                    heldProp.transform.localPosition += data.offsetPos;
+                    heldProp.transform.localEulerAngles += data.offsetAngle;
+                }
+                if (heldProp == null) return;
                 foreach (var col in heldProp.GetComponentsInChildren<Collider>(true)) UnityEngine.Object.Destroy(col);
-                heldProp.transform.SetParent(hand, false);
-                heldProp.transform.localPosition = new Vector3(0f, -0.02f, 0.03f);
-                heldProp.transform.localRotation = Quaternion.identity;
-                foreach (var tr in heldProp.GetComponentsInChildren<Transform>(true)) tr.gameObject.layer = Cha.objBody != null ? Cha.objBody.layer : tr.gameObject.layer;
+                PropParent = heldProp.transform.parent != null ? heldProp.transform.parent.name : "";
+                PropShown = data.asset;
                 propUntil = Time.realtimeSinceStartup + seconds;
-                PropShown = info.name;
+                // her body the original's drink, in the talk only (a play, a match, out on her own, walking: the item alone)
+                string motion = Json.Str(hold, "motion", "");
+                if (motion.Length > 0 && !host.Play.Active && !host.Match.Active && !host.Outing.Out && !Moving && !Walking && climaxRun == null
+                    && host.Presence.HerAt.Length == 0)
+                {
+                    var ctl = ActionController(Cha.chaFile.parameter.personality) ?? ActionController(0);
+                    if (ctl != null)
+                    {
+                        // (what she was doing kept: put back as it was when the drink is over - Studio's motion or a talk pose, played
+                        // by its own controller; Studio's bookkeeping of its motion does not know of the drink)
+                        var an = Cha.animBody;
+                        propRacWas = an.runtimeAnimatorController;
+                        var si = an.GetCurrentAnimatorStateInfo(0);
+                        propStateWas = si.fullPathHash;
+                        propTimeWas = si.normalizedTime % 1f;
+                        Blend.Next(Cha, 0.4f);
+                        var mo = new Illusion.Game.Elements.EasyLoader.Motion(ctl[0], ctl[1], motion);
+                        mo.Setting(an);
+                        mo.Play(an);
+                        propRacDrink = an.runtimeAnimatorController;
+                        propMotion = true;
+                        PropMotionNow = motion;
+                    }
+                }
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: the drink held: " + e.Message); DropProp(); }
         }
+
+        internal void EndPropForCheck() { if (propUntil > 0f) propUntil = Time.realtimeSinceStartup; }     // (checks) the drink over now
 
         void DropProp()
         {
@@ -1270,6 +1324,21 @@ namespace MuseStudio
             heldProp = null;
             propUntil = -1f;
             PropShown = "";
+            PropParent = "";
+            if (propMotion)
+            {
+                // (what she was doing again - not when another motion took her body meanwhile: a scene, a play, her climax)
+                propMotion = false;
+                PropMotionNow = "";
+                var an = Cha != null ? Cha.animBody : null;
+                if (an != null && propRacWas != null && an.runtimeAnimatorController == propRacDrink && !MuseStudioPlugin.Instance.Play.Active && climaxRun == null)
+                {
+                    Blend.Next(Cha, 0.4f);
+                    an.runtimeAnimatorController = propRacWas;
+                    an.Play(propStateWas, 0, propTimeWas);
+                }
+                propRacWas = propRacDrink = null;
+            }
         }
 
         void BlushTick(float dt)
