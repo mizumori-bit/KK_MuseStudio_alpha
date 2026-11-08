@@ -416,8 +416,7 @@ namespace MuseStudio
             {
                 // the opponent's block: its face on its body, the play's fields (the play is the two's), its words
                 var oemo = Json.Obj(b, "emotion");
-                if (oemo != null && Json.Has(oemo, "label") && h.Match.HasBody && !stage.ApplyFaceOn(stage.Partner, Json.Str(oemo, "label")))
-                    stage.ApplyFaceOn(stage.Partner, "neutral");
+                if (oemo != null && Json.Has(oemo, "label") && h.Match.HasBody) stage.OpponentFace(Json.Str(oemo, "label"));     // (held and put back as on its side)
                 var ocl = Json.Obj(b, "clothes");
                 if (ocl != null) h.Match.OpponentClothes(ocl, false);        // (its own clothes: on its body, as on its side)
                 Pose(Json.Str(b, "pose", null), stage.Partner != null ? stage.Partner.charInfo : null);     // (its talk motion: on its body)
