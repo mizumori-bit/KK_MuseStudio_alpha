@@ -1175,16 +1175,26 @@ namespace MuseStudio
             // ---- the way into a match (the trial run of 2026-11-04): the panel's 通信対戦 and 招く, real clicks - match_requested to Muse ----
             var uiM = h.UiForCheck;
             int mrq = EventCount("match_requested");
+            // (#78) コンテンツ, then 通信対戦 in its list
+            yield return RealInput.Click(Btn(uiM, "コンテンツ"));
+            yield return Wait(0.4f);
             yield return RealInput.Click(Btn(uiM, "通信対戦"));
             yield return Wait(0.4f);
             yield return RealInput.Click(Btn(uiM, "対戦を招く"));
             yield return Wait(0.6f);
             var mreq = LastEvent("match_requested");
-            Check("match (real clicks): the panel's 通信対戦 opens the way in; 招く asks Muse (match_requested: host, the host's format and arousal to start from)",
+            Check("match (real clicks): the panel's コンテンツ, then 通信対戦 opens the way in; 招く asks Muse (match_requested: host, the host's format and arousal to start from) (#78)",
                   EventCount("match_requested") > mrq && Json.Str(mreq, "role") == "host" && Json.Str(mreq, "format") == h.MatchFormat.Value && Json.Has(mreq, "arousal_start"),
                   RealInput.LastError + " " + Json.Write(mreq));
-            yield return RealInput.Click(Btn(uiM, "通信対戦"));       // (閉じる)
+            // (#78) 戻る goes back to the contents' list, 閉じる closes it - the menu only (a match is not ended by them)
+            yield return RealInput.Click(Btn(uiM, "コンテンツへ戻る"));
             yield return Wait(0.3f);
+            bool ctBack = uiM.MenuNow == "content";
+            yield return RealInput.Click(Btn(uiM, "コンテンツ"));       // (閉じる)
+            yield return Wait(0.3f);
+            bool ctClosed = uiM.MenuNow == "";
+            Check("contents (real clicks): ← コンテンツへ戻る goes back to the contents' list from the match's menu, 閉じる closes the menu (#78)",
+                  ctBack && ctClosed, "back " + ctBack + " closed " + ctClosed + " " + RealInput.LastError);
             // ---- he moves alone (the panel's 場所; the trial run of 2026-11-04): she stays; Muse is told he left her, not where; she
             // comes to him on Muse's location; his move back to her room is together again ----
             string homeRoom = st.Location, awayRoom = homeRoom == "girls_room" ? "bedroom" : "girls_room";
