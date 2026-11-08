@@ -139,6 +139,7 @@ namespace MuseStudio
             yield return h.Stage.SetLocation(Json.Str(h.Stage.Cfg, "match_room", "match_room"));
             if (h.Stage.Location == returnTo && returnTo != "match_room") MuseStudioPlugin.Log.LogWarning("MuseStudio: the match's room did not load; the match stays here");
             h.Stage.AddPartner(HasBody ? CardPath : "", OppMale);
+            if (HasBody) h.Stage.OpponentFaceReset(true);        // (its own side's scene changes into the match: its default)
             Active = true;
             Loading = false;
             Phase = "intro";
@@ -610,7 +611,7 @@ namespace MuseStudio
             faceUntil = -1f;
             var st = h.Stage;
             if (faceSide == Side) { if (st.Face == "preset:ecstasy") st.RestoreFace(faceBack); }
-            else if (HasBody && st.Partner != null) st.ApplyFaceOn(st.Partner, "neutral");
+            else if (HasBody && st.Partner != null) st.OpponentFaceBack();         // (the face it held, as its own side puts it back)
         }
 
         // the broadcast view's camera (Ui: 中継風): outside a play it goes slowly round the two
@@ -764,6 +765,7 @@ namespace MuseStudio
             h.Presence.HerAt = "";
             yield return h.Stage.SetLocation(Json.Str(h.Stage.Cfg, "match_room", "match_room"));
             h.Stage.AddPartner(HasBody ? CardPath : "", OppMale);
+            if (HasBody) h.Stage.OpponentFaceReset(true);
             Active = true;
             Loading = false;
             Phase = "intro";

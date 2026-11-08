@@ -399,6 +399,7 @@ namespace MuseStudio
         public void RemovePartner()
         {
             if (Partner == null) return;
+            OpponentFaceReset(false);
             if (Partner.charInfo != null) cardFaces.Remove(Partner.charInfo);
             Singleton<Studio.Studio>.Instance.treeNodeCtrl.DeleteNode(Partner.treeNodeObject);
             Partner = null;
@@ -454,6 +455,63 @@ namespace MuseStudio
         public bool ApplyFaceOn(OCIChar who, string label)
         {
             return who != null && ApplyCells(CellsOf(label, who), who);
+        }
+
+        // The opponent's face in a match, held and put back by the rules its own side follows for it (the user's choice of
+        // 2026-11-08, plan B: on the opponent's own app that body is "her", her face's rules hers; before, its face stayed as
+        // its last block left it, and its declared climax's face went to neutral where its own side puts the face before it
+        // back). All it takes is here already: its Muse's labels come in its blocks, the default and the seconds are the same
+        // faces.json on both sides - no face sent between them. A label of its block is held (contract 1.27: till its next one,
+        // the match's end, or the safety time - this user's setting, so the two sides' may differ); a label of a moment
+        // (return.transient: ecstasy) shows for its seconds and the held one comes back; its declared climax's face goes back
+        // to the held one; none held: the match's default (return.defaults.match, neutral) - which it also takes as the match
+        // begins, as its own side's scene changes into the match.
+        string oppHeld = "";
+        float oppHeldSince = -1f, oppTempUntil = -1f;
+        public string OpponentHeld { get { return oppHeld; } }
+
+        string MatchDefault { get { return Json.Str(Json.Obj(FaceReturn, "defaults"), "match", "neutral"); } }
+
+        public void OpponentFace(string label)
+        {
+            if (Partner == null) return;
+            if (!ApplyFaceOn(Partner, label))
+            {
+                if (!ApplyFaceOn(Partner, "neutral")) return;     // (an unknown label: the standard face - MUSE_GUIDE 4)
+                label = "neutral";
+            }
+            if (Transient(label)) { oppTempUntil = Time.realtimeSinceStartup + FaceSeconds(label); return; }
+            oppHeld = label;
+            oppHeldSince = Time.realtimeSinceStartup;
+            oppTempUntil = -1f;
+        }
+
+        // its face back: the held one, else the match's default
+        public void OpponentFaceBack()
+        {
+            oppTempUntil = -1f;
+            if (Partner == null) return;
+            if (oppHeld.Length == 0 || !ApplyFaceOn(Partner, oppHeld)) ApplyFaceOn(Partner, MatchDefault);
+        }
+
+        // a match's start (and a replay's): nothing held, the match's default on it
+        public void OpponentFaceReset(bool show)
+        {
+            oppHeld = "";
+            oppHeldSince = oppTempUntil = -1f;
+            if (show && Partner != null) ApplyFaceOn(Partner, MatchDefault);
+        }
+
+        void OpponentFaceTick()
+        {
+            if (Partner == null || !MuseStudioPlugin.Instance.Match.Active) return;
+            float now = Time.realtimeSinceStartup;
+            if (oppTempUntil >= 0f && now >= oppTempUntil) OpponentFaceBack();
+            if (oppHeld.Length > 0 && now - oppHeldSince >= MuseHoldSeconds)
+            {
+                oppHeld = "";
+                if (oppTempUntil < 0f) OpponentFaceBack();
+            }
         }
 
         // Her card's own face (the owner's choice of 2026-11-07: the face her card was saved with is her ordinary face - the
@@ -1594,6 +1652,7 @@ namespace MuseStudio
             SceneFaceTick();
             TempFaceTick();
             MuseHoldTick();
+            OpponentFaceTick();
             PlayDefaultTick();
             if (Heroine != null && !MuseStudioPlugin.Instance.Play.Active && !Walking && Heroine.animeSpeed != speedTarget)
                 Heroine.animeSpeed = Mathf.MoveTowards(Heroine.animeSpeed, speedTarget, Mathf.Max(speedRate, 0.01f) * Time.deltaTime);
