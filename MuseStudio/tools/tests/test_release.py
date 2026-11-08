@@ -234,6 +234,112 @@ class Release(unittest.TestCase):
         code = "import sys, pathlib; [(pathlib.Path(sys.argv[1]) / n).write_bytes(b'new ' + n.encode()) for n in sys.argv[2:]]"
         return [sys.executable, "-c", code, str(out), *made]
 
+    # (GPT's re-review of #76) the install before not finished - its journal there but locked or broken, its leftovers not
+    # removable - stops the next one with nothing touched; real Windows locks: a byte-range lock on the journal (no reading),
+    # a file held open (no removal)
+    def swapping_state(self) -> tuple[dict[str, bytes], list[str]]:
+        old = self.put_old()
+        dest = self.plugins / "MuseStudio"
+        new = self.new_set()
+        names = list(new)
+        install_dll._journal_write(dest, {"phase": "swapping", "names": names, "had": {n: True for n in names}})
+        (dest / names[0]).replace(dest / (names[0] + ".bak"))
+        (dest / names[0]).write_bytes(new[names[0]])
+        return old, names
+
+    def second_release(self) -> Path:
+        built = self.tmp / "built_b"
+        built.mkdir()
+        files = {}
+        for n, body in (("MuseStudio.dll", b"MZ plugin B"), ("MuseMaker.dll", b"MZ maker B"), ("MuseStudio.ico", b"icon B")):
+            (built / n).write_bytes(body)
+            files[n] = built / n
+        man = dict(self.man)
+        man["files"] = {n: {"sha256": make_release.sha256(f), "size": f.stat().st_size} for n, f in files.items()}
+        return make_release.pack(self.tmp / "out_b", "v0.1.0-0123456", files, man)
+
+    @unittest.skipUnless(sys.platform == "win32", "a Windows lock")
+    def test_a_locked_journal_is_not_taken_for_none(self):
+        import msvcrt
+        old, names = self.swapping_state()
+        dest = self.plugins / "MuseStudio"
+        journal = dest / install_dll.JOURNAL
+        size = journal.stat().st_size
+        f = open(journal, "rb+")
+        try:
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, size)
+            why = install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT)
+            self.assertIn("not finished", why)
+            self.assertTrue((dest / (names[0] + ".bak")).exists())          # (the backup kept)
+            self.assertEqual((dest / (names[0] + ".bak")).read_bytes(), old[names[0]])
+            self.assertFalse(any(p.name.endswith(".new") for p in dest.iterdir()))
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, size)
+        finally:
+            f.close()
+        self.assertIn("old set put back", install_dll.recover(dest))       # (unlocked: the old set back as a whole)
+        self.assert_old(old)
+
+    def test_a_broken_journal_stops_the_install(self):
+        old, names = self.swapping_state()
+        dest = self.plugins / "MuseStudio"
+        for broken in ('{"phase": "swapp', '{"phase": "other", "names": []}', '["swapping"]'):
+            (dest / install_dll.JOURNAL).write_text(broken, encoding="utf-8")
+            why = install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT)
+            self.assertIn("not finished", why, broken)
+            self.assertEqual((dest / (names[0] + ".bak")).read_bytes(), old[names[0]], broken)
+            self.assertEqual((dest / install_dll.JOURNAL).read_text(encoding="utf-8"), broken)
+            for n in names[1:]:
+                self.assertEqual((dest / n).read_bytes(), old[n], broken)
+
+    @unittest.skipUnless(sys.platform == "win32", "a Windows lock")
+    def test_leftovers_that_cannot_be_removed_stop_the_next_install(self):
+        self.put_old()
+        dest = self.plugins / "MuseStudio"
+        real_remove = install_dll._remove
+
+        def no_maker_bak(path):
+            if path.name == "MuseMaker.dll.bak":
+                raise OSError("denied")
+            real_remove(path)
+        install_dll._remove = no_maker_bak
+        try:
+            self.assertEqual(install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT), "")     # (set A, a .bak left)
+        finally:
+            install_dll._remove = real_remove
+        set_a = self.new_set()
+        self.assertTrue((dest / "MuseMaker.dll.bak").exists())
+        zip_b = self.second_release()
+        held = open(dest / "MuseMaker.dll.bak", "rb")                        # (held open: no removal, no rename)
+        try:
+            why = install_dll.install(zip_b, plugins=self.plugins, commit=COMMIT)
+            self.assertIn("not finished", why)
+            for n, b in set_a.items():
+                self.assertEqual((dest / n).read_bytes(), b, n)                 # (set A whole: no swap begun)
+            self.assertEqual(json.loads((dest / install_dll.JOURNAL).read_text(encoding="utf-8"))["phase"], "done")
+        finally:
+            held.close()
+        self.assertEqual(install_dll.install(zip_b, plugins=self.plugins, commit=COMMIT), "")             # (unlocked: B whole)
+        man_b, data_b = install_dll.read_release(zip_b)
+        for n, b in data_b.items():
+            self.assertEqual((dest / n).read_bytes(), b, n)
+        self.assertFalse(any(p.name.endswith((".bak", ".new")) or p.name.startswith(install_dll.JOURNAL) for p in dest.iterdir()))
+
+    @unittest.skipUnless(sys.platform == "win32", "a Windows lock")
+    def test_an_older_tools_leftover_held_stops_the_install(self):
+        old = self.put_old()
+        dest = self.plugins / "MuseStudio"
+        (dest / "MuseMaker.dll.bak").write_bytes(b"older maker")
+        held = open(dest / "MuseMaker.dll.bak", "rb")
+        try:
+            self.assertIn("not finished", install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT))
+            for n, b in old.items():
+                self.assertEqual((dest / n).read_bytes(), b, n)
+        finally:
+            held.close()
+        self.assertEqual(install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT), "")
+        self.assert_set(self.new_set())
+
     def test_a_dll_not_built_now_is_not_packed(self):
         out = self.tmp / "build_out"
         out.mkdir()

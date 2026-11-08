@@ -16,7 +16,9 @@ the new and the old mixed): each new file written beside its place first (<name>
 "swapping"; each old one put aside (<name>.bak) and the new one moved in; the journal says "done"; the leftovers removed. A
 failure on the way puts the old set back as a whole - the install refused with why, saying so only when it is so. An install
 cut off before is finished by its journal first (GPT's re-review of #75): "swapping" - the old set back as a whole; "done" -
-only the leftovers removed, the new set kept. The folder's other files are left as they are. Nothing is downloaded: the zip is the one you took from the release
+only the leftovers removed, the new set kept. A journal there but unreadable, or leftovers that cannot be removed, stop the
+install with nothing touched (GPT's re-review of #76): a new swap begins only from a folder with no .bak, .new or journal
+left. The folder's other files are left as they are. Nothing is downloaded: the zip is the one you took from the release
 page. Standard library only.
 """
 from __future__ import annotations
@@ -93,11 +95,25 @@ def _journal_write(dest: Path, doc: dict) -> None:
     _replace(tmp, dest / JOURNAL)
 
 
+class JournalUnreadable(OSError):
+    """the install's journal is there but cannot be read, or is not in its form: nothing is touched (GPT's re-review of #76)"""
+
+
 def _journal_read(dest: Path) -> dict | None:
-    try:
-        return json.loads((dest / JOURNAL).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    """the journal: None only when there is none (GPT's re-review of #76: one there but locked or broken was taken for none -
+    an older tool's leftovers - and the backups of the install before it were removed); there but not readable or not in its
+    form: JournalUnreadable"""
+    path = dest / JOURNAL
+    if not path.exists():
         return None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise JournalUnreadable(f"the install's journal is there but cannot be read ({e})") from e
+    if (not isinstance(doc, dict) or doc.get("phase") not in ("swapping", "done") or not isinstance(doc.get("names"), list)
+            or not isinstance(doc.get("had", {}), dict)):
+        raise JournalUnreadable("the install's journal is not in its form")
+    return doc
 
 
 def _restore(dest: Path, names: list[str], had: dict) -> list[str]:
@@ -142,27 +158,44 @@ def _cleanup(dest: Path, names) -> list[str]:
 
 
 def recover(dest: Path) -> str:
-    """an install cut off before, by its journal: "swapping" - the old set put back as a whole; "done" - the leftovers
-    removed, the new set kept. No journal (an older tool's leftovers): its .new ones removed, nothing put back alone - the
-    install that follows puts in a whole set. "" nothing to do, else what was done; OSError when the old set could not be put
-    back (nothing claimed)"""
+    """an install before, finished by its journal before another may begin - "" nothing to do, else what was done; OSError
+    (nothing more touched, the journal and the backups kept) while it cannot be finished:
+    - "swapping": the old set put back as a whole, then its leftovers removed;
+    - "done": its leftovers removed, the new set kept;
+    - no journal (an older tool's leftovers, or a journal never put in place): those leftovers removed - nothing put back
+      alone, the install that follows puts in a whole set;
+    - a journal there but unreadable or not in its form: JournalUnreadable.
+    Leftovers that cannot be removed stop the next install (GPT's re-review of #76: the next one's swap took over their names
+    and its journal, and a .bak of an older generation was put back for it): its swap begins only from a folder with no .bak,
+    .new or journal left"""
     j = _journal_read(dest)
     if j is None:
-        for n in WANT:
-            new = dest / (n + ".new")
-            if new.exists():
-                _remove(new)
-        baks = [n for n in WANT if (dest / (n + ".bak")).exists()]
-        return ("files left by an install cut off with an older tool (" + ", ".join(baks) + ") - not put back alone; this install "
-                "puts in a whole set") if baks else ""
+        sides = [dest / (n + s) for n in WANT for s in (".bak", ".new")] + [dest / (JOURNAL + ".tmp")]
+        there = [f for f in sides if f.exists()]
+        if not there:
+            return ""
+        failed = []
+        for f in there:
+            try:
+                _remove(f)
+            except OSError:
+                failed.append(f.name)
+        if failed:
+            raise OSError("files left by an install cut off with an older tool could not be removed (" + ", ".join(failed) + ")")
+        return ("files left by an install cut off with an older tool (" + ", ".join(f.name for f in there) + ") - removed, "
+                "not put back alone; this install puts in a whole set")
     names = [n for n in j.get("names", WANT) if n in WANT]
     if j.get("phase") == "done":
         left = _cleanup(dest, names)
-        return "an install done before had leftovers - removed" + (" (still there: " + ", ".join(left) + ")" if left else "")
+        if left:
+            raise OSError("the install before is done, but its leftovers could not be removed (" + ", ".join(left) + ")")
+        return "an install done before had leftovers - removed"
     failed = _restore(dest, names, j.get("had", {}))
     if failed:
         raise OSError("could not put back " + ", ".join(failed))
-    _cleanup(dest, names)
+    left = _cleanup(dest, names)
+    if left:
+        raise OSError("the old set is back, but the leftovers could not be removed (" + ", ".join(left) + ")")
     return "an install cut off before - its old set put back"
 
 
@@ -222,7 +255,8 @@ def install(zip_path: Path, any_source: bool = False, plugins: Path = PLUGINS, c
     try:
         note = recover(dest)
     except OSError as e:
-        return f"an install cut off before could not be put back ({e}) - nothing else changed; see {dest} (its journal {JOURNAL})"
+        return (f"the install before is not finished ({e}) - nothing else changed, no new install begun (close the game, "
+                f"then run the install again; see {dest} and its journal {JOURNAL})")
     if note:
         print("install: " + note)
     files = dict(data)
