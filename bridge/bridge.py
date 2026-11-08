@@ -1203,10 +1203,17 @@ class State:
         return (self.events[0]["id"] - 1) if self.events else (self.next_event_id - 1)
 
     def feed_marks(self) -> dict:
-        # the three watermarks' feed side, for /health and GET /api/events
+        # the three watermarks' feed side, for /health and GET /api/events; oldest_pending_seconds: how long the oldest event
+        # Muse has not acked has waited (#70 adopted, 3: the app's notice that Muse is not reading its events)
         with self.lock:
+            oldest = None
+            if self.events:
+                try:
+                    oldest = max(0, int(time.time() - time.mktime(time.strptime(str(self.events[0].get("time")), "%Y-%m-%dT%H:%M:%S"))))
+                except (ValueError, OverflowError):
+                    oldest = None
             return {"next_id": self.next_event_id, "acked_upto": self.acked_upto_locked(), "pending": len(self.events),
-                    "dropped": dict(self.events_lost) if self.events_lost else None}
+                    "dropped": dict(self.events_lost) if self.events_lost else None, "oldest_pending_seconds": oldest}
 
     def peek_events(self, after: int, limit: int) -> list[dict]:
         with self.lock:

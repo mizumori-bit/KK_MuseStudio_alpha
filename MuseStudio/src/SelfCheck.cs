@@ -383,6 +383,9 @@ namespace MuseStudio
             var bp = h.Blocks;
             var pc = h.Play;
             Note("stage ready at " + Time.realtimeSinceStartup.ToString("F1") + " s");
+            // (#70 adopted, 3) the notice of Muse not reading off through the checks (they read the feed, they do not ack it);
+            // its own check below turns it on
+            h.MuseUnreadMinutes.Value = 0f;
             Check("dialogue: 自動送り starts on (stage.json advance.auto, the trial run of 2026-11-04)", bp.Auto, "auto " + bp.Auto);
             // (the owner's choice of 2026-11-07) her ordinary face is her card's own: the start face, the talk's default
             var ccells = st.CardCells;
@@ -4185,6 +4188,7 @@ namespace MuseStudio
             }
             // a room that does not load: his own move, Muse's move of the two, her own move - nothing changed; Muse's refused
             // (load_failed)
+            bool nfRoom = false;
             {
                 var rgBad = places.All.Find(e => !e.Curated && e.Id.StartsWith("orig:") && !h.Rooms.Has(e.Key));
                 string rgHere = st.Location, rgHisRoom = rgHere == "myroom" ? "girls_room" : "myroom";
@@ -4200,6 +4204,14 @@ namespace MuseStudio
                     yield return Until(() => bp.Busy && bp.Text == "行けない部屋へ。", 15f);
                     yield return Wait(0.6f);
                     rgMuseKept = st.Location == rgHere && Refusals("location", "load_failed") == rgFail0 + 1;
+                    // (#70 adopted, 3) the room that would not load: a notice on the screen, told to Muse as shown, then cleared
+                    nfRoom = h.Notices.Has("room_load_failed") && h.Notices.TextOf("room_load_failed").Contains("読み込めませんでした")
+                             && EventCount("app_notice", "kind", "room_load_failed") >= 1;
+                    h.Notices.ExpireForCheck("room_load_failed");
+                    yield return Wait(0.6f);
+                    var nfLast = LastEvent("app_notice");
+                    nfRoom = nfRoom && !h.Notices.Has("room_load_failed") && Json.Str(nfLast, "phase") == "cleared" && Json.Str(nfLast, "kind") == "room_load_failed"
+                             && Json.Has(nfLast, "seconds") && Json.Str(nfLast, "shown").Length > 0;
                     bp.Advance(true);
                     yield return Wait(0.4f);
                     // apart (he went alone): her own move there - she stays where she is
@@ -4223,6 +4235,30 @@ namespace MuseStudio
                 }
                 Check("rooms: a room that does not load changes nothing - his own move (he stays, she with him), Muse's move of the two and her own move (refused load_failed, she stays where she is) (GPT's post-review of #62)",
                       rgUserKept && rgMuseKept && rgHerKept, string.Format("{0}: user {1} muse {2} her {3}", rgBad != null ? rgBad.Key : "-", rgUserKept, rgMuseKept, rgHerKept));
+            }
+            // (#70 adopted, 3) the app's technical notices, Muse told of those shown: the room above; the bridge out of reach (5 s,
+            // here 0.5 s) and back; Muse not reading its events past the setting (here 1 s of the feed's oldest unread event)
+            {
+                int nf0 = h.Notices.Told;
+                h.Notices.UnreachableSeconds = 0.5f;
+                h.Notices.UnreachableForCheck = true;
+                yield return Wait(1.2f);
+                bool nfUp = h.Notices.Has("bridge_unreachable");
+                h.Notices.UnreachableForCheck = false;
+                yield return Wait(0.6f);
+                bool nfDown = !h.Notices.Has("bridge_unreachable");
+                h.Notices.UnreachableSeconds = 5f;
+                yield return Wait(1.0f);
+                bool nfBridge = nfUp && nfDown && EventCount("app_notice", "kind", "bridge_unreachable") >= 2 && h.Notices.Told >= nf0 + 2;
+                Http("POST", "/api/events", D("type", "check_unread"));          // (one unread event at least, and time for it to wait)
+                h.MuseUnreadMinutes.Value = 1f / 60f;
+                yield return Until(() => h.Notices.Has("muse_unread"), 25f);
+                bool nfUnreadUp = h.Notices.Has("muse_unread") && h.Notices.TextOf("muse_unread").Contains("読んでいません");
+                h.MuseUnreadMinutes.Value = 0f;
+                yield return Wait(0.6f);
+                bool nfUnread = nfUnreadUp && !h.Notices.Has("muse_unread") && EventCount("app_notice", "kind", "muse_unread") >= 2;
+                Check("notices: the app's technical notices on the screen, each told to Muse when shown and when cleared (app_notice) - a room that would not load, the bridge out of reach, Muse not reading its events (#70 adopted, 3)",
+                      nfRoom && nfBridge && nfUnread, string.Format("room {0} bridge {1} (up {2} down {3}) unread {4} told {5}", nfRoom, nfBridge, nfUp, nfDown, nfUnread, h.Notices.Told - nf0));
             }
             Send(With(Line("わたしの部屋へ。"), "location", "girls_room"));
             yield return Until(() => st.Location == "girls_room" && bp.Text == "わたしの部屋へ。", 20f);

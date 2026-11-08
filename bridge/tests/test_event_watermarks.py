@@ -100,6 +100,7 @@ class Routes(unittest.TestCase):
         code, health = self.b.call("GET", "/health", role="muse")
         f = health["event_feed"]
         self.assertEqual((f["next_id"], f["acked_upto"], f["pending"], f["dropped"]), (4, 2, 1, None))
+        self.assertTrue(isinstance(f["oldest_pending_seconds"], int) and 0 <= f["oldest_pending_seconds"] < 60)     # (#70 adopted, 3)
         self.assertEqual(health["events"], 1)
 
 

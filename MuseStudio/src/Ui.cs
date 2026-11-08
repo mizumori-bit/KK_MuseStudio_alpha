@@ -192,6 +192,7 @@ namespace MuseStudio
             DrawDialogue(s);
             if (!UiHidden)
             {
+                if (host.Notices != null) host.Notices.Draw(s, small, box, drawing);     // (#70 adopted, 3: the app's technical notices)
                 DrawPanel(s);
                 DrawPresence(s);
                 DrawClock(s);

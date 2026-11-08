@@ -121,6 +121,8 @@ namespace MuseStudio
 
         // a package's delivery stage for the bridge: received (taken here), started (it began), dropped (with the reason)
         // (#70 adopted, 1) block: the block shown (its operations done), blocks: their count - started / finished
+        public volatile int OldestUnreadSeconds = -1;     // (#70 adopted, 3) from /health's event_feed
+
         public void Ack(string pid, string stage, string reason = null, int block = -1, int blocks = -1)
         {
             if (string.IsNullOrEmpty(pid)) return;          // (a replay's, a test's own: not the bridge's)
@@ -155,6 +157,9 @@ namespace MuseStudio
                         {
                             var doc = Json.Parse(h);
                             VoiceOff = !(Json.Has(doc, "voice") && ((Dictionary<string, object>)doc)["voice"] is bool && (bool)((Dictionary<string, object>)doc)["voice"]);
+                            // (#70 adopted, 3) how long the oldest event Muse has not read has waited (-1: none, or not told)
+                            var feed = Json.Obj(doc, "event_feed");
+                            OldestUnreadSeconds = feed != null && Json.Num(feed, "pending", 0) > 0 ? (int)Json.Num(feed, "oldest_pending_seconds", -1) : -1;
                             // a bridge restarted under this launch shows another launch or phase: the last report again
                             var la = Json.Obj(doc, "launch");
                             Dictionary<string, object> mine;
