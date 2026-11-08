@@ -776,7 +776,9 @@ namespace MuseStudio
         void SwapHeroine(string path, string name)
         {
             var st = h.Stage;
+            h.Blocks.SpeakerChanging();            // (the line being said was the one before's - GPT's post-review of #60)
             st.Heroine.ChangeChara(path);
+            st.TakeCardFace();                     // (the one now's own face - GPT's post-review of #63)
             st.Name = string.IsNullOrEmpty(name) ? st.Cha.chaFile.parameter.fullname.Trim() : name;
             st.Heroine.treeNodeObject.textName = st.Name;
             st.Rebuilt();

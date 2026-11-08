@@ -743,6 +743,11 @@ namespace MuseStudio
         {
             key = Places != null ? (Places.KeyOf(key) ?? key) : key;      // (named by its id: its key - PR #46 §4.1)
             if (key == Stage.Location || !Stage.Reachable(key)) yield break;
+            // the room in first: one that does not load changes nothing - the play, where she is, his place (GPT's post-review
+            // of #62)
+            yield return Stage.EnsureRoom(key);
+            if (!Rooms.Has(key)) { Log.LogWarning("MuseStudio: room " + key + " could not be loaded: the place stays"); yield break; }
+            if (key == Stage.Location) yield break;
             if (Play.Active) Play.End("location");
             string prev = Stage.Location;
             // the user's own move (the panel's 場所): he goes alone - she stays where she is (the trial run of 2026-11-04); the

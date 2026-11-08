@@ -36,6 +36,8 @@ namespace MuseStudio
         readonly Dictionary<string, object> speechCfg;     // (stage.json speech: the words' pace and the mouth's beats)
         public Spoken Spoken;         // the block's words parsed (its ruby; null: a sound block)
         public bool Speaking;         // its words come out at the pace she says them, her mouth with them (the setting 口の動き)
+        string spokenBy = "";         // who says them (SpeakerKey as the block came out): the mouth only for that one
+        public int SpeechExpired;     // (checks) lines no longer said: their speaker changed
         public bool MonologueMoved;   // the monologue's own block moved her (not a change of the situation)
         public string Speaker = "self";   // the package's speaker (the match: "opponent" - the opponent's, forwarded by Muse)
 
@@ -216,6 +218,7 @@ namespace MuseStudio
             var m = Mouth.Instance;
             if (m == null) return;
             float t = (Now - ShownAt) * Pace;
+            if (Busy && Speaking && !revealAll && SpeakerKey() != spokenBy) SpeakerChanging();      // (another one there now: not hers to say)
             ChaControl who = Busy && !Moving && Speaking && Spoken != null && !revealAll && t < Spoken.Seconds ? SpeakerCha() : null;
             if (who == null) { if (m.Active) m.Stop(); return; }
             m.Drive(who, Spoken.OpenAt(t));
@@ -228,6 +231,22 @@ namespace MuseStudio
                 return h.Match.Active && st.Partner != null && !h.Play.MouthBusy(true) ? st.Partner.charInfo : null;
             if (st.Heroine == null || h.Outing.Out || h.Presence.HerAt.Length > 0 || h.Play.MouthBusy(false)) return null;
             return st.Cha;
+        }
+
+        // the one saying the line now: her card (the character's id), or the opponent's body (the match)
+        string SpeakerKey()
+        {
+            if (Speaker == "opponent") { var p = h.Stage.Partner; return p != null && p.charInfo != null ? "opponent:" + p.charInfo.GetInstanceID() : "opponent"; }
+            return h.CharacterId();
+        }
+
+        // the speaker's body is about to be another (a character switched, a match's swap; GPT's post-review of #60): the line
+        // being said is said no more - the mouth stops while it is still the one who spoke (Studio's fixing back on it), the
+        // line shown whole, its wait as after it. What waits is left as it is (DropPendingFor keeps the new one's)
+        public void SpeakerChanging()
+        {
+            if (Mouth.Instance != null && Mouth.Instance.Active) Mouth.Instance.Stop();
+            if (Busy && Speaking && !revealAll) { revealAll = true; SpeechExpired++; }
         }
 
         // the user switched the character: what waits here was for the one before (the new one's tagged packages stay) -
@@ -314,17 +333,34 @@ namespace MuseStudio
             }
             if (!string.IsNullOrEmpty(loc) && h.Presence.Apart && !opp)
             {
-                // (apart: she goes there on her own - to his room, together again; the stage stays his)
-                h.Presence.HerAt = loc == h.Stage.Location ? "" : loc;
-                if (loc == h.Stage.Location) h.Presence.Cause = "she_came";
-                if (h.Presence.HerAt.Length == 0) h.Stage.Place(h.Stage.Heroine);
-                else
+                // (apart: she goes there on her own - to his room, together again; the stage stays his). A room not loaded: in
+                // first (PR #46 §4.1), and only then is she there - a room that does not load leaves her where she was, refused
+                // (GPT's post-review of #62)
+                bool there = true;
+                if (loc != h.Stage.Location)
                 {
-                    yield return h.Stage.EnsureRoom(loc);         // (a room not loaded: in first - PR #46 §4.1)
-                    h.Stage.PlaceIn(h.Stage.Heroine, loc);
+                    yield return h.Stage.EnsureRoom(loc);
+                    there = h.Rooms.Has(loc);
+                    if (!there) Refuse("location", loc, "load_failed");
                 }
-                if (h.Presence.HerAt.Length == 0) h.SendCatalog();
+                if (there)
+                {
+                    h.Presence.HerAt = loc == h.Stage.Location ? "" : loc;
+                    if (loc == h.Stage.Location) h.Presence.Cause = "she_came";
+                    if (h.Presence.HerAt.Length == 0) h.Stage.Place(h.Stage.Heroine);
+                    else h.Stage.PlaceIn(h.Stage.Heroine, loc);
+                    if (h.Presence.HerAt.Length == 0) h.SendCatalog();
+                }
                 loc = null;
+            }
+            if (!string.IsNullOrEmpty(loc) && loc != h.Stage.Location)
+            {
+                // the room in first (a room not loaded: PR #46 §4.1); one that does not load: refused, nothing changed - the play
+                // not ended, the place as it was (GPT's post-review of #62)
+                Moving = true;
+                yield return h.Stage.EnsureRoom(loc);
+                Moving = false;
+                if (!h.Rooms.Has(loc)) { Refuse("location", loc, "load_failed"); loc = null; }
             }
             if (!string.IsNullOrEmpty(loc) && loc != h.Stage.Location)
             {
@@ -497,6 +533,7 @@ namespace MuseStudio
             ShownAt = Now;
             presentedAt = -1f;
             revealAll = Text.Length == 0;
+            spokenBy = SpeakerKey();
             // (said at her pace: the line took its reading's time - the base's wait after it, as after a voice)
             waitLeft = Auto ? (Speaking ? (float)Json.Num(speechCfg, "after_seconds", baseSec) : Text.Length * perChar + baseSec) / Pace : -1f;
             monoWait = Monologue ? Mathf.Clamp(monoMin + Text.Length * monoPerChar, monoMin, monoMax) : -1f;

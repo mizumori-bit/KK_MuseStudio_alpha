@@ -1432,6 +1432,84 @@ namespace MuseStudio
                                     itRestocked, itSaved, itClosed, itSame, itSug, itSugId, coffee0, it.Count("shelf", "coffee")));
             }
 
+            // (GPT's post-review of #65) a block's item in one commit: a write that fails puts all back (save_failed, nothing told),
+            // the same request then done once, the file with the stock and the request together; the arousal's speed never takes
+            // an item past its grade's cap (a speed changed while it flows in too)
+            {
+                var it = h.Items;
+                it.SetBudgetForCheck(5000);
+                it.Buy("coffee");
+                it.MoveUser("coffee", true);
+                int txCoffee0 = it.Count("shelf", "coffee"), txUsed0 = EventCount("item_used"), txFail0 = Refusals("item", "save_failed");
+                h.Mood.FailWritesForCheck = true;
+                Send(With(Line("コーヒーを。"), "item", D("request", "chk-item-tx", "use", "coffee", "from", "shelf")));
+                yield return Until(() => bp.Busy && bp.Text == "コーヒーを。", 10f);
+                yield return Wait(0.5f);
+                h.Mood.FailWritesForCheck = false;
+                bp.Advance(true);
+                yield return Wait(1.0f);
+                bool txBack = it.Count("shelf", "coffee") == txCoffee0 && Refusals("item", "save_failed") == txFail0 + 1 && EventCount("item_used") == txUsed0;
+                for (int k = 0; k < 2; k++)
+                {
+                    Send(With(Line("コーヒーをもう一度。" + k), "item", D("request", "chk-item-tx", "use", "coffee", "from", "shelf")));
+                    yield return Until(() => bp.Busy && bp.Text.StartsWith("コーヒーをもう一度。"), 10f);
+                    yield return Wait(0.4f);
+                    bp.Advance(true);
+                    yield return Wait(0.4f);
+                }
+                yield return Wait(0.8f);
+                var txFile = Json.Obj(Json.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(path), "moods.json"), Encoding.UTF8)), "_items");
+                bool txOnce = it.Count("shelf", "coffee") == txCoffee0 - 1 && EventCount("item_used") == txUsed0 + 1
+                              && txFile != null && (Json.Arr(txFile, "requests") ?? new List<object>()).Contains("chk-item-tx")
+                              && (int)Json.Num(Json.Obj(txFile, "shelf"), "coffee", -1) == txCoffee0 - 1;
+                Check("items: a block's item in one commit - a write that fails puts all back (save_failed, nothing told); the same request then done once, the file with the stock and the request together (GPT's post-review of #65)",
+                      txBack && txOnce, string.Format("back {0} once {1} (coffee {2} -> {3}, used +{4})", txBack, txOnce, txCoffee0, it.Count("shelf", "coffee"), EventCount("item_used") - txUsed0));
+                // the cap with the arousal's speed (x3, then x4 while it flows in)
+                h.Mood.ClearPendingForCheck();
+                it.ClearDosesForCheck();
+                float capAr0 = h.Mood.ValueForCheck("arousal"), capSpeed0 = h.ArousalSpeed.Value;
+                float cap1 = (float)Json.Num(Json.Obj(Json.Obj(it.Def, "grades"), "1"), "cap", 0.6);
+                h.Mood.Values["arousal"] = cap1 - 0.2f;
+                h.ArousalSpeed.Value = 3f;
+                it.Buy("aphrodisiac");
+                it.MoveUser("aphrodisiac", true);
+                Send(With(Line("飲んでみる。"), "item", D("request", "chk-item-cap", "use", "aphrodisiac", "from", "shelf")));
+                yield return Until(() => bp.Busy && bp.Text == "飲んでみる。", 10f);
+                yield return Wait(0.3f);
+                bp.Advance(true);
+                h.Mood.FlowForCheck(1.0f);
+                yield return Wait(0.4f);
+                h.ArousalSpeed.Value = 4f;
+                yield return Wait(1.0f);
+                float capAr = h.Mood.ValueForCheck("arousal");
+                bool capKept = capAr <= cap1 + 0.01f && capAr > cap1 - 0.15f;
+                h.Mood.ClearPendingForCheck();
+                h.ArousalSpeed.Value = capSpeed0;
+                h.Mood.Values["arousal"] = capAr0;
+                Check("items: the arousal's speed never takes an item past its grade's cap - x3, then x4 while it flows in (GPT's post-review of #65)", capKept,
+                      string.Format("arousal {0:F3} cap {1:F2}", capAr, cap1));
+                // her drink's gaze (PR #46 §7): drunk, her eyes at a point drifting a little about the camera; sober, at it again
+                float gzIx0 = h.Mood.ValueForCheck("intoxication");
+                h.Mood.Values["intoxication"] = 0.85f;
+                yield return Wait(1.0f);
+                var gzLook = st.Cha.eyeLookCtrl;
+                var gzCam = Camera.main.transform;
+                bool gzOn = st.SwayTarget != null && gzLook.target == st.SwayTarget;
+                Vector3 gzHead = st.Cha.objHeadBone.transform.position;
+                float gzA1 = gzOn ? Vector3.Angle(st.SwayTarget.position - gzHead, gzCam.position - gzHead) : -1f;
+                Vector3 gzP1 = gzOn ? st.SwayTarget.position : Vector3.zero;
+                yield return Wait(1.5f);
+                float gzA2 = gzOn ? Vector3.Angle(st.SwayTarget.position - gzHead, gzCam.position - gzHead) : -1f;
+                bool gzMoved = gzOn && Vector3.Distance(st.SwayTarget.position, gzP1) > 1e-4f;
+                h.Mood.Values["intoxication"] = 0f;
+                yield return Wait(0.5f);
+                bool gzOff = gzLook.target == gzCam;
+                h.Mood.Values["intoxication"] = gzIx0;
+                Check("items: drunk, her eyes wander a little about the camera (a drifting point, a few degrees off); sober, at the camera again (PR #46 §7, its gaze)",
+                      gzOn && gzA1 >= 0f && gzA1 < 8f && gzA2 < 8f && (gzA1 > 0.05f || gzA2 > 0.05f) && gzMoved && gzOff,
+                      string.Format("on {0} angle {1:F2} / {2:F2} moved {3} off {4}", gzOn, gzA1, gzA2, gzMoved, gzOff));
+            }
+
             // an unknown label: shown anyway with the standard face, no event (MUSE_GUIDE.md 4)
             int ulRefused0 = EventCount("block_refused");
             Send(With(Line("知らない表情。"), "emotion", D("label", "no_such_label")));
@@ -3631,12 +3709,29 @@ namespace MuseStudio
             Check("character: the bridge lists the cards and marks her as the active one (name + updated)", Json.Arr(apiChars, "characters") != null
                   && Json.Arr(apiChars, "characters").Count >= 2 && Json.Str(apiChars, "active", "") == h.CharacterId(), Json.Str(apiChars, "active", "null") + " vs " + h.CharacterId());
             string name0 = st.Name;
+            // (GPT's post-review of #60) a line being said when she is switched: said no more - the new one's mouth not moved
+            // by it, the line shown whole
+            bool swSpeak0 = h.SpeakMouth.Value;
+            h.SpeakMouth.Value = true;
+            Send(Line("ねえ、きょうはね、とっても長いお話をしようと思っていたの。最後まで聞いてくれる？"));
+            yield return Until(() => bp.Busy && bp.Text.StartsWith("ねえ") && Mouth.Instance.Active, 10f);
+            bool swSaying = Mouth.Instance.Active && bp.Revealing;
+            int swExpired0 = bp.SpeechExpired;
             err = other != null ? chars.Switch(other, "user") : "no other card";
+            int swMoves0 = Mouth.Instance.Moves;
             yield return Wait(1.5f);
+            bool swStopped = swSaying && !Mouth.Instance.Active && Mouth.Instance.Moves == swMoves0 && bp.SpeechExpired == swExpired0 + 1 && !bp.Revealing;
+            string swWhy = string.Format("saying {0} active {1} moves +{2} expired +{3} revealing {4}", swSaying, Mouth.Instance.Active, Mouth.Instance.Moves - swMoves0,
+                                         bp.SpeechExpired - swExpired0, bp.Revealing);
+            bp.Advance(true);
+            h.SpeakMouth.Value = swSpeak0;
+            yield return Wait(0.3f);
             string pickAfter = tc.Pick(cam.WorldToScreenPoint(Bone(st.Cha, "cf_d_hit_bust_L").position));
             Check("character: switching to another card (character_changed), touch still finds her", err == "" && chars.CardPath == other && st.Name != ""
                   && LastEvent("character_changed") != null && Json.Str(Json.Obj(LastEvent("character_changed"), "previous"), "name") == name0 && pickAfter == "chest",
                   err + " " + st.Name + " pick '" + pickAfter + "'");
+            Check("character: a line being said when she is switched is said no more - the new one's mouth not moved by it, the line shown whole (GPT's post-review of #60)",
+                  swStopped, swWhy);
             yield return Shot("13_switched.png");
             var hsw = Json.Obj(Json.Parse(Http("GET", "/health", null)), "launch");
             Check("launch: switching tells the bridge the new character (its pool follows)", Json.Str(Json.Obj(hsw, "character"), "id") == h.CharacterId()
@@ -3901,6 +3996,72 @@ namespace MuseStudio
             Check("rooms: a room not kept loaded on the move (its features told, its spots), one by its id; an unknown place refused; past the extra rooms kept loaded the one used longest ago let go",
                   rgLazy && rgUnknown && rgById && rgTrim, string.Format("lazy {0} ({1} spots, {2:F2} s, {3}) unknown {4} ({5}) by id {6} ({7}) trim {8} (unloaded {9})", rgLazy, st.Spots.Count,
                   h.Rooms.LastLazySeconds, Json.Write(rgFeat), rgUnknown, Json.Write(lr), rgById, rgAuto != null ? rgAuto.Id : "-", rgTrim, h.Rooms.Unloaded - rgUnloaded0));
+            // (GPT's post-review of #62) two rooms asked for in the same frame: each its own scene (one at a time); one let go,
+            // the other still there
+            {
+                var rgTwo = places.All.FindAll(e => !e.Curated && e.Id.StartsWith("orig:") && !h.Rooms.Has(e.Key));
+                string rgA = rgTwo.Count > 1 ? rgTwo[0].Key : null, rgB = rgTwo.Count > 1 ? rgTwo[1].Key : null;
+                bool rgOwn = false, rgKeptB = false;
+                string rgTwoWhy = "fewer than two rooms not loaded";
+                if (rgA != null)
+                {
+                    h.StartCoroutine(st.EnsureRoom(rgA));
+                    h.StartCoroutine(st.EnsureRoom(rgB));
+                    yield return Until(() => h.Rooms.Has(rgA) && h.Rooms.Has(rgB), 60f);
+                    var scA = h.Rooms.SceneOf(rgA);
+                    var scB = h.Rooms.SceneOf(rgB);
+                    rgOwn = scA.IsValid() && scB.IsValid() && scA.GetHashCode() != scB.GetHashCode()
+                            && h.Rooms.RootsOf(rgA).Count > 0 && h.Rooms.RootsOf(rgA).TrueForAll(g => g != null && g.scene.GetHashCode() == scA.GetHashCode())
+                            && h.Rooms.RootsOf(rgB).Count > 0 && h.Rooms.RootsOf(rgB).TrueForAll(g => g != null && g.scene.GetHashCode() == scB.GetHashCode());
+                    rgTwoWhy = string.Format("{0} '{1}' / {2} '{3}'", rgA, scA.name, rgB, scB.name);
+                    yield return h.Rooms.UnloadForCheck(rgA);
+                    rgKeptB = !h.Rooms.Has(rgA) && h.Rooms.Has(rgB) && scB.isLoaded && h.Rooms.RootsOf(rgB).TrueForAll(g => g != null);
+                    yield return h.Rooms.UnloadForCheck(rgB);
+                }
+                Check("rooms: two rooms asked for in the same frame load one at a time, each its own scene; one let go, the other still there (GPT's post-review of #62)",
+                      rgOwn && rgKeptB, rgTwoWhy + " own " + rgOwn + " kept " + rgKeptB);
+            }
+            // a room that does not load: his own move, Muse's move of the two, her own move - nothing changed; Muse's refused
+            // (load_failed)
+            {
+                var rgBad = places.All.Find(e => !e.Curated && e.Id.StartsWith("orig:") && !h.Rooms.Has(e.Key));
+                string rgHere = st.Location, rgHisRoom = rgHere == "myroom" ? "girls_room" : "myroom";
+                bool rgUserKept = false, rgMuseKept = false, rgHerKept = false;
+                if (rgBad != null)
+                {
+                    h.Rooms.FailForCheck = rgBad.Key;
+                    int rgFail0 = Refusals("location", "load_failed");
+                    h.MoveTo(rgBad.Key, "user");
+                    yield return Wait(1.5f);
+                    rgUserKept = st.Location == rgHere && h.Presence.HerAt.Length == 0 && !st.Moving;
+                    Send(With(Line("行けない部屋へ。"), "location", rgBad.Id));
+                    yield return Until(() => bp.Busy && bp.Text == "行けない部屋へ。", 15f);
+                    yield return Wait(0.6f);
+                    rgMuseKept = st.Location == rgHere && Refusals("location", "load_failed") == rgFail0 + 1;
+                    bp.Advance(true);
+                    yield return Wait(0.4f);
+                    // apart (he went alone): her own move there - she stays where she is
+                    h.MoveTo(rgHisRoom, "user");
+                    yield return Until(() => st.Location == rgHisRoom && !st.Moving, 20f);
+                    yield return Wait(0.5f);
+                    string rgHerAt0 = h.Presence.HerAt;
+                    Vector3 rgHerPos0 = st.Heroine.oiCharInfo.changeAmount.pos;
+                    Send(With(Line("ひとりで行けない部屋へ。"), "location", rgBad.Id));
+                    yield return Until(() => bp.Busy && bp.Text == "ひとりで行けない部屋へ。", 15f);
+                    yield return Wait(0.6f);
+                    rgHerKept = rgHerAt0 == rgHere && h.Presence.HerAt == rgHere && Vector3.Distance(st.Heroine.oiCharInfo.changeAmount.pos, rgHerPos0) < 0.01f
+                                && Refusals("location", "load_failed") == rgFail0 + 2;
+                    bp.Advance(true);
+                    yield return Wait(0.4f);
+                    h.Rooms.FailForCheck = "";
+                    h.Rooms.Failed.RemoveAll(f => f.StartsWith(rgBad.Key + " (check"));
+                    h.MoveTo(rgHere, "user");
+                    yield return Until(() => st.Location == rgHere && !st.Moving && h.Presence.HerAt.Length == 0, 20f);
+                    yield return Wait(0.5f);
+                }
+                Check("rooms: a room that does not load changes nothing - his own move (he stays, she with him), Muse's move of the two and her own move (refused load_failed, she stays where she is) (GPT's post-review of #62)",
+                      rgUserKept && rgMuseKept && rgHerKept, string.Format("{0}: user {1} muse {2} her {3}", rgBad != null ? rgBad.Key : "-", rgUserKept, rgMuseKept, rgHerKept));
+            }
             Send(With(Line("わたしの部屋へ。"), "location", "girls_room"));
             yield return Until(() => st.Location == "girls_room" && bp.Text == "わたしの部屋へ。", 20f);
             Check("block: its location (a kept room) moves there first, then shows", st.Location == "girls_room" && bp.Text == "わたしの部屋へ。", st.Location);
@@ -4075,6 +4236,36 @@ namespace MuseStudio
             Check("match UI (real keys): Space advances the words - Studio's UI still hidden (HideAllUI's Space kept off the stage)", (!bp.Busy || bp.Text != "よろしくね。") && !st.StudioCanvasShown(),
                   bp.Text + " " + RealInput.LastError + " typing " + Ui.Typing + " (control " + GUIUtility.keyboardControl + ") revealing " + bp.Revealing + " modal " + h.UiForCheck.Modal);
             bp.Advance(true);
+            // (GPT's post-review of #63) card on a body is that body's own card face: the opponent's (taken as its body was made
+            // from its card) on it - a face here not the standard one - and hers on her
+            {
+                var cfOpp = st.Partner != null ? st.Partner.charInfo : null;
+                bool cfTaken = cfOpp != null && st.CardCellsOf(cfOpp) != null;
+                bool cfOppFace = false, cfHerFace = false;
+                string cfWhy = "taken " + cfTaken;
+                if (cfTaken)
+                {
+                    var cfCells = new List<object>(st.CardCellsOf(cfOpp));
+                    cfCells[0] = 2; cfCells[1] = 3; cfCells[2] = 4;
+                    st.SetCardFaceForCheck(cfOpp, cfCells);
+                    yield return Wait(0.3f);
+                    SendPkg(D("speaker", "opponent"), With(Line("いつもの顔で。"), "emotion", D("label", "card")));
+                    yield return Until(() => bp.Busy && bp.Text == "いつもの顔で。", 10f);
+                    yield return Wait(0.3f);
+                    var ofs = cfOpp.fileStatus;
+                    cfOppFace = ofs.eyebrowPtn == 2 && ofs.eyesPtn == 3 && ofs.mouthPtn == 4;
+                    bp.Advance(true);
+                    yield return Wait(0.3f);
+                    var mine = st.CardCells;
+                    st.ApplyFaceOn(st.Heroine, "card");
+                    var hfs = st.Cha.fileStatus;
+                    cfHerFace = mine != null && hfs.eyebrowPtn == CellInt(mine[0]) && hfs.eyesPtn == CellInt(mine[1]) && hfs.mouthPtn == CellInt(mine[2])
+                                && !(hfs.eyebrowPtn == 2 && hfs.eyesPtn == 3 && hfs.mouthPtn == 4);
+                    cfWhy = string.Format("opponent {0}/{1}/{2} hers {3}/{4}/{5}", ofs.eyebrowPtn, ofs.eyesPtn, ofs.mouthPtn, hfs.eyebrowPtn, hfs.eyesPtn, hfs.mouthPtn);
+                }
+                Check("match: card on a body is that body's own card face - the opponent's (taken as its body was made) on it, hers on her (GPT's post-review of #63)",
+                      cfTaken && cfOppFace && cfHerFace, cfWhy);
+            }
             // the phases: Muse moves on to the negotiation; its limit (1 turn each here) moves on to sex by itself
             Send(With(Line("ルールを決めよう。"), "match_phase", "negotiation"));
             yield return Until(() => h.Match.Phase == "negotiation", 10f);

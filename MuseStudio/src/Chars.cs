@@ -153,6 +153,7 @@ namespace MuseStudio
             h.Stage.ReleaseMuse("character", false);                             // (her face held was the one before's - PR #46 §2)
             h.Stage.StopWalk(false);
             h.Presence.HerAt = "";                 // (the new character is with him)
+            h.Blocks.SpeakerChanging();            // (the line being said was the one before's: said no more - GPT's post-review of #60)
             h.Stage.Heroine.ChangeChara(path);
             h.Stage.TakeCardFace();                // (the new one's own face: her ordinary face from now)
             CardPath = path;

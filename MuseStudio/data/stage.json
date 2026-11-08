@@ -16,6 +16,7 @@
  "look": {"min_stage": 1, "max_distance": 5.0},
  "talk_climax": {"play": "aibu_00", "steps": [["Orgasm_Start", "once"], ["Orgasm_Loop", 3.0], ["Orgasm_A", 4.0]], "once_max_seconds": 8.0, "blend_seconds": 0.3, "face": "ecstasy"},
  "blush": {"from": 0.3, "max": 0.85, "rise_seconds": 30.0, "fall_seconds": 60.0},
+ "gaze_sway_degrees": 6.0,
  "grope": {"areas": ["chest", "crotch", "hips"], "play": "aibu_00"},
  "poll_interval": 1.0,
  "state_interval": 2.0
