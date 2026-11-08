@@ -6,7 +6,8 @@ being changed, nor to hide the bridge, the skills or the contract, which stay in
   python -B MuseStudio/tools/make_release.py --publish    (... and makes the GitHub release with gh: the owner's word first)
 
 What it makes, from the commit checked out (clean and pushed - the public source the DLLs are built from):
-- MuseStudio-dll-<tag>.zip: BepInEx/plugins/MuseStudio/ - MuseStudio.dll, MuseMaker.dll (the maker's part), MuseStudio.ico
+- MuseStudio-dll-<tag>.zip: BepInEx/plugins/MuseStudio/ - MuseStudio.dll, MuseMaker.dll (the maker's part), MuseStudio.ico (built
+  now into an empty folder: each one this build's, none left from before - the release refused otherwise)
   and musestudio_dll.json (the manifest: the source commit and its URL, the plugin's and the contract's versions, each
   file's SHA-256 and size, what it was built against - BepInEx, KKAPI, the .NET SDK's compiler);
 - MuseStudio-dll-<tag>.zip.sha256 (the zip's SHA-256);
@@ -22,8 +23,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -31,7 +34,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent                    # MuseStudio/
 REPO = ROOT.parent
 GAME = ROOT / "game"
-PLUGIN = GAME / "BepInEx" / "plugins" / "MuseStudio"
 OUTDIR = ROOT / "release"
 REPO_URL = "https://github.com/mizumori-bit/KK_MuseStudio_alpha"
 FILES = ("MuseStudio.dll", "MuseMaker.dll", "MuseStudio.ico")
@@ -105,6 +107,24 @@ def sdk_version() -> str | None:
         return r.stdout.strip() or None
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def build_fresh(out: Path, cmd: list[str] | None = None) -> str:
+    """this build's own outputs (GPT's post-review of #74: build.py leaves the maker's part out without game/Koikatu_Data
+    and still ends well - an older MuseMaker.dll beside it was packed as this commit's): built into an empty folder, each of
+    the files there afterwards - "" or why not"""
+    out.mkdir(parents=True, exist_ok=True)
+    for n in FILES:
+        if (out / n).exists():
+            (out / n).unlink()
+    r = subprocess.run(cmd or [sys.executable, "-B", str(HERE / "build.py"), "--out", str(out)], cwd=str(REPO))
+    if r.returncode != 0:
+        return "the build failed"
+    missing = [n for n in FILES if not (out / n).is_file()]
+    if missing:
+        return ("not built now: " + ", ".join(missing) + " (the maker's part needs game/Koikatu_Data, the icon "
+                "launcher/icons - tools/setup.py); nothing packed")
+    return ""
 
 
 def manifest(commit: str, files: dict[str, Path]) -> dict:
@@ -186,23 +206,24 @@ def main() -> int:
         sys.exit("release: the sources have changes not committed - the DLLs would not be this commit's:\n" + dirty)
     if not git("branch", "-r", "--contains", commit):
         sys.exit(f"release: {commit[:7]} is not pushed - its source would not be public")
-    # built now, from it
-    r = subprocess.run([sys.executable, "-B", str(HERE / "build.py")], cwd=str(REPO))
-    if r.returncode != 0:
-        sys.exit("release: the build failed")
-    files = {n: PLUGIN / n for n in FILES}
-    missing = [n for n, p in files.items() if not p.is_file()]
-    if missing:
-        sys.exit("release: not built: " + ", ".join(missing))
+    # built now, from it - into an empty folder of its own: what is packed is this build's (never one left from before)
+    built = Path(tempfile.mkdtemp(prefix="musestudio_release_"))
+    why = build_fresh(built)
+    if why:
+        shutil.rmtree(built, ignore_errors=True)
+        sys.exit("release: " + why)
+    files = {n: built / n for n in FILES}
     marks = private_marks()
     for n, p in files.items():
         hit = find_private(p.read_bytes(), marks)
         if hit:
+            shutil.rmtree(built, ignore_errors=True)
             sys.exit(f"release: {n} has this PC's own paths or names in it ({len(hit)}) - not packed")
     tag = f"v{plugin_version()}-{commit[:7]}"
     man = manifest(commit, files)
     out = Path(a.out)
     zp = pack(out, tag, files, man)
+    shutil.rmtree(built, ignore_errors=True)
     nt = out / "release_notes.md"
     nt.write_text(notes(tag, man, zp), encoding="utf-8")
     print(f"release: {zp} ({zp.stat().st_size} bytes)")

@@ -3,6 +3,8 @@ maker's part (MuseStudio/src/maker/*.cs: the creation's changes in the original'
 beside it, against the original's Koikatu_Data/Managed.
 
   python -B MuseStudio/tools/build.py
+  python -B MuseStudio/tools/build.py --out DIR     (the DLLs and the icon into DIR instead: tools/make_release.py builds
+                                                    into an empty folder, so that what it packs is this build's)
 
 The C# compiler of the installed .NET SDK (Roslyn's csc.dll through `dotnet`), C# 7.3, against the game's own assemblies
 (CharaStudio_Data/Managed: Unity 5.6's .NET 3.5 profile, -nostdlib), BepInEx and KKAPI from the launch folder. No NuGet,
@@ -10,6 +12,7 @@ nothing downloaded. Run tools/setup.py first. Standard library only.
 """
 from __future__ import annotations
 
+import argparse
 import glob
 import os
 import shutil
@@ -36,7 +39,14 @@ BEPINEX_REFUSES = ["=", "\n", "\t", "\\", '"', "'", "[", "]"]     # (BepInEx's C
 
 
 def main() -> int:
+    global OUT, MAKER_OUT
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default="", help="the folder the DLLs and the icon go into (default: the launch folder's plugin folder)")
+    a = ap.parse_args()
+    if a.out:
+        OUT = Path(a.out) / "MuseStudio.dll"
+        MAKER_OUT = OUT.parent / "MuseMaker.dll"
     managed = GAME / "CharaStudio_Data" / "Managed"
     if not managed.is_dir():
         sys.exit("build: run tools/setup.py first (no game/CharaStudio_Data)")

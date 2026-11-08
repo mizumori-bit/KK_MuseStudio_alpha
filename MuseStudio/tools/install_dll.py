@@ -11,14 +11,19 @@ It checks, before anything is written:
 - the manifest's source commit is this clone's (git rev-parse HEAD): the DLLs read this clone's MuseStudio/data and speak
   its contract, so a DLL of another commit may not fit them;
 - tools/setup.py has made the launch folder (game/BepInEx/plugins).
-Then the files go into game/BepInEx/plugins/MuseStudio/ (the folder's other files left as they are). Nothing is downloaded:
-the zip is the one you took from the release page. Standard library only.
+Then the files go into game/BepInEx/plugins/MuseStudio/ as one set (GPT's post-review of #74: a write failing half-way left
+the new and the old mixed): each new file written beside its place first (<name>.new) and read back; then each old one put
+aside (<name>.bak) and the new one moved in; any failure on the way puts every old one back and removes the new ones - the
+install refused with why, the old set as it was. An install cut off before (its .bak / .new left) is put back to its old set
+first. The folder's other files are left as they are. Nothing is downloaded: the zip is the one you took from the release
+page. Standard library only.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import zipfile
@@ -61,8 +66,81 @@ def read_release(zip_path: Path) -> tuple[dict, dict[str, bytes]]:
     return man, data
 
 
+# (the writes and the moves: the tests put failures in here)
+def _write(path: Path, data: bytes) -> None:
+    path.write_bytes(data)
+
+
+def _replace(src: Path, dst: Path) -> None:
+    os.replace(src, dst)
+
+
+def recover(dest: Path) -> list[str]:
+    """an install cut off before (a .bak beside its file): the old set back - each .bak over its file, the .new ones gone"""
+    back = []
+    for n in WANT:
+        bak, new = dest / (n + ".bak"), dest / (n + ".new")
+        if bak.exists():
+            os.replace(bak, dest / n)
+            back.append(n)
+        if new.exists():
+            new.unlink()
+    return back
+
+
+def _rollback(dest: Path, names: list[str], swapped: list[str]) -> None:
+    """every old one back (its .bak), a new one where there was none taken out, the .new ones gone"""
+    for n in names:
+        cur, bak, new = dest / n, dest / (n + ".bak"), dest / (n + ".new")
+        try:
+            if bak.exists():
+                os.replace(bak, cur)
+            elif n in swapped and cur.exists():
+                cur.unlink()
+        except OSError:
+            pass
+        try:
+            if new.exists():
+                new.unlink()
+        except OSError:
+            pass
+
+
+def put_in_place(dest: Path, files: dict[str, bytes]) -> str:
+    """the files into dest as one set: "" done, else why not - the set there before as it was"""
+    names = list(files)
+    try:
+        for n, b in files.items():
+            tmp = dest / (n + ".new")
+            _write(tmp, b)
+            if tmp.read_bytes() != b:
+                raise OSError(f"{n} was not written as it is")
+    except OSError as e:
+        _rollback(dest, names, [])
+        return f"could not write the new files ({e}) - the installed ones are as they were"
+    swapped: list[str] = []
+    try:
+        for n in names:
+            cur = dest / n
+            if cur.exists():
+                _replace(cur, dest / (n + ".bak"))
+            _replace(dest / (n + ".new"), cur)
+            swapped.append(n)
+    except OSError as e:
+        _rollback(dest, names, swapped)
+        return f"could not put the new files in place ({e}; is the game running?) - the installed ones are back as they were"
+    for n in names:
+        try:
+            bak = dest / (n + ".bak")
+            if bak.exists():
+                bak.unlink()
+        except OSError:
+            pass
+    return ""
+
+
 def install(zip_path: Path, any_source: bool = False, plugins: Path = PLUGINS, commit: str | None = None) -> str:
-    """put the release's plugin in place: "" done, else why not (nothing written)"""
+    """put the release's plugin in place: "" done, else why not (the set there before left as it was)"""
     try:
         man, data = read_release(zip_path)
     except (OSError, ValueError, zipfile.BadZipFile, json.JSONDecodeError) as e:
@@ -76,10 +154,15 @@ def install(zip_path: Path, any_source: bool = False, plugins: Path = PLUGINS, c
         return "no launch folder - run python -B MuseStudio/tools/setup.py first"
     dest = plugins / "MuseStudio"
     dest.mkdir(parents=True, exist_ok=True)
-    for n, b in data.items():
-        (dest / n).write_bytes(b)
-    (dest / MANIFEST).write_text(json.dumps(man, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return ""
+    try:
+        back = recover(dest)
+    except OSError as e:
+        return f"an install cut off before could not be put back ({e}) - nothing changed; see {dest}"
+    if back:
+        print("install: an install cut off before - its old files put back: " + ", ".join(back))
+    files = dict(data)
+    files[MANIFEST] = (json.dumps(man, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    return put_in_place(dest, files)
 
 
 def main() -> int:

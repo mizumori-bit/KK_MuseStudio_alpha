@@ -72,6 +72,83 @@ class Release(unittest.TestCase):
     def test_no_launch_folder(self):
         self.assertIn("setup.py", install_dll.install(self.zip, plugins=self.tmp / "nowhere", commit=COMMIT))
 
+    # (GPT's post-review of #74) an install already there: a write or a move failing half-way leaves it whole
+    def put_old(self) -> dict[str, bytes]:
+        dest = self.plugins / "MuseStudio"
+        dest.mkdir(parents=True)
+        old = {n: b"old " + n.encode() for n in install_dll.WANT}
+        for n, b in old.items():
+            (dest / n).write_bytes(b)
+        return old
+
+    def assert_old(self, old: dict[str, bytes]):
+        dest = self.plugins / "MuseStudio"
+        for n, b in old.items():
+            self.assertEqual((dest / n).read_bytes(), b, n)
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(old))      # (no .new, no .bak left)
+
+    def test_a_write_failing_half_way_leaves_the_old_set(self):
+        old = self.put_old()
+        real, calls = install_dll._write, []
+
+        def failing(path, data):
+            calls.append(path.name)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            real(path, data)
+        install_dll._write = failing
+        try:
+            why = install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT)
+        finally:
+            install_dll._write = real
+        self.assertIn("disk full", why)
+        self.assert_old(old)
+
+    def test_a_move_failing_half_way_puts_the_old_set_back(self):
+        old = self.put_old()
+        real, calls = install_dll._replace, []
+
+        def failing(src, dst):
+            calls.append(src.name)
+            if len(calls) == 3:                 # (the second file's old one aside: refused, as a file in use)
+                raise OSError("in use")
+            real(src, dst)
+        install_dll._replace = failing
+        try:
+            why = install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT)
+        finally:
+            install_dll._replace = real
+        self.assertIn("in use", why)
+        self.assert_old(old)
+
+    def test_an_install_cut_off_before_is_put_back_then_done(self):
+        old = self.put_old()
+        dest = self.plugins / "MuseStudio"
+        # (cut off mid-way: the first file swapped - its old one aside as .bak, the new in - the second's .new written)
+        (dest / "MuseStudio.dll.bak").write_bytes(old["MuseStudio.dll"])
+        (dest / "MuseStudio.dll").write_bytes(b"half new")
+        (dest / "MuseMaker.dll.new").write_bytes(b"half new")
+        self.assertEqual(install_dll.recover(dest), ["MuseStudio.dll"])
+        self.assert_old(old)
+        self.assertEqual(install_dll.install(self.zip, plugins=self.plugins, commit=COMMIT), "")
+        for n, p in self.files.items():
+            self.assertEqual((dest / n).read_bytes(), p.read_bytes())
+
+    # (GPT's post-review of #74) only what this build made is packed: one not made now (an older one left there) refuses
+    def fake_build(self, out: Path, made: tuple[str, ...]) -> list[str]:
+        code = "import sys, pathlib; [(pathlib.Path(sys.argv[1]) / n).write_bytes(b'new ' + n.encode()) for n in sys.argv[2:]]"
+        return [sys.executable, "-c", code, str(out), *made]
+
+    def test_a_dll_not_built_now_is_not_packed(self):
+        out = self.tmp / "build_out"
+        out.mkdir()
+        (out / "MuseMaker.dll").write_bytes(b"old maker from before")
+        why = make_release.build_fresh(out, self.fake_build(out, ("MuseStudio.dll", "MuseStudio.ico")))
+        self.assertIn("MuseMaker.dll", why)
+        self.assertFalse((out / "MuseMaker.dll").exists())
+        self.assertEqual(make_release.build_fresh(out, self.fake_build(out, make_release.FILES)), "")
+        self.assertEqual((out / "MuseMaker.dll").read_bytes(), b"new MuseMaker.dll")
+
     def test_this_pcs_paths_are_found_in_either_encoding(self):
         marks = ["E:\\Some\\Repo", "someone"]
         self.assertEqual(make_release.find_private(b"..e:/some/repo/x..", marks), ["E:\\Some\\Repo"])
