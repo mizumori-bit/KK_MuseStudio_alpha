@@ -131,7 +131,10 @@ RATE_LIMITS = {"muse": [20, 100], "app": [100, 400], "all": [120, 500], "anon": 
 APP_SEEN_SECONDS = 5.0         # the app polls /api/packages/next every second: "connected" if it did within this
 STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "emotion", "face", "camera", "package", "gauge", "play", "mood",
                 "beat", "presence", "belief", "urges", "outing", "her_location", "relationship", "clothes", "app_name", "match",
-                "settings", "play_serial", "items")      # (the contract's 7.4: test_state_fields.py holds them to it)
+                "settings", "play_serial", "items", "contract")      # (the contract's 7.4: test_state_fields.py holds them to it)
+# (#70 adopted, 5) the contract's version this bridge speaks (MUSE_GUIDE.md's: test_contract_quick.py holds them together);
+# the app's own is in its state (contract)
+CONTRACT = "1.38"
 SPEAKERS = ("self", "opponent")        # package.speaker (the match: the opponent's package, forwarded by the local Muse)
 MATCH_PHASES = ("intro", "negotiation", "sex", "end")
 MATCH_SIDES = ("host", "guest")
@@ -285,6 +288,9 @@ def validate_package(pkg) -> list[str]:
     for key in ("launch", "character"):
         if pkg.get(key) is not None and not isinstance(pkg[key], str):
             errors.append(f"{key} must be a string or null")
+    cv = pkg.get("contract")
+    if cv is not None and (not isinstance(cv, str) or not re.fullmatch(r"\d{1,3}\.\d{1,4}", cv)):
+        errors.append("contract must be a version string like \"1.38\" or null")
     pid = pkg.get("id")
     if pid is not None and (not isinstance(pid, str) or not 1 <= len(pid) <= 200):
         errors.append("id must be a string of 1-200 characters or null")
@@ -1580,7 +1586,7 @@ def make_handler(state: State):
                     launch = dict(state.launch)
                     frozen = state.packages_ready_locked()
                 marks = state.feed_marks()
-                return self._json(200, {"ok": True, "irodori": state.irodori.health(), "voice": state.irodori.enabled,
+                return self._json(200, {"ok": True, "contract": CONTRACT, "irodori": state.irodori.health(), "voice": state.irodori.enabled,
                                         "queue": len(state.packages), "packages_unavailable": frozen or None,
                                         "events": marks["pending"], "app": time.time() - state.app_seen < APP_SEEN_SECONDS,
                                         "launch": launch, "event_feed": marks})

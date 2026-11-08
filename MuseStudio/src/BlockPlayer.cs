@@ -272,6 +272,28 @@ namespace MuseStudio
 
         public void EnqueueForCheck(Dictionary<string, object> pkg) { pending.Enqueue(pkg); }
 
+        // (#70 adopted, 5) the fields this app knows (MUSE_GUIDE 5.1, 5.2, 8): another one in a package or a block is told -
+        // block_refused, reason unknown_field - not dropped unsaid; the known ones are done as ever (a package of a newer
+        // contract too). The bridge's own (_...) are not Muse's; a replay's and the opponent's packages are not Muse's to hear of
+        static readonly HashSet<string> PackageFields = new HashSet<string> { "session", "turn", "situation", "blocks", "choices", "beat", "id",
+            "launch", "character", "settings", "relationship", "monologue", "match", "speaker", "clothes_now", "contract" };
+        static readonly HashSet<string> BlockFields = new HashSet<string> { "type", "text", "emotion", "scene", "camera", "voice", "se", "location",
+            "play", "mood", "action", "anim", "belief", "coordinate", "item", "clothes", "pose", "declare", "match_phase" };
+        public int UnknownFieldsForCheck;
+
+        void TellUnknown(Dictionary<string, object> d, HashSet<string> known, string where, int block)
+        {
+            if (d == null || !Acks || Speaker == "opponent") return;
+            foreach (var k in d.Keys)
+            {
+                if (k.StartsWith("_") || known.Contains(k)) continue;
+                UnknownFieldsForCheck++;
+                h.Bridge.Event("block_refused", new Dictionary<string, object> { { "field", k }, { "value", null }, { "reason", "unknown_field" },
+                    { "available", new List<object>() }, { "in", where }, { "block", block >= 0 ? (object)block : null },
+                    { "contract", Json.Str(Pkg, "contract", null) }, { "app_contract", MuseStudioPlugin.Contract } });
+            }
+        }
+
         void Begin(Dictionary<string, object> pkg)
         {
             // (from here its operations may apply: never again) - with its blocks' count (#70 adopted, 1: each block shown is told,
@@ -297,6 +319,7 @@ namespace MuseStudio
             h.Match.Played(pkg, Speaker);
             if (Speaker == "opponent") h.Match.OpponentClothes(Json.Obj(pkg, "clothes_now"), true);     // (its look as it sent this)
             Pkg = pkg;
+            TellUnknown(pkg, PackageFields, "package", -1);
             Blocks = Json.Arr(pkg, "blocks") ?? new List<object>();
             Index = -1;
             ownSerial = 0;
@@ -317,6 +340,7 @@ namespace MuseStudio
         IEnumerator Show(Dictionary<string, object> b)
         {
             if (b == null) yield break;
+            TellUnknown(b, BlockFields, "block", Index);
             string loc = Json.Str(b, "location", null);
             if (!string.IsNullOrEmpty(loc) && h.Places != null) loc = h.Places.KeyOf(loc) ?? loc;      // (named by its id: its key - PR #46 §4.1)
             bool opp = Speaker == "opponent";

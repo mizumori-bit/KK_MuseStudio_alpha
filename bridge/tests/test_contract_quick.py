@@ -31,6 +31,20 @@ def guide_sections(text: str) -> set[str]:
     return found
 
 
+class Versions(unittest.TestCase):
+    """(#70 adopted, 5) the bridge and the app name the contract's version they speak: the same as the contract's"""
+
+    def test_the_bridge_and_the_app_speak_the_contracts_version(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "bridge"))
+        import bridge  # noqa: E402
+        version = guide_version(GUIDE.read_text(encoding="utf-8"))
+        self.assertEqual(bridge.CONTRACT, version)
+        m = re.search(r'public const string Contract = "(\d+\.\d+)";', (ROOT / "MuseStudio" / "src" / "Plugin.cs").read_text(encoding="utf-8"))
+        self.assertTrue(m)
+        self.assertEqual(m.group(1), version)
+
+
 class QuickSheets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

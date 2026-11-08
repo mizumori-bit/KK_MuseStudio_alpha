@@ -1645,6 +1645,32 @@ namespace MuseStudio
             yield return Wait(1f);
             var locSt = Json.Obj(Json.Parse(Http("GET", "/api/state", null)), "location");
             Check("state: the location with its summary and tags", Json.Str(locSt, "summary", "").Length > 0 && Json.Arr(locSt, "tags") != null && Json.Arr(locSt, "tags").Count > 0, Json.Write(locSt));
+            // (#70 adopted, 5) a field the app does not know - in the package, in a block: told (block_refused unknown_field,
+            // where and which block, the package's contract and the app's), not dropped unsaid; the rest done as ever - a
+            // package of a newer contract too
+            {
+                bp.Advance(true);
+                yield return Until(() => !bp.Busy, 10f);
+                int uf0 = EventCount("block_refused", "reason", "unknown_field"), ufFor0 = bp.UnknownFieldsForCheck;
+                SendPkg(D("launch", Launch.Id, "character", h.CharacterId(), "contract", "9.99", "future_thing", 1),
+                        With(With(Line("知らない欄があります。"), "sparkle", D("on", true)), "emotion", D("label", "gentle")));
+                yield return Until(() => bp.Busy && bp.Text == "知らない欄があります。", 10f);
+                yield return Wait(1.0f);
+                var ufPkg = AllEvents().FindLast(e => Json.Str(e, "type") == "block_refused" && Json.Str(e, "field") == "future_thing");
+                var ufBlk = AllEvents().FindLast(e => Json.Str(e, "type") == "block_refused" && Json.Str(e, "field") == "sparkle");
+                bool ufTold = EventCount("block_refused", "reason", "unknown_field") == uf0 + 2 && bp.UnknownFieldsForCheck == ufFor0 + 2
+                              && Json.Str(ufPkg, "in") == "package" && Json.Str(ufBlk, "in") == "block" && Json.Num(ufBlk, "block", -1) == 0
+                              && Json.Str(ufPkg, "contract") == "9.99" && Json.Str(ufPkg, "app_contract") == MuseStudioPlugin.Contract;
+                bool ufDone = st.Face == "gentle";
+                var ufState = Json.Parse(Http("GET", "/api/state", null)) as Dictionary<string, object>;
+                var ufHealth = Json.Parse(Http("GET", "/health", null)) as Dictionary<string, object>;
+                bool ufVersions = Json.Str(ufState, "contract") == MuseStudioPlugin.Contract && Json.Str(ufHealth, "contract") == MuseStudioPlugin.Contract;
+                Check("block: a field the app does not know is told (block_refused unknown_field: in package / block, the block, both contracts), the rest done; the app's and the bridge's contract shown (#70 adopted, 5)",
+                      ufTold && ufDone && ufVersions, Json.Write(ufPkg) + " / " + Json.Write(ufBlk) + " face " + st.Face + " versions " + ufVersions);
+                bp.Advance(true);
+                yield return Until(() => !bp.Busy, 10f);
+                st.ReleaseMuse("check");
+            }
 
             // her climax in the talk (Muse's request of 2026-11-05): anim climax plays the standing caress's climax motion with the
             // climax face, the neck by the motion; a scene sent meanwhile waits for its end, then plays; nothing counted, the
@@ -4816,6 +4842,11 @@ namespace MuseStudio
             BustAt("the end");
             Check("bust: both breasts sway at the start, after the talk climax, after the aibu items and at the end (their dynamic bones on)",
                   bustLog.TrueForAll(b => b.EndsWith("L on R on")), string.Join("; ", bustLog.ToArray()));
+            // (#70 adopted, 5) the checks' own packages use only the fields the app knows: the only unknown_field refusals of the
+            // whole run are the two of their own check - a field the app reads but left out of its list would show here
+            var ufAll = AllEvents().FindAll(e => Json.Str(e, "type") == "block_refused" && Json.Str(e, "reason") == "unknown_field").ConvertAll(e => Json.Str(e, "field"));
+            Check("block: no field the app reads is taken for unknown - the whole run's unknown_field refusals are only the test's own (future_thing, sparkle; the feed may have dropped them since) (#70 adopted, 5)",
+                  ufAll.TrueForAll(f => f == "future_thing" || f == "sparkle"), string.Join(",", ufAll.ToArray()));
 
             lines.AppendLine(string.Format("CHECK SUMMARY pass={0} fail={1}", pass, fail));
             Flush();
