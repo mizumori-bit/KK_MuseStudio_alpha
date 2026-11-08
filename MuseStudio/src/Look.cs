@@ -72,6 +72,7 @@ namespace MuseStudio
             var cfg = Json.Obj(st.Cfg, "look");
             if (st.ReactUntil >= 0f) { why = "reaction"; return false; }
             if (st.Climaxing) { why = "climax"; return false; }
+            if (st.DrinkLooksAway) { why = "drink"; return false; }      // (the sip: ahead by the motion, as the original - #79)
             if (!h.Presence.Together) { why = h.Presence.Hidden ? "unseen" : "apart"; return false; }
             if (!h.Presence.Perceived || h.Presence.BeliefAway) { why = "away"; return false; }
             int stage = h.Relationship.Stage((int)Json.Num(Json.Obj(h.Touch.Doc, "talk"), "stage", 2));

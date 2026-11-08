@@ -1374,20 +1374,24 @@ namespace MuseStudio
                 // 2026-11-08, she never drank); over, the bottle gone and her scene again
                 yield return Wait(0.4f);
                 var itAn = st.Cha.animBody;
-                bool itHold = st.PropShown == "p_o_koi_ei_petboto00" && st.PropParent == "k_f_handR_00" && st.PropMotionNow == "f_tachi_00_09"
-                              && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
-                string itHoldWhy = st.PropShown + " on " + st.PropParent + " motion " + st.PropMotionNow + " playing the hold " + itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
-                int itSips0 = st.PropSips;
+                bool itHold = st.PropShown == "p_o_koi_ei_petboto00" && st.PropParent == "k_f_handR_00" && st.PropMotionNow == "Drink3"
+                              && itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3") && !st.DrinkLooksAway;
+                string itHoldWhy = st.PropShown + " on " + st.PropParent + " motion " + st.PropMotionNow + " playing the hold " + itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3");
+                int itSips0 = st.PropSips, itLooks0 = st.DrinkLooks;
                 st.SipNowForCheck();
                 yield return Wait(0.8f);
-                bool itSip = st.PropSips == itSips0 + 1 && st.PropMotionNow == "f_tachi_00_10" && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_10");
-                itHoldWhy += " | sip " + (st.PropSips - itSips0) + " " + st.PropMotionNow + " playing " + itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_10");
+                // (#79) the sip as the original's: its state Drink3 0, her look ahead by the motion (the look table: no turning
+                // in the sip) - the eyes' pattern 0, the neck's 3
+                bool itSip = st.PropSips == itSips0 + 1 && st.PropMotionNow == "Drink3 0" && itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3 0")
+                             && st.DrinkLooksAway && h.Look.Why == "drink" && st.Cha.fileStatus.neckLookPtn == 3 && st.Cha.fileStatus.eyesLookPtn == 0 && st.DrinkLooks == itLooks0 + 1;
+                itHoldWhy += " | sip " + (st.PropSips - itSips0) + " " + st.PropMotionNow + " playing " + itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3 0")
+                             + " look " + h.Look.Why + " neck " + st.Cha.fileStatus.neckLookPtn + " eyes " + st.Cha.fileStatus.eyesLookPtn;
                 st.EndPropForCheck();
                 yield return Wait(0.6f);
-                bool itHoldOver = st.PropShown == "" && st.PropMotionNow == "" && !itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09")
-                                  && !itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_10");
-                Check("items: her drink held as the original holds one - its bottle on the right hand's item point, her body its standing drinking (held f_tachi_00_09, a sip f_tachi_00_10); over, the bottle gone and her scene again (the owner's note on #70, the user's of 2026-11-08)",
-                      itHold && itSip && itHoldOver, itHoldWhy + " over " + itHoldOver);
+                bool itHoldOver = st.PropShown == "" && st.PropMotionNow == "" && !itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3")
+                                  && !itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3 0") && !st.DrinkLooksAway && st.Cha.fileStatus.eyesLookPtn == 1;
+                Check("items: her drink held as the original holds one - its bottle on the right hand's item point, her body the original's standing drink (held Drink3, a sip Drink3 0, her look ahead by the motion through the sip as its look table has it); over, the bottle gone, her scene and her eyes at the user again (the owner's note on #70, the user's of 2026-11-08, #79)",
+                      itHold && itSip && itHoldOver, itHoldWhy + " over " + itHoldOver + " eyes " + st.Cha.fileStatus.eyesLookPtn);
                 // (the user's note of 2026-11-08: the cup went through her hand standing) a cup held as the original holds it -
                 // only seated, the wait points' Drink: her body stands still, her right arm (shoulder to fingers, the item point)
                 // the seated cup drink's (Studio's 椅子・机 飲む待機 / 飲む): the cup upright, its sip the arm's; over, the arm hers
@@ -1398,18 +1402,20 @@ namespace MuseStudio
                 yield return Wait(0.8f);
                 var cupObj = cupPoint != null && cupPoint.childCount > 0 ? cupPoint.GetChild(cupPoint.childCount - 1) : null;
                 float cupUp = cupObj != null ? Vector3.Dot(cupObj.up, Vector3.up) : -1f;
-                bool cupHeld = st.PropShown == "p_o_koi_ei_cup00" && st.PropArmBones > 20 && st.PropArmNow == "f_suwari_00_08_00"
-                               && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09") && cupUp > 0.8f;
+                bool cupHeld = st.PropShown == "p_o_koi_ei_cup00" && st.PropArmBones > 20 && st.PropArmNow == "Drink"
+                               && itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3") && cupUp > 0.8f;
                 string cupWhy = st.PropShown + " arm " + st.PropArmNow + " bones " + st.PropArmBones + " up " + cupUp.ToString("F2");
                 int cupSips0 = st.PropSips;
                 st.SipNowForCheck();
                 yield return Wait(1.0f);
-                bool cupSip = st.PropSips == cupSips0 + 1 && st.PropArmNow == "f_suwari_00_08_01" && itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
-                cupWhy += " | sip " + (st.PropSips - cupSips0) + " arm " + st.PropArmNow + " body held " + itAn.GetCurrentAnimatorStateInfo(0).IsName("f_tachi_00_09");
+                bool cupSip = st.PropSips == cupSips0 + 1 && st.PropArmNow == "Drink 0" && itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3")
+                              && st.DrinkLooksAway && h.Look.Why == "drink" && st.PropArmHead > 0.5f;
+                cupWhy += " | sip " + (st.PropSips - cupSips0) + " arm " + st.PropArmNow + " body held " + itAn.GetCurrentAnimatorStateInfo(0).IsName("Drink3")
+                          + " look " + h.Look.Why + " head " + st.PropArmHead.ToString("F2");
                 st.EndPropForCheck();
                 yield return Wait(0.6f);
                 bool cupOver = st.PropShown == "" && st.PropArmBones == 0 && cupPoint != null && (cupPoint.localPosition - cupPointWas).magnitude < 0.001f;
-                Check("items: a cup held as the original holds it - her body standing still, her right arm the seated cup drink's (f_suwari_00_08_00 held, upright; the sip f_suwari_00_08_01); over, her arm and the item point as they were (the user's note of 2026-11-08)",
+                Check("items: a cup held as the original holds it - her body standing still, her right arm the seated cup drink's (Drink held, upright; the sip Drink 0 with her neck and head, her look ahead); over, her arm and the item point as they were (the user's note of 2026-11-08, #79)",
                       cupHeld && cupSip && cupOver, cupWhy + " over " + cupOver);
                 h.Mood.FlowForCheck(0.3f);
                 yield return Wait(0.8f);
@@ -1598,6 +1604,10 @@ namespace MuseStudio
                 Check("items: the arousal's speed never takes an item past its grade's cap - x3, then x4 while it flows in (GPT's post-review of #65)", capKept,
                       string.Format("arousal {0:F3} cap {1:F2}", capAr, cap1));
                 // her drink's gaze (PR #46 §7): drunk, her eyes at a point drifting a little about the camera; sober, at it again
+                // (a drink still in her hand from the checks before over first: through its sip her eyes look ahead, as the
+                // original - #79)
+                st.EndPropForCheck();
+                yield return Wait(0.5f);
                 float gzIx0 = h.Mood.ValueForCheck("intoxication");
                 h.Mood.Values["intoxication"] = 0.85f;
                 yield return Wait(1.0f);
