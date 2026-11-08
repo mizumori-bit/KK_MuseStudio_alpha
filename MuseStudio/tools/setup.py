@@ -45,6 +45,10 @@ USERDATA_FILES = ("setup.xml", "config", "studio/option.xml", "MakerCameraPreset
 # uncensor gets the default body (not a random one: the list has odd bodies) and the SoS penis (the user's decision
 # 2026-11-02: SoS; the BetterPenetration build, as BetterPenetration runs here). The female genitals wait for the user's choice.
 CONFIG_OVERRIDES = {
+    # Autosave (KK_Plugins): its countdown and "Autosaving" text over the stage (the user's note of 2026-11-08: it breaks the
+    # scene; MuseStudio keeps no Studio scenes to save) - off in the launch folder; the plugin itself (and the user's own Studio)
+    # left as they are. The plugin also turns it off as it starts (MuseStudioPlugin.StudioAutosaveOff), for a folder made before
+    "com.deathweasel.bepinex.autosave.cfg": {"Autosave Enabled": "false"},
     "com.deathweasel.bepinex.uncensorselector.cfg": {
         "Default Male Body": "[Male] Default Body M", "Default Male Penis": "BP SoS", "Default Male Balls": "BP Balls",
         "Default Female Body": "[Female] Default Body F", "Default Female Penis": "BP SoS", "Default Female Balls": "BP Balls"},
