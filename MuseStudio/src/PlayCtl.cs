@@ -1726,7 +1726,7 @@ namespace MuseStudio
             var mb = MaleBody != null ? MaleBody.charInfo : null;
             if (mb == null) return;
             int want = Penetration.Off;
-            var row = Dan.Row(LastState, FemaleCha);
+            var row = Dan.Row(StateKey, FemaleCha);           // (the row the original's aim goes by too: one row for both)
             if (row != null)
             {
                 string m = row.strMotion ?? "", n = row.strLookAtNull ?? "";
@@ -1736,12 +1736,12 @@ namespace MuseStudio
                 if (goesIn && wayIn && moving) want = n == "k_f_ana_00" || n == "cf_j_ana" || receiverAnus ? Penetration.Anal : Penetration.Vaginal;
             }
             else if (Inserted) want = receiverAnus ? Penetration.Anal : Penetration.Vaginal;     // (no list: in while it is in)
-            // (the plugin's own target or running gone back - a reload of the body - taken again)
+            // (the plugin's own target or running gone back - a reload of the body, its controller stopped or not ready - taken again)
             bool drift = false;
             if (PenisAim >= 0 && Time.realtimeSinceStartup >= aimVerifyAt)
             {
                 aimVerifyAt = Time.realtimeSinceStartup + 0.5f;
-                drift = PenisAim > 0 ? Penetration.Get(mb) != PenisAim : Penetration.Running(mb);
+                drift = PenisAim > 0 ? Penetration.Get(mb) != PenisAim || !Penetration.Aiming(mb) : Penetration.Running(mb);
             }
             if ((want != PenisAim || drift) && Time.realtimeSinceStartup >= aimRetryAt)
             {
@@ -1750,7 +1750,7 @@ namespace MuseStudio
                     if (want == Penetration.Off && PenisAim > 0) Dan.PutBack();       // (its bend undone: the penis as the motion has it)
                     PenisAim = want;
                 }
-                else aimRetryAt = Time.realtimeSinceStartup + 0.25f;     // (its controller not ready yet)
+                else aimRetryAt = Time.realtimeSinceStartup + 0.25f;     // (its controller not ready yet, or a step not done)
             }
             Dan.Tick(PenisAim > 0, FemaleCha);
         }
@@ -1783,6 +1783,7 @@ namespace MuseStudio
             else
             {
                 if (aimWant != PenisAim && Time.realtimeSinceStartup < aimUntil && Penetration.Target(MaleBody != null ? MaleBody.charInfo : null, aimWant)) PenisAim = aimWant;
+                Dan.Row(StateKey, FemaleCha);                          // (the original's row: a mod's state too)
                 Dan.Tick(PenisAim != Penetration.Off, FemaleCha);      // (no BetterPenetration: the original's aim throughout)
             }
             Climax.Tick(dt);

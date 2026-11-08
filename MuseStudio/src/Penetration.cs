@@ -11,6 +11,8 @@ namespace MuseStudio
     //   An insertion is aimed per state as the original aims (PlayCtl.AimByState, Aim): its controller checks its auto target
     //   only once a second and keeps the last target when set off (the penis bent on to it) - Aim takes a target at once, and
     //   off takes the target away and stops the controller, the penis left to the motion and the original's aim (DanLook).
+    //   Each step tells whether it was done (GPT's review of #100): a member missing, a call failed, the controller not ready
+    //   or not running - false, and the play tries again.
     public static class Penetration
     {
         public const int Off = 0, Vaginal = 1, Anal = 2, Oral = 3;
@@ -29,7 +31,8 @@ namespace MuseStudio
 
         public static bool Available(ChaControl cha) { return Controller(cha) != null; }
 
-        // the auto target (Off / Vaginal / Anal / Oral); false: no plugin, or its controller not ready
+        // the auto target (Off / Vaginal / Anal / Oral); false: no plugin, or its controller not ready (its setters then do
+        // nothing; its getters: off, not running) - a target on also its controller running
         public static bool Target(ChaControl cha, int target)
         {
             var c = Controller(cha);
@@ -42,7 +45,8 @@ namespace MuseStudio
                 var at = t.GetProperty("DanAutoTarget");
                 if (at == null) return false;
                 at.SetValue(c, target, null);
-                return (int)at.GetValue(c, null) == target;
+                if ((int)at.GetValue(c, null) != target) return false;
+                return target == Off || en == null || (bool)en.GetValue(c, null);
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: BetterPenetration: " + e.Message); return false; }
         }
@@ -63,31 +67,43 @@ namespace MuseStudio
             return nodePlugin;
         }
 
-        static void Call(Component c, string method)
+        static bool warned;
+        static void Missing(string what)
         {
-            var plugin = NodePlugin();
-            var m = c.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (m != null && plugin != null) m.Invoke(c, new[] { plugin });
+            if (!warned) MuseStudioPlugin.Log.LogWarning("MuseStudio: BetterPenetration: no " + what + " (the insertion's penis aim waits)");
+            warned = true;
         }
 
-        // a target taken at once (not at the controller's next check), or off: the target taken away and the controller
-        // stopped; false: no plugin, or its controller not ready (try again)
+        // one of the controller's methods with the plugin's node constraints; false: either missing (or the call failed)
+        static bool Call(Component c, string method)
+        {
+            var plugin = NodePlugin();
+            if (plugin == null) { Missing("nodeConstraintPlugin"); return false; }
+            var m = c.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null) { Missing(method); return false; }
+            m.Invoke(c, new[] { plugin });
+            return true;
+        }
+
+        // a target taken at once (not at the controller's next check), the controller ready and running; or off: the target
+        // taken away and the controller stopped. false: no plugin, a member missing, a call failed, or the controller not
+        // ready (try again)
         public static bool Aim(ChaControl cha, int target)
         {
             var c = Controller(cha);
             if (c == null) return false;
             try
             {
+                var en = c.GetType().GetProperty("Enabled");
+                if (en == null || !en.CanWrite) { Missing("Enabled"); return false; }
                 if (target != Off)
                 {
-                    if (!Target(cha, target)) return false;          // (on, its controller running)
-                    Call(c, "CheckAutoTarget");
-                    return true;
+                    if (!Target(cha, target)) return false;          // (the target, its controller ready and running)
+                    return Call(c, "CheckAutoTarget");
                 }
                 if (!Target(cha, Off)) return false;
-                Call(c, "RemoveDanConstraints");
-                var en = c.GetType().GetProperty("Enabled");
-                if (en != null && en.CanWrite) en.SetValue(c, false, null);
+                if (!Call(c, "RemoveDanConstraints")) return false;
+                en.SetValue(c, false, null);
                 return !((MonoBehaviour)c).enabled;
             }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: BetterPenetration: " + e.Message); return false; }
@@ -109,6 +125,14 @@ namespace MuseStudio
         }
 
         public static bool Running(ChaControl cha) { var c = Controller(cha) as MonoBehaviour; return c != null && c.enabled; }
+
+        // the controller aiming: ready and running (its own Enabled: its agent and targets there, the component on)
+        public static bool Aiming(ChaControl cha)
+        {
+            var c = Controller(cha);
+            var en = c != null ? c.GetType().GetProperty("Enabled") : null;
+            try { return en != null && (bool)en.GetValue(c, null); } catch (Exception) { return false; }
+        }
 
         public static int Get(ChaControl cha)
         {

@@ -1008,7 +1008,7 @@ namespace MuseStudio
                 }
             foreach (var extra in new[] { "cf_j_kokan", "cf_J_Ana", "cf_j_ana", "cf_d_ana", "cf_d_kokan" }) if (!names.Contains(extra)) names.Add(extra);
             var sb = new StringBuilder();
-            sb.AppendFormat("{0} {1}: state {2} anim {3} BP {4} run {5} dan {6} in {7} | want {8}", tag, when, state, AnimName(recv), Penetration.Get(giver), Penetration.Running(giver), pc.Dan.On, pc.Inserted, want.Length > 0 ? want : "-");
+            sb.AppendFormat("{0} {1}: state {2} anim {3} BP {4} run {5} aiming {6} dan {7} row {8} in {9} | want {10}", tag, when, state, AnimName(recv), Penetration.Get(giver), Penetration.Running(giver), Penetration.Aiming(giver), pc.Dan.On, pc.Dan.Held.Length > 0 ? pc.Dan.Held : "-", pc.Inserted, want.Length > 0 ? want : "-");
             foreach (var n in names)
             {
                 var tr = HIK.Find(recv.objBodyBone.transform, n);

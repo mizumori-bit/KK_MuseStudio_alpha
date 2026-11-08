@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace MuseStudio
@@ -10,6 +11,8 @@ namespace MuseStudio
     //   An insertion (the user's notes of 2026-11-08): the list's row for each state decides who aims (PlayCtl.AimByState) -
     //   BetterPenetration in the penetrating states, this the rest (its row's point, or none: the penis as the motion has it,
     //   the penis's own shape back first: Snap / PutBack). A body receiving its anus: the rows' crotch point is its anus.
+    //   One row for both (GPT's review of #100): the row picked (Row) is the row the original's component aims by - set on it
+    //   (its own SetInfo) where it would not pick it itself (a mod's motion: its states by other names).
     public class DanLook
     {
         Lookat_dan dan;
@@ -19,7 +22,8 @@ namespace MuseStudio
 
         static readonly string[] Outside = { "M_OUT_Start", "M_OUT_Loop", "OUT_A", "OUT_Start", "OUT_Loop", "A_M_OUT_Start", "A_M_OUT_Loop", "A_M_OUT_A", "A_OUT_A" };
 
-        Lookat_dan.MotionLookAtList last;
+        static readonly MethodInfo SetInfoM = HarmonyLib.AccessTools.Method(typeof(Lookat_dan), "SetInfo");
+        static bool warned;
         readonly List<Transform> chain = new List<Transform>();
         readonly List<Vector3> chainPos = new List<Vector3>(), chainScale = new List<Vector3>();
         readonly List<Quaternion> chainRot = new List<Quaternion>();
@@ -27,6 +31,7 @@ namespace MuseStudio
 
         public bool Active { get { return dan != null; } }
         public bool On { get { return dan != null && dan.enabled; } }
+        public string Held { get { return dan != null ? dan.strPlayMotion : ""; } }      // (checks: the row the component aims by)
 
         public void Start(ChaControl male, ChaControl female, HSceneProc.AnimationListInfo info, bool anus = false)
         {
@@ -58,13 +63,17 @@ namespace MuseStudio
             {
                 AnusPoint = HIK.Find(female.objBodyBone.transform, "k_f_ana_00") != null ? "k_f_ana_00" : "cf_j_ana";
                 foreach (var l in dan.lstLookAt) if (l.strLookAtNull == "k_f_kokan_00") l.strLookAtNull = AnusPoint;
-                dan.strPlayMotion = "";                                  // (its row picked again with the point)
             }
+            // no row till one is found (LoadList set its first row, its point taken before the anus took the crotch's place):
+            // the penis as the motion has it, as the play's own aim has no row then (PlayCtl.AimByState)
+            Apply(new Lookat_dan.MotionLookAtList { strMotion = "", strLookAtNull = "" });
             Why = "";
         }
 
-        // the list's row for the state now: the female part's (as Lookat_dan picks it), else the state the play asked for (a
-        // motion of a mod whose states go by other names); none: the last found
+        // the list's row for the state now, and the row the original's aim goes by: the female part's state (as Lookat_dan
+        // picks it), else the state the play asked for by the list's name of it (asked: PlayCtl.StateKey - an anal play's A_;
+        // a motion of a mod whose states go by other names: set on the component, which would not pick it); else the row the
+        // component holds (the last found); null: none yet (the penis as the motion has it)
         public Lookat_dan.MotionLookAtList Row(string asked, ChaControl female)
         {
             if (dan == null) return null;
@@ -75,8 +84,25 @@ namespace MuseStudio
                 hit = dan.lstLookAt.Find(l => st.IsName(l.strMotion));
             }
             if (hit == null && !string.IsNullOrEmpty(asked)) hit = dan.lstLookAt.Find(l => l.strMotion == asked);
-            if (hit != null) last = hit;
-            return last;
+            if (hit == null && !string.IsNullOrEmpty(dan.strPlayMotion)) hit = dan.lstLookAt.Find(l => l.strMotion == dan.strPlayMotion);
+            if (hit != null && dan.strPlayMotion != hit.strMotion) Apply(hit);
+            return hit;
+        }
+
+        // the row set on the original's component (Lookat_dan.SetInfo: its point, the tip stuck or not, its way of aiming)
+        void Apply(Lookat_dan.MotionLookAtList row)
+        {
+            if (dan == null) return;
+            try
+            {
+                if (SetInfoM == null) throw new System.MissingMethodException("Lookat_dan.SetInfo");
+                SetInfoM.Invoke(dan, new object[] { row });
+            }
+            catch (System.Exception e)
+            {
+                if (!warned) MuseStudioPlugin.Log.LogWarning("MuseStudio: the original's penis aim: " + e.Message);
+                warned = true;
+            }
         }
 
         // the penis's own shape at the play's start (its bones as they are before anything aims them), put back when
@@ -135,7 +161,6 @@ namespace MuseStudio
             }
             dan = null;
             danBase = null;
-            last = null;
             AnusPoint = "";
         }
     }
