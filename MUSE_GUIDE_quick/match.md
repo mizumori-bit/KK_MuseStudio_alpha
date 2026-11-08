@@ -18,6 +18,6 @@
 
 ## 結果の確認先（出来事、第 7.3・8 章）
 
-- `match_requested`（画面の入口）・`match_started`・`match_phase`・`match_climax`・`match_result`・`match_left`・`match_closed`
+- `match_requested`（画面の入口：「コンテンツ…」→「通信対戦」）・`match_started`・`match_phase`・`match_climax`・`match_result`・`match_left`・`match_closed`
 - 相手と中継：`match_package`・`match_opponent`・`match_conditions`・`match_creation`・`match_rejected`・`match_peer_seen`・`match_peer_silent`・`match_peer_back`・`match_ping`
 - `play_started`・`play_ended`・`block_refused`
