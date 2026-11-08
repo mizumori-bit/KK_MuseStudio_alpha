@@ -257,6 +257,9 @@ namespace MuseStudio
         {
             string req = Json.Str(it, "request", "");
             if (req.Length == 0) return "no_request";
+            // the ledger and her record read first (GPT's re-review of #71): not readable yet - refused, nothing changed; the
+            // same request may come again once it reads
+            if (!h.Mood.EnsureRead()) return "save_failed";
             var done = Json.Arr(doc, "requests");
             if (done == null) { done = new List<object>(); doc["requests"] = done; }
             if (done.Contains(req)) return "";                  // (a resend: done once)

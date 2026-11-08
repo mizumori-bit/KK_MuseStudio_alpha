@@ -54,10 +54,14 @@ namespace MuseStudio
         bool appRead;                       // false: the file was not readable yet - its record is read before anything is written
         bool charRead = true;               // false: her record was not readable when she was chosen - read before her save
 
+        bool closedTaken;                   // (the closed time before this launch: taken once, at its first read)
+
         void TakeApp(Dictionary<string, object> all)
         {
             appRead = true;
             if (h.Items != null) h.Items.Import(Json.Obj(all, ItemsKey));     // (the items' ledger: in the same file - PR #46 §7)
+            if (closedTaken) return;
+            closedTaken = true;                 // (at the first read, whatever the file has: none - not known, -1)
             var app = Json.Obj(all, AppKey);
             if (app == null || !Json.Has(app, "alive")) return;
             lastGap = Math.Max(0.0, (startedAt - Json.Num(app, "alive")) / 60.0);
@@ -109,8 +113,32 @@ namespace MuseStudio
         public bool HeldForCheck;          // (checks) the file is kept from being written
         bool told;
 
+        public bool FailReadsForCheck;     // (checks) the file cannot be read, as when another program holds it
+
+        // The file's records taken in now if they could not be read before - the app's (the items' ledger with it) and hers:
+        // true when both are in. An item's block is done on them, never on what a later read would put over it (GPT's re-review
+        // of #71: the file readable again, the first item's write read the ledger and her effects back over the change just
+        // made, and said done)
+        public bool EnsureRead()
+        {
+            if (appRead && charRead) return true;
+            var all = ReadAll();
+            if (all == null) return false;
+            if (!appRead) TakeApp(all);
+            if (!charRead)
+            {
+                charRead = true;
+                var mine = Json.Obj(all, charId);
+                if (mine != null) Apply(charId, mine);
+            }
+            return true;
+        }
+
+        internal void ForgetReadForCheck(bool app, bool hers) { if (app) appRead = false; if (hers && charId.Length > 0) charRead = false; }     // (checks)
+
         Dictionary<string, object> ReadAll()
         {
+            if (FailReadsForCheck) { Hold("could not be read (check)"); return null; }
             if (!File.Exists(savePath) && File.Exists(savePath + ".bak"))
             {
                 try { File.Move(savePath + ".bak", savePath); }       // (a save stopped between its moves: the old file back)

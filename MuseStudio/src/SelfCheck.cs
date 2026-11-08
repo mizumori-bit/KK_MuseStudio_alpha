@@ -331,6 +331,30 @@ namespace MuseStudio
             return last;
         }
 
+        // (checks) her card face as her card file has it (read with its status)
+        static ChaFileStatus CardStatus(string card)
+        {
+            if (string.IsNullOrEmpty(card) || !File.Exists(card)) return null;
+            var cf = new ChaFileControl();
+            return cf.LoadCharaFile(card, 255, true, false) ? cf.status : null;
+        }
+
+        static bool CardFaceIsTheCards(Stage st, string card)
+        {
+            var s = CardStatus(card);
+            var c = st.CardCells;
+            return s != null && c != null && st.CardFaceFrom == "card" && CellInt(c[0]) == s.eyebrowPtn && CellInt(c[1]) == s.eyesPtn && CellInt(c[2]) == s.mouthPtn
+                   && Convert.ToBoolean(c[10]) == s.eyesBlink && Mathf.Abs(Convert.ToSingle(c[5]) - 1f) < 1e-4f;      // (the mouth's reach: the voice's, 1)
+        }
+
+        static string CardFaceWhy(Stage st, string card)
+        {
+            var s = CardStatus(card);
+            var c = st.CardCells;
+            return string.Format("from {0} cells {1} card {2}", st.CardFaceFrom, c != null ? c[0] + "/" + c[1] + "/" + c[2] + " blink " + c[10] : "none",
+                                 s != null ? s.eyebrowPtn + "/" + s.eyesPtn + "/" + s.mouthPtn + " blink " + s.eyesBlink : "unread");
+        }
+
         List<string> EventTypes()
         {
             var o = new List<string>();
@@ -1475,6 +1499,49 @@ namespace MuseStudio
                               && (int)Json.Num(Json.Obj(txFile, "shelf"), "coffee", -1) == txCoffee0 - 1;
                 Check("items: a block's item in one commit - a write that fails puts all back (save_failed, nothing told); the same request then done once, the file with the stock and the request together (GPT's post-review of #65)",
                       txBack && txOnce, string.Format("back {0} once {1} (coffee {2} -> {3}, used +{4})", txBack, txOnce, txCoffee0, it.Count("shelf", "coffee"), EventCount("item_used") - txUsed0));
+                // (GPT's re-review of #71) the file not readable at the start / at her choice, then readable: an item's block
+                // while it cannot be read refused (save_failed, nothing changed, nothing told); once it reads, the ledger and her
+                // record taken in first - the same request done once, her effects to come kept
+                bool ldApp = false, ldHers = false;
+                string ldWhy = "";
+                for (int ldRound = 0; ldRound < 2; ldRound++)
+                {
+                    bool ldIsApp = ldRound == 0;
+                    it.Buy("coffee");
+                    it.MoveUser("coffee", true);
+                    h.Mood.Persist();
+                    int ldC0 = it.Count("shelf", "coffee"), ldU0 = EventCount("item_used"), ldF0 = Refusals("item", "save_failed");
+                    string ldReq = ldIsApp ? "chk-item-unread-app" : "chk-item-unread-hers";
+                    h.Mood.ForgetReadForCheck(ldIsApp, !ldIsApp);
+                    h.Mood.FailReadsForCheck = true;
+                    Send(With(Line("読めないうちに。" + ldRound), "item", D("request", ldReq, "use", "coffee", "from", "shelf")));
+                    yield return Until(() => bp.Busy && bp.Text.StartsWith("読めないうちに。"), 10f);
+                    yield return Wait(0.4f);
+                    bp.Advance(true);
+                    yield return Wait(0.8f);
+                    bool ldRefused = it.Count("shelf", "coffee") == ldC0 && Refusals("item", "save_failed") == ldF0 + 1 && EventCount("item_used") == ldU0;
+                    h.Mood.FailReadsForCheck = false;
+                    h.Mood.ClearPendingForCheck();
+                    int ldP0 = h.Mood.PendingCountForCheck;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        Send(With(Line("読めてから。" + ldRound + k), "item", D("request", ldReq, "use", "coffee", "from", "shelf")));
+                        yield return Until(() => bp.Busy && bp.Text.StartsWith("読めてから。"), 10f);
+                        yield return Wait(0.4f);
+                        bp.Advance(true);
+                        yield return Wait(0.4f);
+                    }
+                    yield return Wait(0.8f);
+                    var ldFile = Json.Obj(Json.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(path), "moods.json"), Encoding.UTF8)), "_items");
+                    bool ldOnce = it.Count("shelf", "coffee") == ldC0 - 1 && EventCount("item_used") == ldU0 + 1 && h.Mood.PendingCountForCheck == ldP0 + 1
+                                && (Json.Arr(ldFile, "requests") ?? new List<object>()).Contains(ldReq) && (int)Json.Num(Json.Obj(ldFile, "shelf"), "coffee", -1) == ldC0 - 1;
+                    if (ldIsApp) ldApp = ldRefused && ldOnce; else ldHers = ldRefused && ldOnce;
+                    ldWhy += string.Format("{0}: refused {1} once {2} (coffee {3} -> {4}, used +{5}, pending {6} -> {7}) ", ldIsApp ? "at start" : "at her choice", ldRefused, ldOnce, ldC0,
+                                           it.Count("shelf", "coffee"), EventCount("item_used") - ldU0, ldP0, h.Mood.PendingCountForCheck);
+                    h.Mood.ClearPendingForCheck();
+                }
+                Check("items: the moods' file not readable (at the start / at her choice) - an item refused (save_failed, nothing changed); readable again, the ledger and her record read first: the same request done once, her effects kept (GPT's re-review of #71)",
+                      ldApp && ldHers, ldWhy);
                 // the cap with the arousal's speed (x3, then x4 while it flows in)
                 h.Mood.ClearPendingForCheck();
                 it.ClearDosesForCheck();
@@ -3743,6 +3810,8 @@ namespace MuseStudio
                   err + " " + st.Name + " pick '" + pickAfter + "'");
             Check("character: a line being said when she is switched is said no more - the new one's mouth not moved by it, the line shown whole (GPT's post-review of #60)",
                   swStopped, swWhy);
+            Check("character: the new one's card face is her card's own (read from the card with its status - Studio's switch keeps the face shown before)",
+                  CardFaceIsTheCards(st, h.Chars.CardPath), CardFaceWhy(st, h.Chars.CardPath));
             yield return Shot("13_switched.png");
             var hsw = Json.Obj(Json.Parse(Http("GET", "/health", null)), "launch");
             Check("launch: switching tells the bridge the new character (its pool follows)", Json.Str(Json.Obj(hsw, "character"), "id") == h.CharacterId()
@@ -4449,6 +4518,11 @@ namespace MuseStudio
             Check("replay (real click): リプレイを終える - back to her room, her own body and name again, the opponent gone; then Muse's waiting package",
                   !h.Match.Active && !h.Replay.Playing && st.Location == backRoom && st.Partner == null && st.Name == nameBefore && bp.Text == "リプレイの後で。",
                   endErr + " " + st.Location + " " + st.Name + " / " + nameBefore + " text " + bp.Text);
+            // (the user's sighting of 2026-11-08: after the replay at x4 her eyes stayed shut - her "card" face had been taken from
+            // the body as it was then, the climax's face: Studio's ChangeChara keeps the body's status) her card face read from
+            // her card itself again - its eyebrow, eyes, mouth and blink the card's
+            Check("replay: back in her own body, her card face is her card's own (read from the card with its status - not the face shown at the swap)",
+                  CardFaceIsTheCards(st, h.Chars.CardPath), CardFaceWhy(st, h.Chars.CardPath));
             bp.Advance(true);
             yield return Wait(0.3f);
             yield return RealInput.Click(Btn(mui, "リプレイ"));
