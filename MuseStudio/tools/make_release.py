@@ -180,6 +180,7 @@ def notes(tag: str, man: dict, zp: Path) -> str:
    ```
 
 4. あとは README の 3（データを作る）から先へ進みます（2 のビルドは要りません）。
+5. うまくいかないときは、導入診断で前提をまとめて確かめられます（読むだけ。鍵の値や場所は出しません）：`python -B MuseStudio/tools/doctor.py`。DLL の目録のコミットが手元と同じかも確かめます。
 
 ## 中身
 
