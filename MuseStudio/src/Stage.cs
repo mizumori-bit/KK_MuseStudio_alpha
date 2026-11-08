@@ -1292,61 +1292,20 @@ namespace MuseStudio
             if (Mathf.Abs(show - blushShown) > 0.004f) { Cha.ChangeHohoAkaRate(show); blushShown = show; }
         }
 
-        // Push Up (KK_Pushup: what flattens her nipples under a bra or top it is on for) written in the log when it changes,
-        // with the face's lines (the user's note of 2026-11-07: dressed, her nipples through her clothes now and then): the
-        // bra's and the top's on-and-in-effect, their data (enabled, flatten), the nipple's and the areola's depth (shapes 13
-        // and 11), the top's and the bra's states, the outfit slot
+        // Push Up kept to its own result (PushupKeeper.cs) - hers and the other body's (a match's opponent: a body of its own);
+        // what the user watches written in the log when it changes - each body's face parts, clothes, Push Up (Diag.cs)
         public readonly PushupKeeper Pushup = new PushupKeeper();
-        MonoBehaviour pushup;
-        ChaControl pushupOf;
-        float pushupNext;
-        string pushupLast = "";
-
-        void PushupTick()
-        {
-            if (Cha == null || Time.realtimeSinceStartup < pushupNext) return;
-            pushupNext = Time.realtimeSinceStartup + 1f;
-            if (!ReferenceEquals(pushupOf, Cha) || pushup == null)
-            {
-                pushupOf = Cha;
-                pushup = null;
-                foreach (var c in Cha.GetComponents<MonoBehaviour>()) if (c != null && c.GetType().FullName.IndexOf("Pushup", StringComparison.Ordinal) >= 0) pushup = c;
-            }
-            string s;
-            try
-            {
-                var bra = PushupMember(pushup, "CurrentBraData");
-                var top = PushupMember(pushup, "CurrentTopData");
-                var st = Cha.fileStatus.clothesState;
-                s = string.Format("bra on+enabled {0} (enable {1} flatten {2}) top on+enabled {3} (enable {4} flatten {5}) | nipple(13) {6:F2} areola(11) {7:F2} | top state {8} bra state {9} | outfit {10}",
-                    PushupMember(pushup, "BraIsOnAndEnabled"), PushupMember(bra, "EnablePushup"), PushupMember(bra, "FlattenNipples"),
-                    PushupMember(pushup, "TopIsOnAndEnabled"), PushupMember(top, "EnablePushup"), PushupMember(top, "FlattenNipples"),
-                    Cha.fileBody.shapeValueBody[13], Cha.fileBody.shapeValueBody[11], st.Length > 0 ? st[0] : -1, st.Length > 2 ? st[2] : -1, Cha.fileStatus.coordinateType);
-            }
-            catch (Exception e) { s = "not read (" + e.Message + ")"; }
-            if (pushup == null) s = "no Push Up on her";
-            if (s == pushupLast) return;
-            pushupLast = s;
-            MuseStudioPlugin.Log.LogInfo(string.Format("MuseStudio: pushup {0} at {1:F1} s", s, Time.realtimeSinceStartup));
-        }
-
-        static object PushupMember(object o, string name)
-        {
-            if (o == null) return "-";
-            const System.Reflection.BindingFlags F = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-            var pr = o.GetType().GetProperty(name, F);
-            if (pr != null && pr.GetIndexParameters().Length == 0) return pr.GetValue(o, null);
-            var f = o.GetType().GetField(name, F);
-            return f != null ? f.GetValue(o) : "-";
-        }
+        public readonly PushupKeeper PartnerPushup = new PushupKeeper { Who = "other body" };
+        readonly Diag diag = new Diag();
 
         public void Tick()
         {
             WalkTick(Time.deltaTime);
             BlushTick(Time.deltaTime);
-            PushupTick();
             GazeSwayTick();                // (her drink: her eyes wander a little - PR #46 §7)
             Pushup.Tick(Cha);              // (Push Up kept to its own result: PushupKeeper.cs)
+            if (Partner != null) PartnerPushup.Tick(Partner.charInfo);
+            diag.Tick(this);
             if (propUntil > 0f && (Time.realtimeSinceStartup >= propUntil || MuseStudioPlugin.Instance.Play.Active)) DropProp();
             SceneFaceTick();
             TempFaceTick();

@@ -28,6 +28,7 @@ namespace MuseStudio
         float next, offSince = -1f, rebindAt;
         bool gaveUp;                       // (Push Up not as this keeper knows it: left alone for good)
 
+        public string Who = "her";         // (the log) whose body: hers, or the other one's
         public int Repairs;                // (checks) how often Push Up was given its work again
         public int Binds;                  // (the log) how often its controller was found
         public string Last = "";           // (checks, the log) the last difference given back
@@ -68,7 +69,7 @@ namespace MuseStudio
                 if (abmx != null) abmx.Invoke(ctl, null);
                 Repairs++;
                 Last = "wearing " + w + ": " + diff.Trim();
-                MuseStudioPlugin.Log.LogInfo("MuseStudio: pushup put back (" + Last + ") at " + now.ToString("F1") + " s");
+                MuseStudioPlugin.Log.LogInfo("MuseStudio: pushup put back " + Who + " (" + Last + ") at " + now.ToString("F1") + " s");
             }
             catch (Exception e)
             {
