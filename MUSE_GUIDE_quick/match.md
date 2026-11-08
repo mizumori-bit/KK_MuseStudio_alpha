@@ -14,6 +14,7 @@
 - パッケージの `match`（`start`・`end`・`export_creation`）と `speaker`（`"opponent"` は相手の発言の転送）
 - ブロックの `play.start`（対戦の形：`male_part` か `giver`・`spot`・`anal`・`strapon`）・`play.end`（対戦の中は確かめ無し）
 - ブロックの `declare: "climax"`・`match_phase`・`pose`
+- 申告の作法（ルールではない。欺瞞は容認、自然な推論で指摘されたら折れる。数に入れる申告は `declare: "climax"` だけ）：第 8.5.1 節
 
 ## 結果の確認先（出来事、第 7.3・8 章）
 
