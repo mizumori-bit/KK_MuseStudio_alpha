@@ -3261,13 +3261,23 @@ namespace MuseStudio
             // a package taken: received and begun at the bridge (its stage, asked by its id); sent again by Muse: one package,
             // its stage told; given again to the app (its received lost on the way): known by its id, not played twice
             yield return Until(() => !bp.Busy, 10f);
+            // (#70 adopted, 1: after the start) each block shown told (last_block), finished once all are shown
             var dlvPkg = D("launch", Launch.Id, "character", h.CharacterId(), "id", "chk-dlv-1");
-            SendPkg(dlvPkg, Line("届いたか確かめます。"));
+            int dlvAcks0 = bp.AcksForCheck;
+            SendPkg(dlvPkg, Line("届いたか確かめます。"), Line("二つ目のブロックです。"));
             yield return Until(() => bp.Busy && bp.Text == "届いたか確かめます。", 10f);
             yield return Wait(1.2f);
             var dlvSt = Json.Parse(Http("GET", "/api/packages/status?id=chk-dlv-1", null)) as Dictionary<string, object>;
             bp.Advance(true);
+            yield return Until(() => bp.Busy && bp.Text == "二つ目のブロックです。", 10f);
+            bp.Advance(true);
             yield return Until(() => !bp.Busy, 10f);
+            yield return Wait(1.2f);
+            var dlvFin = Json.Parse(Http("GET", "/api/packages/status?id=chk-dlv-1", null)) as Dictionary<string, object>;
+            bool dlvBlocks = Json.Num(dlvSt, "last_block", -1) == 0 && Json.Num(dlvSt, "blocks", -1) == 2 && Json.Str(dlvFin, "stage") == "finished"
+                             && Json.Num(dlvFin, "last_block", -1) == 1 && !Json.Has(dlvFin, "reason") && bp.AcksForCheck == dlvAcks0 + 2;
+            Check("delivery after the start: each block shown is told (last_block 0 of 2 while the first shows), finished once all are shown (last_block 1) - #70 adopted, 1",
+                  dlvBlocks, Json.Write(dlvSt) + " / " + Json.Write(dlvFin) + " acks " + (bp.AcksForCheck - dlvAcks0));
             var dlvDup = Json.Parse(Http("POST", "/api/packages", dlvPkg)) as Dictionary<string, object>;
             int againBefore = h.Bridge.AgainForCheck;
             var dlvAgain = new Dictionary<string, object>(dlvPkg);
@@ -3275,8 +3285,8 @@ namespace MuseStudio
             h.Bridge.ReceiveForCheck(dlvAgain);
             yield return Wait(1.5f);
             bool notTwice = !(bp.Busy && bp.Text == "届いたか確かめます。") && h.Bridge.AgainForCheck == againBefore + 1;
-            Check("delivery: a package taken is received and begun at the bridge (its stage by its id); sent again it is one package (duplicate, started); given again it is not played twice",
-                  Json.Str(dlvSt, "stage") == "started" && Json.Num(dlvSt, "deliveries") >= 1 && Json.Has(dlvDup, "duplicate") && Json.Str(dlvDup, "stage") == "started" && notTwice,
+            Check("delivery: a package taken is received and begun at the bridge (its stage by its id); sent again it is one package (duplicate, its stage); given again it is not played twice",
+                  Json.Str(dlvSt, "stage") == "started" && Json.Num(dlvSt, "deliveries") >= 1 && Json.Has(dlvDup, "duplicate") && Json.Str(dlvDup, "stage") == "finished" && notTwice,
                   Json.Write(dlvSt) + " / " + Json.Write(dlvDup) + " / not twice " + notTwice);
             // the character switched: what waits here was for the one before - dropped (other_character); the new one's tagged stays
             yield return Until(() => !bp.Busy, 10f);

@@ -18,10 +18,14 @@ Irodori and the app (MuseStudio; the Godot app spoke the same contract, MUSE_GUI
                               the queue kept (the response pool). ?ack=1 (MuseStudio): the package stays until the app's
                               POST /api/packages/ack (received) - an answer lost on the way is given again; without it, taken
                               out as before
-  POST /api/packages/ack      (the app) {"ids": [...], "stage": "received" / "started" / "dropped", "reason"} -> the packages'
-                              delivery stages; received / dropped take the body out of the queue (the record stays, no text)
+  POST /api/packages/ack      (the app) {"ids": [...], "stage": "received" / "started" / "finished" / "dropped", "reason",
+                              "block", "blocks"} -> the packages' delivery stages; received / dropped take the body out of the
+                              queue (the record stays, no text); started with "block" (from 0): that block shown, its
+                              operations done (last_block); finished: all shown, or cut short (reason). A new launch makes the
+                              started ones not finished interrupted (package_interrupted, last_block)
   GET  /api/packages/status   (Muse) ?id=<id> (or ?session=&turn=) -> a package's delivery stage: queued / delivered /
-                              received / started / dropped (with the reason); without them the last 50
+                              received / started / finished / interrupted / dropped (with the reason, last_block, blocks);
+                              without them the last 50
   POST /api/tts               {"text", "voice", "caption", "emoji", "seed"} -> {"audio_url": "/audio/<hash>.wav"} (cached); 502 on failure,
                               503 {"voice": false} while the voice is off
   GET  /audio/<hash>.wav      generated audio
@@ -93,8 +97,12 @@ MAX_EVENTS_BYTES = 16 * 1024 * 1024    # the unacknowledged events altogether; p
 MAX_PACKAGES = 200                     # packages waiting for the app; past it 429
 MAX_PACKAGE_LOG = 500                  # the packages' delivery records kept (no text: id, session, turn, stage, times)
 PACKAGE_LOG_DAYS = 7                   # a finished record older than this goes
-PACKAGE_STAGES = ("queued", "delivered", "received", "started", "dropped")
-ACK_STAGES = ("received", "started", "dropped")
+PACKAGE_STAGES = ("queued", "delivered", "received", "started", "finished", "interrupted", "dropped")
+ACK_STAGES = ("received", "started", "finished", "dropped")
+# (#70 adopted, 1: after the start) started's blocks: the app tells each block it has shown ("block": its index, from 0 - its
+# operations done) and finished when it has shown them all (or cut it short: reason "superseded" - Muse's next package in,
+# or "cleared"); a new launch finds the started ones not finished: interrupted, the last block known shown kept
+# (last_block) - the one after it not known either way (shown or not: the app may have gone between showing it and telling)
 CONTENT_DUP_SECONDS = 600              # a package without an id: the same content within this is the same package sent again
 MAX_PACKAGES_BYTES = 16 * 1024 * 1024  # those packages altogether; past it 429
 MAX_EVENT_BYTES = 4 * 1024 * 1024      # one event (an app's is under MAX_BODY; a match's package can be more): past it refused
@@ -1200,6 +1208,12 @@ class State:
                     if r.get("stage") == "received":
                         self._mark(r["id"], "dropped", "app_restarted")
                         dropped.append(({k: r.get(k) for k in ("session", "turn", "beat", "launch", "character")}, "app_restarted"))
+                    elif r.get("stage") == "started" and r.get("launch") == self.launch.get("id") and "blocks" in r:
+                        # (#70 adopted, 1) begun and not finished: the old app went in the middle of it (the old launch's own;
+                        # one with no block count was begun by an app before this - not known to have been cut, left as it is)
+                        self._mark(r["id"], "interrupted")
+                        dropped.append(({k: r.get(k) for k in ("id", "session", "turn", "beat", "launch", "character", "last_block", "blocks")},
+                                        "interrupted"))
                 self.packages.clear()
                 self.package_sizes.clear()              # (and their total: else the empty queue still looked full - GPT's re-review of #26)
                 self.packages_bytes = 0
@@ -1233,6 +1247,14 @@ class State:
         if cid is not None and now is not None and cid != now:
             return "other_character"
         return ""
+
+    def note_interrupted(self, rec: dict) -> None:
+        # (#70 adopted, 1) a package begun and not finished when the app went: the blocks up to last_block were shown (their
+        # operations done); the one after it is not known either way
+        sys.stderr.write(f"[bridge] package interrupted: session={rec.get('session')} turn={rec.get('turn')} last_block={rec.get('last_block')}\n")
+        self.add_event({"type": "package_interrupted", "package": rec.get("id"), "session": rec.get("session"), "turn": rec.get("turn"),
+                        "beat": rec.get("beat"), "launch": rec.get("launch"), "character": rec.get("character"),
+                        "last_block": rec.get("last_block"), "blocks": rec.get("blocks"), "next_block": "unknown"})
 
     def note_dropped(self, pkg: dict, reason: str) -> None:
         sys.stderr.write(f"[bridge] package dropped ({reason}): session={pkg.get('session')} turn={pkg.get('turn')}\n")
@@ -1700,17 +1722,30 @@ def make_handler(state: State):
                 ids = body.get("ids") if isinstance(body, dict) else None
                 stage = body.get("stage") if isinstance(body, dict) else None
                 reason = body.get("reason") if isinstance(body, dict) else None
+                block = body.get("block") if isinstance(body, dict) else None
+                blocks = body.get("blocks") if isinstance(body, dict) else None
+                count_ok = lambda v: v is None or (isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 10000)
                 if (not isinstance(ids, list) or not ids or len(ids) > 200 or not all(isinstance(i, str) and i for i in ids)
-                        or stage not in ACK_STAGES or (reason is not None and not isinstance(reason, str))):
-                    return self._json(400, {"error": "ack takes {\"ids\": [ids], \"stage\": received / started / dropped, \"reason\": string or null}"})
+                        or stage not in ACK_STAGES or (reason is not None and not isinstance(reason, str))
+                        or not count_ok(block) or not count_ok(blocks) or (block is not None and stage not in ("started", "finished"))):
+                    return self._json(400, {"error": "ack takes {\"ids\": [ids], \"stage\": received / started / finished / dropped, "
+                                                     "\"reason\": string or null, \"block\": the block shown (started / finished), \"blocks\": their count}"})
                 unknown = []
                 with state.lock:
                     frozen = state.packages_ready_locked()
                     if frozen:
                         return self._json(503, {"ok": False, "error": frozen})
                     for pid in ids:
-                        if state._mark(pid, stage, reason if stage == "dropped" else None) is None:
+                        r = state._mark(pid, stage, reason if stage in ("dropped", "finished") else None)
+                        if r is None:
                             unknown.append(pid)
+                        elif r.get("stage") in ("started", "finished"):
+                            # (#70 adopted, 1) the blocks shown: the last one known, their count
+                            if block is not None and block > r.get("last_block", -1):
+                                r["last_block"] = block
+                                r["block_at"] = _now()
+                            if blocks is not None:
+                                r["blocks"] = blocks
                         state._take_out(pid)               # (received, begun or dropped by the app: no body kept)
                     try:
                         state._save_packages()
@@ -1784,7 +1819,10 @@ def make_handler(state: State):
                         why = state.packages_frozen
                     return self._json(503, {"ok": False, "error": why})
                 for pkg, why in dropped:
-                    state.note_dropped(pkg, why)
+                    if why == "interrupted":
+                        state.note_interrupted(pkg)
+                    else:
+                        state.note_dropped(pkg, why)
                 if self.headers.get("X-MMS-Instance"):
                     state.app_seen = time.time()
                 sys.stderr.write(f"[bridge] launch {body['launch']}: {body['phase']}\n")
