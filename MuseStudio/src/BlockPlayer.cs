@@ -94,6 +94,7 @@ namespace MuseStudio
             {
                 int left = Blocks.Count - Index - 1;
                 Blocks = Blocks.GetRange(0, Index + 1);
+                cutReason = "monologue";               // (its end: finished, cut short - the blocks after the one showing never shown)
                 dropped += left;
                 MonologueDropped(Pkg, left, cause);
             }
@@ -299,7 +300,9 @@ namespace MuseStudio
             // (from here its operations may apply: never again) - with its blocks' count (#70 adopted, 1: each block shown is told,
             // then finished; a new launch finds it begun and not finished - interrupted, the last block known shown)
             var blocksOf = Json.Arr(pkg, "blocks");
-            if (Acks) h.Bridge.Ack(Json.Str(pkg, "_pid"), "started", null, -1, blocksOf != null ? blocksOf.Count : 0);
+            blocksAtStart = blocksOf != null ? blocksOf.Count : 0;
+            cutReason = null;
+            if (Acks) h.Bridge.Ack(Json.Str(pkg, "_pid"), "started", null, -1, blocksAtStart);
             shownBlock = -1;
             var rel = Json.Obj(pkg, "relationship");
             if (rel != null && !h.Match.Replaying) h.Relationship.Apply(rel);       // Muse's values for the person (the state shows the last taken)
@@ -550,6 +553,10 @@ namespace MuseStudio
         // the bridge told of this package's stages (not a replay's or a match's replay: not Muse's to know)
         bool Acks { get { return !h.Replay.Playing && !h.Match.Replaying; } }
         int shownBlock = -1;                  // the last block shown (its operations done)
+        // (GPT's post-review of #83) the package's blocks as it came - what is left of a monologue dropped does not make it
+        // fewer - and why it was cut short (its end then a finished with that reason, not "all shown")
+        int blocksAtStart;
+        string cutReason;
         public int AcksForCheck;              // (checks) block acks sent
 
         void Present(Dictionary<string, object> b)
@@ -558,7 +565,7 @@ namespace MuseStudio
             if (Pkg != null && Index > shownBlock)
             {
                 shownBlock = Index;
-                if (Acks) { h.Bridge.Ack(Json.Str(Pkg, "_pid"), "started", null, Index, Blocks != null ? Blocks.Count : 0); AcksForCheck++; }
+                if (Acks) { h.Bridge.Ack(Json.Str(Pkg, "_pid"), "started", null, Index, blocksAtStart); AcksForCheck++; }
             }
             IsSound = Json.Str(b, "type", "dialogue") == "sound";
             // (a sound block's （） are its own: shown; a dialogue's words: its inner thoughts gone, then its ruby - the one
@@ -762,7 +769,7 @@ namespace MuseStudio
         {
             // (#70 adopted, 1) finished: all its blocks shown, or cut short (cut: superseded - Muse's next package in, or cleared)
             if (Pkg != null && Acks)
-                h.Bridge.Ack(Json.Str(Pkg, "_pid"), "finished", rest ? null : (cut ?? "cut"), shownBlock, Blocks != null ? Blocks.Count : 0);
+                h.Bridge.Ack(Json.Str(Pkg, "_pid"), "finished", rest ? cutReason : (cut ?? cutReason ?? "cut"), shownBlock, blocksAtStart);
             Pkg = null;
             Blocks = null;
             Index = -1;

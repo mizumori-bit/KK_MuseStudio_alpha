@@ -89,6 +89,45 @@ class Doctor(unittest.TestCase):
         self.assertIn("長さ 40", text)
         self.assertEqual(self.statuses(r)["Muse の受け口"], "OK")
 
+    # (GPT's post-review of #86) a setting of the wrong form: told as 要対応 (what rests on it 未確認), the rest looked at -
+    # never an exception, no path, no value of it in the words
+    def test_settings_of_the_wrong_form_do_not_stop_it(self):
+        cases = (("[]", None, "ブリッジの設定"), ('{"port": "invalid"}', None, "ブリッジのポート"), ('{"port": 70000}', None, "ブリッジのポート"),
+                 ('{"tokens_file": 5}', None, "ブリッジの鍵"), ('{"muse_listener": "on"}', None, "Muse の受け口"),
+                 ("{}", "0", "ブリッジの鍵"), ("{}", '{"app": 5, "muse": null}', "ブリッジの鍵"))
+        for k, (cfg, tokens, item) in enumerate(cases):
+            bridge = self.tmp / f"bridge{k}"
+            (bridge / "cache").mkdir(parents=True)
+            (bridge / "bridge_config.json").write_text(cfg, encoding="utf-8")
+            if tokens is not None:
+                (bridge / "cache" / "tokens.json").write_text(tokens, encoding="utf-8")
+            r = doctor.Report()
+            doctor.check_bridge(r, bridge, probe=True)            # (a bad port: not probed at all)
+            st = self.statuses(r)
+            self.assertEqual(st.get(item), "要対応", (cfg, tokens, r.text()))
+            self.assertNotIn(str(self.tmp), r.text())
+        # the whole run: a check that fails inside is 未確認, the rest go on
+        r = doctor.Report()
+
+        def broken(rep):
+            raise RuntimeError("C:\secret\path inside")
+        doctor.safely(r, "壊れた項目", broken)
+        doctor.check_python(r)
+        self.assertEqual(self.statuses(r)["壊れた項目"], "未確認")
+        self.assertNotIn("secret", r.text())
+        self.assertIn("Python", self.statuses(r))
+        man_game = self.tmp / "game_m"
+        for n in doctor.LINKS:
+            (man_game / n).mkdir(parents=True)
+        dest = man_game / "BepInEx" / "plugins" / "MuseStudio"
+        dest.mkdir(parents=True)
+        for n in ("MuseStudio.dll", "MuseMaker.dll"):
+            (dest / n).write_bytes(b"MZ")
+        (dest / "musestudio_dll.json").write_text("[1, 2]", encoding="utf-8")
+        r = doctor.Report()
+        doctor.check_launch_folder(r, man_game, "a" * 40)
+        self.assertEqual(self.statuses(r)["MuseStudio の DLL"], "要対応")
+
     def test_nothing_is_written(self):
         before = sorted(p.relative_to(self.tmp) for p in self.tmp.rglob("*"))
         r = doctor.Report()

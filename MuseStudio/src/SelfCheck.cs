@@ -4073,6 +4073,7 @@ namespace MuseStudio
             // her monologue: a batch plays by itself at 10-20 s a block; coming back / Muse answering him drop the rest
             pres.Toggle(false);
             turn++;
+            int monoTurn = turn;
             Http("POST", "/api/packages", D("session", "check", "turn", turn, "monologue", true,
                 "blocks", new List<object> { Line("独り言その一。"), Line("独り言その二。"), Line("独り言その三。") }));
             yield return Until(() => bp.Busy && bp.Text == "独り言その一。", 10f);
@@ -4093,6 +4094,14 @@ namespace MuseStudio
                   "left " + leftBefore + " now " + bp.MonologueLeft + " " + (mde == null ? "none" : Json.Write(mde)));
             bp.Advance(true);
             yield return Wait(0.3f);
+            // (GPT's post-review of #83) the one cut short is finished with its reason, its block count as it came (3), the
+            // last block shown 1 - the third never shown
+            yield return Wait(1.0f);
+            var mcList = Json.Arr(Json.Parse(Http("GET", "/api/packages/status?session=check&turn=" + monoTurn, null)), "packages");
+            var mc = mcList != null && mcList.Count > 0 ? mcList[mcList.Count - 1] as Dictionary<string, object> : null;
+            Check("monologue: one cut short is finished with its reason (monologue), its block count as it came (3), the last block shown 1 (GPT's post-review of #83)",
+                  Json.Str(mc, "stage") == "finished" && Json.Str(mc, "reason") == "monologue" && Json.Num(mc, "blocks", -1) == 3 && Json.Num(mc, "last_block", -1) == 1,
+                  mc == null ? "none" : Json.Write(mc));
             pres.Toggle(false);
             turn++;
             Http("POST", "/api/packages", D("session", "check", "turn", turn, "monologue", true, "blocks", new List<object> { Line("また独り言。"), Line("まだ続く。") }));

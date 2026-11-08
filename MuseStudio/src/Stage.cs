@@ -472,6 +472,14 @@ namespace MuseStudio
 
         string MatchDefault { get { return Json.Str(Json.Obj(FaceReturn, "defaults"), "match", "neutral"); } }
 
+        // its declared climax's face (Match): a face of a moment like the labels' - on the same timer, so a newer face wins and
+        // an older end never cuts a newer one short (GPT's post-review of #92)
+        public void OpponentClimaxFace(float seconds)
+        {
+            if (Partner == null || !ApplyPresetOn(Partner, "ecstasy")) return;
+            oppTempUntil = Time.realtimeSinceStartup + seconds;
+        }
+
         public void OpponentFace(string label)
         {
             if (Partner == null) return;
@@ -509,6 +517,7 @@ namespace MuseStudio
             if (oppTempUntil >= 0f && now >= oppTempUntil) OpponentFaceBack();
             if (oppHeld.Length > 0 && now - oppHeldSince >= MuseHoldSeconds)
             {
+                // (the hold over: what it comes back to is the default now; a face of a moment showing stays its time)
                 oppHeld = "";
                 if (oppTempUntil < 0f) OpponentFaceBack();
             }

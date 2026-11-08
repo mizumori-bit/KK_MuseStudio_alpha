@@ -790,9 +790,12 @@ namespace MuseStudio
             float w = 300f * s, x = PanelRight ? 12f * s : Screen.width - w - 12f * s, y = 12f * s, lh = 26f * s;
             // (a quiet panel under the column: its words readable over a bright room - its height as the last frame drew it)
             if (columnH > 0f) GUI.Box(new Rect(x - 8f * s, 4f * s, w + 16f * s, columnH + 14f * s), GUIContent.none, box);
-            string status = b == null ? "" : b.Superseded ? "○ 別のゲーム窓が使われています" : b.Connected ? "● Muse ブリッジ接続中" : "● ブリッジ未接続（再試行中）";
+            bool linkOut = b != null && !b.Superseded && (!b.Connected || (host.Notices != null && host.Notices.UnreachableForCheck));
+            string status = b == null ? "" : b.Superseded ? "○ 別のゲーム窓が使われています" : !linkOut ? "● Muse ブリッジ接続中" : "● ブリッジ未接続（再試行中）";
             // (the user's note of 2026-11-08: connected green, cut red - the notice of the bridge out of reach is this line itself)
-            GUI.Label(new Rect(x, y, w - 80f * s, lh), status + (b != null && b.VoiceOff ? "（声オフ）" : ""), b == null || b.Superseded ? small : b.Connected ? linkOn : linkOff);     // (the UI button at its right)
+            string statusLine = status + (b != null && b.VoiceOff ? "（声オフ）" : "");
+            GUI.Label(new Rect(x, y, w - 80f * s, lh), statusLine, b == null || b.Superseded ? small : !linkOut ? linkOn : linkOff);     // (the UI button at its right)
+            if (linkOut && host.Notices != null) host.Notices.ShownAs("bridge_unreachable", statusLine);
             y += lh;
             // the app's technical notices (#70 adopted, 3), here under the link - not at the top over the key hints (the user's
             // note of 2026-11-08)

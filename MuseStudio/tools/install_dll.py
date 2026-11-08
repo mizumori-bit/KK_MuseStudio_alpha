@@ -113,6 +113,13 @@ def _journal_read(dest: Path) -> dict | None:
     if (not isinstance(doc, dict) or doc.get("phase") not in ("swapping", "done") or not isinstance(doc.get("names"), list)
             or not isinstance(doc.get("had", {}), dict)):
         raise JournalUnreadable("the install's journal is not in its form")
+    # (GPT's post-review of #81) its names are the set it put in: not empty, each a file of the plugin's, none twice, each
+    # with whether it was there before - else it cannot put a whole set back (an unknown name left out silently made an
+    # empty set "put back" and the journal gone, the old ones' backups with it)
+    names, had = doc["names"], doc.get("had", {})
+    if (not names or not all(isinstance(n, str) and n in WANT for n in names) or len(set(names)) != len(names)
+            or set(had) != set(names) or not all(isinstance(v, bool) for v in had.values())):
+        raise JournalUnreadable("the install's journal does not name a set of the plugin's files")
     return doc
 
 
@@ -184,7 +191,7 @@ def recover(dest: Path) -> str:
             raise OSError("files left by an install cut off with an older tool could not be removed (" + ", ".join(failed) + ")")
         return ("files left by an install cut off with an older tool (" + ", ".join(f.name for f in there) + ") - removed, "
                 "not put back alone; this install puts in a whole set")
-    names = [n for n in j.get("names", WANT) if n in WANT]
+    names = list(j["names"])                    # (checked by _journal_read: the plugin's files, each once)
     if j.get("phase") == "done":
         left = _cleanup(dest, names)
         if left:

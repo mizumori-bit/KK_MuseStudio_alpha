@@ -164,12 +164,11 @@ def check_launch_folder(r: Report, game: Path, commit: str):
         return
     man = dest / "musestudio_dll.json"
     if man.is_file():
-        try:
-            m = json.loads(man.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            r.add("要対応", "MuseStudio の DLL", "配布版の目録が読めない", "install_dll.py で入れ直してください")
+        m, why = read_json(man)
+        if why or not isinstance(m, dict) or not isinstance(m.get("source_commit"), str):
+            r.add("要対応", "MuseStudio の DLL", "配布版の目録が" + (why or "形が違う"), "install_dll.py で入れ直してください")
             return
-        src = str(m.get("source_commit", ""))
+        src = m["source_commit"]
         if commit and src == commit:
             r.add("OK", "MuseStudio の DLL", f"配布版 {m.get('plugin_version')}（契約 {m.get('contract')}、このクローンと同じコミット {src[:7]}）")
         elif commit:
@@ -189,69 +188,114 @@ def check_sdk(r: Report, sdk_glob_root: Path = Path(r"C:\Program Files\dotnet\sd
         r.add("OK", ".NET SDK", "無い（Releases の DLL を使ってください：install_dll.py）")
 
 
+def read_json(path: Path):
+    """a JSON file: (its value, "") or (None, why) - the why fixed words, never the exception's (its words may hold a path)"""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), ""
+    except OSError:
+        return None, "読めない"
+    except ValueError:
+        return None, "JSON の誤り"
+
+
 def check_bridge(r: Report, bridge_dir: Path, probe: bool = True):
     cfg_file = bridge_dir / "bridge_config.json"
+    cfg: dict = {}
+    cfg_ok = False
     if not cfg_file.is_file():
         r.add("要対応", "ブリッジの設定", "bridge/bridge_config.json が無い", "bridge/bridge_config.example.json を写して作ってください")
-        cfg = {}
     else:
-        try:
-            cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
-            r.add("OK", "ブリッジの設定", "あり（鍵 " + str(cfg.get("auth", "required")) + "）")
-        except (OSError, ValueError):
-            r.add("要対応", "ブリッジの設定", "読めない（JSON の誤り）", "bridge_config.json を確かめてください")
-            cfg = {}
-    port = int(cfg.get("port", 18765) or 18765)
+        doc, why = read_json(cfg_file)
+        if why:
+            r.add("要対応", "ブリッジの設定", why, "bridge_config.json を確かめてください")
+        elif not isinstance(doc, dict):
+            r.add("要対応", "ブリッジの設定", "形が違う（JSON のオブジェクトでない）", "bridge/bridge_config.example.json の形に直してください")
+        else:
+            cfg, cfg_ok = doc, True
+            r.add("OK", "ブリッジの設定", "あり（鍵 " + ("required" if cfg.get("auth", "required") == "required" else "required 以外") + "）")
+    # (GPT's post-review of #86) the port a whole number 1-65535; else the bridge's own looks are not known from here
+    port_v = cfg.get("port", 18765)
+    port = port_v if isinstance(port_v, int) and not isinstance(port_v, bool) and 1 <= port_v <= 65535 else None
+    if cfg_ok and port is None:
+        r.add("要対応", "ブリッジのポート", "設定の port が 1〜65535 の整数でない", "bridge_config.json の port を直してください（既定 18765）")
     if probe:
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as res:
-                doc = json.loads(res.read() or b"{}")
-            r.add("OK", "ブリッジ", f"ポート {port} で動いている" + ("（鍵が要る）" if doc.get("auth") == "required" else ""))
-        except urllib.error.HTTPError as e:
-            r.add("未確認", "ブリッジ", f"ポート {port} で応答 {e.code}（ブリッジではないかもしれない）")
-        except (OSError, ValueError):
-            s = socket.socket()
+        if port is None:
+            r.add("未確認", "ブリッジ", "ポートが分からない（設定の port を直すと確かめられます）")
+        else:
             try:
-                s.settimeout(1)
-                busy = s.connect_ex(("127.0.0.1", port)) == 0
-            finally:
-                s.close()
-            if busy:
-                r.add("要対応", "ブリッジ", f"ポート {port} をほかのものが使っている", "そのプログラムを止めるか、bridge_config.json の port を変えてください")
-            else:
-                r.add("OK", "ブリッジ", f"動いていない（ポート {port} は空いている。ランチャーか python -B bridge/bridge.py で起動）")
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as res:
+                    doc = json.loads(res.read() or b"{}")
+                r.add("OK", "ブリッジ", f"ポート {port} で動いている" + ("（鍵が要る）" if isinstance(doc, dict) and doc.get("auth") == "required" else ""))
+            except urllib.error.HTTPError as e:
+                r.add("未確認", "ブリッジ", f"ポート {port} で応答 {e.code}（ブリッジではないかもしれない）")
+            except (OSError, ValueError):
+                s = socket.socket()
+                try:
+                    s.settimeout(1)
+                    busy = s.connect_ex(("127.0.0.1", port)) == 0
+                finally:
+                    s.close()
+                if busy:
+                    r.add("要対応", "ブリッジ", f"ポート {port} をほかのものが使っている", "そのプログラムを止めるか、bridge_config.json の port を変えてください")
+                else:
+                    r.add("OK", "ブリッジ", f"動いていない（ポート {port} は空いている。ランチャーか python -B bridge/bridge.py で起動）")
     tf = cfg.get("tokens_file", "cache/tokens.json")
-    tokens = Path(tf) if Path(tf).is_absolute() else bridge_dir / tf
-    if not tokens.is_file():
-        r.add("OK", "ブリッジの鍵", "まだ無い（ブリッジを初めて起動したときに作られます）")
+    if not isinstance(tf, str) or not tf:
+        r.add("要対応", "ブリッジの鍵", "設定の tokens_file が文字列でない", "bridge_config.json の tokens_file を直してください（既定 cache/tokens.json）")
     else:
-        try:
-            t = json.loads(tokens.read_text(encoding="utf-8"))
-            parts = [f"{role} 長さ {len(str(t[role]))}・指紋 {fingerprint(str(t[role]))}" for role in ("app", "muse") if role in t]
-            bad = [role for role in ("app", "muse") if role not in t or len(str(t.get(role, ""))) < 32]
-            if bad:
-                r.add("要対応", "ブリッジの鍵", "形が違う：" + "・".join(bad), "鍵の作り直しは持ち主の判断で（python -B bridge/bridge.py --new-tokens）")
+        tokens = Path(tf) if Path(tf).is_absolute() else bridge_dir / tf
+        if not tokens.is_file():
+            r.add("OK", "ブリッジの鍵", "まだ無い（ブリッジを初めて起動したときに作られます）")
+        else:
+            t, why = read_json(tokens)
+            if why:
+                r.add("要対応", "ブリッジの鍵", why, "鍵のファイルを確かめてください（作り直しは持ち主の判断で）")
+            elif not isinstance(t, dict):
+                r.add("要対応", "ブリッジの鍵", "形が違う（JSON のオブジェクトでない）", "鍵の作り直しは持ち主の判断で（python -B bridge/bridge.py --new-tokens）")
             else:
-                r.add("OK", "ブリッジの鍵", "、".join(parts))
-        except (OSError, ValueError):
-            r.add("要対応", "ブリッジの鍵", "読めない", "鍵のファイルを確かめてください（作り直しは持ち主の判断で）")
-    ml = cfg.get("muse_listener") or {}
-    if isinstance(ml, dict) and ml.get("enabled"):
-        r.add("OK" if ml.get("machine") else "要対応", "Muse の受け口", "有効" + ("（機械の指定あり）" if ml.get("machine") else "（機械の指定が無い）"),
-              "" if ml.get("machine") else "muse_listener.machine に Muse の機械を指定してください（README の手順）")
+                bad = [role for role in ("app", "muse") if not isinstance(t.get(role), str) or len(t.get(role)) < 32]
+                if bad:
+                    r.add("要対応", "ブリッジの鍵", "形が違う：" + "・".join(bad), "鍵の作り直しは持ち主の判断で（python -B bridge/bridge.py --new-tokens）")
+                else:
+                    r.add("OK", "ブリッジの鍵", "、".join(f"{role} 長さ {len(t[role])}・指紋 {fingerprint(t[role])}" for role in ("app", "muse")))
+    ml = cfg.get("muse_listener")
+    if ml is not None and not isinstance(ml, dict):
+        r.add("要対応", "Muse の受け口", "設定の muse_listener がオブジェクトでない", "bridge_config.example.json の muse_listener の形に直してください")
+    elif isinstance(ml, dict) and ml.get("enabled") is True:
+        has = isinstance(ml.get("machine"), str) and bool(ml.get("machine"))
+        r.add("OK" if has else "要対応", "Muse の受け口", "有効" + ("（機械の指定あり）" if has else "（機械の指定が無い）"),
+              "" if has else "muse_listener.machine に Muse の機械を指定してください（README の手順）")
     else:
         r.add("OK", "Muse の受け口", "使っていない（鍵を渡す経路 A）")
 
 
+def safely(r: Report, item: str, fn, *args):
+    """a check run so that nothing of its own stops the rest: an error inside it is 未確認 (fixed words: no exception's own,
+    no path) and the next check goes on (GPT's post-review of #86)"""
+    try:
+        return fn(r, *args)
+    except Exception:  # noqa: BLE001 - every error here is the check's own, told as such
+        r.add("未確認", item, "調べている途中で止まりました（この項目は分かりません）", "README の「新しい環境で始める」の手順で確かめてください")
+        return None
+
+
+def run(r: Report, orig: str, game: Path, commit: str, bridge_dir: Path, probe: bool = True) -> Report:
+    safely(r, "Python", check_python)
+    o = safely(r, "原作の場所", check_original, orig)
+    safely(r, "前提の Mod", check_mods, o)
+    safely(r, "専用の起動フォルダ", check_launch_folder, game, commit)
+    safely(r, ".NET SDK", check_sdk)
+    safely(r, "ブリッジ", check_bridge, bridge_dir, probe)
+    return r
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    r = Report()
-    check_python(r)
-    orig = check_original(r, original_path())
-    check_mods(r, orig)
-    check_launch_folder(r, ROOT / "game", head_commit())
-    check_sdk(r)
-    check_bridge(r, REPO / "bridge")
+    try:
+        orig = original_path()
+    except Exception:  # noqa: BLE001 - its file unreadable: told as not set (check_original)
+        orig = ""
+    r = run(Report(), orig, ROOT / "game", head_commit(), REPO / "bridge")
     print("MuseStudio の導入診断（読むだけ。何も書き換えません）\n")
     print(r.text())
     return 1 if any(x[0] == "要対応" for x in r.lines) else 0
