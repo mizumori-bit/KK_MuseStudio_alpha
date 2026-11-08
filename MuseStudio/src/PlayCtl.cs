@@ -1012,7 +1012,15 @@ namespace MuseStudio
             Kissing = false;
             // the partner's strapon: forgotten with the body it goes with; the match's opponent stays - taken off
             if (stage.Partner != null) { if (MuseStudioPlugin.Instance.Match.Active) Strapon.Off(stage.Partner.charInfo); else Strapon.Forget(stage.Partner.charInfo); }
-            if (PenisAim != 0) { Penetration.Target(MaleBody != null ? MaleBody.charInfo : null, Penetration.Off); PenisAim = 0; }
+            if (aimByState)
+            {
+                var mbEnd = MaleBody != null ? MaleBody.charInfo : null;
+                Penetration.Let(mbEnd, bpWasRunning);                // (no target; the controller as before the play)
+                if (PenisAim > 0) Dan.PutBack();
+                PenisAim = 0;
+                aimByState = false;
+            }
+            else if (PenisAim != 0) { Penetration.Target(MaleBody != null ? MaleBody.charInfo : null, Penetration.Off); PenisAim = 0; }
             Dan.Stop();
             Rest.Stop();
             bool matchOn = MuseStudioPlugin.Instance.Match.Active;
@@ -1058,8 +1066,11 @@ namespace MuseStudio
             stage.ApplyCamera(Json.Str(Data.Load("cameras.json"), "default", "medium"), false);
         }
 
-        // the penis of the male part along her (Penetration): the insertion's way in, a mouth service's mouth
+        // the penis of the male part along her (Penetration): the insertion's way in, a mouth service's mouth. An insertion per
+        // state as the original (AimByState: the user's notes of 2026-11-08 - aimed at the way in where nothing was going in)
         public int PenisAim = 0;
+        bool aimByState, bpWasRunning, receiverAnus;
+        float aimRetryAt, aimVerifyAt;
         public readonly DanLook Dan = new DanLook();      // (the original's aim where BetterPenetration has none: DanLook)
         public readonly DanRest Rest = new DanRest();     // (the female part's penis laid up along its belly: DanRest)
         void AimPenis()
@@ -1070,10 +1081,21 @@ namespace MuseStudio
             var hers = Res != null && Res.Parts.ContainsKey(Reversed ? "player" : "character") ? Res.Parts[Reversed ? "player" : "character"] : null;
             if (Group == "sonyu") aim = Anal ? Penetration.Anal : Penetration.Vaginal;
             else if (Group == "houshi" && hers != null && hers.Contains("mouth")) aim = Penetration.Oral;
-            aimWant = aim;
-            aimUntil = Time.realtimeSinceStartup + 5f;          // (its controller gets ready a few frames after the body comes)
-            PenisAim = Penetration.Target(mb, aim) ? aim : 0;
-            Dan.Start(mb, FemaleCha, HInfo);
+            receiverAnus = hers != null && hers.Contains("anus");          // (your male body receiving: always; an anal play)
+            aimByState = Group == "sonyu" && Penetration.Available(mb);
+            Dan.Start(mb, FemaleCha, HInfo, receiverAnus);
+            if (aimByState)
+            {
+                bpWasRunning = Penetration.Running(mb);
+                PenisAim = -1;                                  // (unknown: the first state's aim taken next frame)
+                aimRetryAt = 0f;
+            }
+            else
+            {
+                aimWant = aim;
+                aimUntil = Time.realtimeSinceStartup + 5f;      // (its controller gets ready a few frames after the body comes)
+                PenisAim = Penetration.Target(mb, aim) ? aim : 0;
+            }
             // the body in the female part with a penis shown (the user's male body reversed, her futanari penis when she receives):
             // in an insertion it would run into the other body - laid up along its own belly
             var fc = FemaleCha;
@@ -1695,6 +1717,44 @@ namespace MuseStudio
         int aimWant;
         float aimUntil;
 
+        // an insertion's penis per state, as the original (HSceneProc's Lookat_dan with the position's list; the original's
+        // BetterPenetration, DanAgent.SetupNewDanTarget): BetterPenetration where the row goes in - its point stuck (or a state
+        // inside, "IN") at the way in, in the insertion or a state that is not a wait, a pull or an outside one - the way in the
+        // row's (the anus for a body receiving it); elsewhere the original's Lookat_dan (its row's point, or none: the motion's)
+        void AimByState()
+        {
+            var mb = MaleBody != null ? MaleBody.charInfo : null;
+            if (mb == null) return;
+            int want = Penetration.Off;
+            var row = Dan.Row(LastState, FemaleCha);
+            if (row != null)
+            {
+                string m = row.strMotion ?? "", n = row.strLookAtNull ?? "";
+                bool goesIn = (row.bTopStick && n.Length > 0) || m.Contains("IN");
+                bool wayIn = n.Length == 0 || n == "k_f_kokan_00" || n == "k_f_ana_00" || (Dan.AnusPoint.Length > 0 && n == Dan.AnusPoint);
+                bool moving = m.Contains("Insert") || !(m.Contains("Idle") || m.Contains("Pull") || m.Contains("OUT"));
+                if (goesIn && wayIn && moving) want = n == "k_f_ana_00" || n == "cf_j_ana" || receiverAnus ? Penetration.Anal : Penetration.Vaginal;
+            }
+            else if (Inserted) want = receiverAnus ? Penetration.Anal : Penetration.Vaginal;     // (no list: in while it is in)
+            // (the plugin's own target or running gone back - a reload of the body - taken again)
+            bool drift = false;
+            if (PenisAim >= 0 && Time.realtimeSinceStartup >= aimVerifyAt)
+            {
+                aimVerifyAt = Time.realtimeSinceStartup + 0.5f;
+                drift = PenisAim > 0 ? Penetration.Get(mb) != PenisAim : Penetration.Running(mb);
+            }
+            if ((want != PenisAim || drift) && Time.realtimeSinceStartup >= aimRetryAt)
+            {
+                if (Penetration.Aim(mb, want))
+                {
+                    if (want == Penetration.Off && PenisAim > 0) Dan.PutBack();       // (its bend undone: the penis as the motion has it)
+                    PenisAim = want;
+                }
+                else aimRetryAt = Time.realtimeSinceStartup + 0.25f;     // (its controller not ready yet)
+            }
+            Dan.Tick(PenisAim > 0, FemaleCha);
+        }
+
         void KeepSpeed(OCIChar oci)
         {
             var an = oci != null ? oci.charInfo.animBody : null;
@@ -1719,8 +1779,12 @@ namespace MuseStudio
                 HIK.HeightResets++;
                 HIK.SetMaleHeight(you, Mathf.Clamp(MuseStudioPlugin.Instance.YourHeight.Value, 0.35f, 0.85f));
             }
-            if (aimWant != PenisAim && Time.realtimeSinceStartup < aimUntil && Penetration.Target(MaleBody != null ? MaleBody.charInfo : null, aimWant)) PenisAim = aimWant;
-            Dan.Tick(PenisAim != Penetration.Off, FemaleCha);      // (no BetterPenetration: the original's aim throughout)
+            if (aimByState) AimByState();
+            else
+            {
+                if (aimWant != PenisAim && Time.realtimeSinceStartup < aimUntil && Penetration.Target(MaleBody != null ? MaleBody.charInfo : null, aimWant)) PenisAim = aimWant;
+                Dan.Tick(PenisAim != Penetration.Off, FemaleCha);      // (no BetterPenetration: the original's aim throughout)
+            }
             Climax.Tick(dt);
             if (eyeF != null) { eyeF.Tick(); eyeM.Tick(); }
             // (inside: the finish was inside - the vagina, the mouth: the drip / spit shots; flags.isInsideFinish)

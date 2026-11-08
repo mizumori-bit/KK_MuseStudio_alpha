@@ -2268,6 +2268,10 @@ namespace MuseStudio
             h.YourHeight.Value = 0.8f;
             byte shortsPre = st.Cha.fileStatus.clothesState[3];
             string sperr = pc.Begin("sonyu_00", "check", "here");
+            yield return Until(() => pc.PenisAim == Penetration.Off || !Penetration.Available(st.Partner.charInfo), 5f);
+            bool bpWait = pc.PenisAim == Penetration.Off && !Penetration.Running(st.Partner.charInfo);      // (the original's wait aims nothing)
+            pc.Condom = false;
+            pc.Insert(0);
             yield return Until(() => pc.PenisAim == Penetration.Vaginal || !Penetration.Available(st.Partner.charInfo), 5f);
             // an insertion: her shorts shifted aside where the garment has the half state (else as the position has them)
             Dictionary<byte, string> shortsKinds = null;
@@ -2287,8 +2291,8 @@ namespace MuseStudio
             Check("your height: the setting's height on your male body (the original's male maker has none), the hips' anchor for it", Mathf.Abs(yourHt - 0.8f) < 0.001f
                   && Mathf.Abs(yourRatio - 1f) > 0.002f, yourHt.ToString("F3") + " ratio " + yourRatio.ToString("F3") + " set back " + HIK.HeightResets);
             yield return Wait(0.3f);
-            Check("penis: an insertion aims the partner's penis at her (BetterPenetration's auto target: vaginal), off after", !bpOn || (bpAimed && pc.PenisAim == 0),
-                  "plugin " + bpOn + " aimed " + bpAimed);
+            Check("penis: an insertion aims the partner's penis at her as the original's list (BetterPenetration's auto target: none in the wait, vaginal going in), off after",
+                  !bpOn || (bpWait && bpAimed && pc.PenisAim == 0), "plugin " + bpOn + " wait " + bpWait + " aimed " + bpAimed);
             Check("play: Muse's speed stops at the original's top (insertion: pace 3 x 2.0 -> 3.0; pace 1 x 2.0 -> 2.0)", sperr == "" && Mathf.Abs(s3 - 3f) < 0.001f && Mathf.Abs(s1 - 2f) < 0.001f,
                   sperr + " " + s3 + " / " + s1);
             Check("play: the service plays (and a sample of the AL plays, their motions found by clip) begin in their own wait at pace 0, both bodies in the play's motion",

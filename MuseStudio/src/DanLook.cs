@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace MuseStudio
@@ -6,6 +7,9 @@ namespace MuseStudio
     // read per state of the female's motion), where BetterPenetration does not aim it (Penetration): a play without an aim
     // (the hand, the feet, the breasts ...) and the outside finish (OUT_*: the penis held out in his hand - the user's note,
     // PR #23 (a): it hung down there). Elsewhere the penis as it was, BetterPenetration's.
+    //   An insertion (the user's notes of 2026-11-08): the list's row for each state decides who aims (PlayCtl.AimByState) -
+    //   BetterPenetration in the penetrating states, this the rest (its row's point, or none: the penis as the motion has it,
+    //   the penis's own shape back first: Snap / PutBack). A body receiving its anus: the rows' crotch point is its anus.
     public class DanLook
     {
         Lookat_dan dan;
@@ -15,12 +19,19 @@ namespace MuseStudio
 
         static readonly string[] Outside = { "M_OUT_Start", "M_OUT_Loop", "OUT_A", "OUT_Start", "OUT_Loop", "A_M_OUT_Start", "A_M_OUT_Loop", "A_M_OUT_A", "A_OUT_A" };
 
+        Lookat_dan.MotionLookAtList last;
+        readonly List<Transform> chain = new List<Transform>();
+        readonly List<Vector3> chainPos = new List<Vector3>(), chainScale = new List<Vector3>();
+        readonly List<Quaternion> chainRot = new List<Quaternion>();
+        public string AnusPoint = "";     // (the point the rows' crotch point became; "" none)
+
         public bool Active { get { return dan != null; } }
         public bool On { get { return dan != null && dan.enabled; } }
 
-        public void Start(ChaControl male, ChaControl female, HSceneProc.AnimationListInfo info)
+        public void Start(ChaControl male, ChaControl female, HSceneProc.AnimationListInfo info, bool anus = false)
         {
             Stop();
+            Snap(male);
             if (male == null || female == null || info == null || info.paramMale == null || string.IsNullOrEmpty(info.paramMale.fileLookAt))
             {
                 Why = "no list";
@@ -40,7 +51,60 @@ namespace MuseStudio
             var baseObj = HarmonyLib.AccessTools.Field(typeof(Lookat_dan), "objDanBase").GetValue(dan) as GameObject;     // (the original's own)
             danBase = baseObj != null ? baseObj.transform : null;
             if (danBase != null) rest = danBase.localRotation;
+            // a body receiving its anus (your male body: its insertions all the anus - the user's note): the crotch point the
+            // rows aim at is its anus (the point the original's anal rows name, else the anus bone)
+            AnusPoint = "";
+            if (anus && female.objBodyBone != null)
+            {
+                AnusPoint = HIK.Find(female.objBodyBone.transform, "k_f_ana_00") != null ? "k_f_ana_00" : "cf_j_ana";
+                foreach (var l in dan.lstLookAt) if (l.strLookAtNull == "k_f_kokan_00") l.strLookAtNull = AnusPoint;
+                dan.strPlayMotion = "";                                  // (its row picked again with the point)
+            }
             Why = "";
+        }
+
+        // the list's row for the state now: the female part's (as Lookat_dan picks it), else the state the play asked for (a
+        // motion of a mod whose states go by other names); none: the last found
+        public Lookat_dan.MotionLookAtList Row(string asked, ChaControl female)
+        {
+            if (dan == null) return null;
+            Lookat_dan.MotionLookAtList hit = null;
+            if (female != null && female.animBody != null)
+            {
+                var st = female.animBody.GetCurrentAnimatorStateInfo(0);
+                hit = dan.lstLookAt.Find(l => st.IsName(l.strMotion));
+            }
+            if (hit == null && !string.IsNullOrEmpty(asked)) hit = dan.lstLookAt.Find(l => l.strMotion == asked);
+            if (hit != null) last = hit;
+            return last;
+        }
+
+        // the penis's own shape at the play's start (its bones as they are before anything aims them), put back when
+        // BetterPenetration lets it go - it leaves the bones as it bent them
+        void Snap(ChaControl male)
+        {
+            chain.Clear(); chainPos.Clear(); chainRot.Clear(); chainScale.Clear();
+            if (male == null || male.objBodyBone == null) return;
+            var root = HIK.Find(male.objBodyBone.transform, "cm_J_dan100_00");
+            if (root == null) return;
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                chain.Add(t);
+                chainPos.Add(t.localPosition);
+                chainRot.Add(t.localRotation);
+                chainScale.Add(t.localScale);
+            }
+        }
+
+        public void PutBack()
+        {
+            for (int i = 0; i < chain.Count; i++)
+            {
+                if (chain[i] == null) continue;
+                chain[i].localPosition = chainPos[i];
+                chain[i].localRotation = chainRot[i];
+                chain[i].localScale = chainScale[i];
+            }
         }
 
         // every frame of a play: on where BetterPenetration has no aim (aimed: the play's own) or she is in the outside finish
@@ -71,6 +135,8 @@ namespace MuseStudio
             }
             dan = null;
             danBase = null;
+            last = null;
+            AnusPoint = "";
         }
     }
 

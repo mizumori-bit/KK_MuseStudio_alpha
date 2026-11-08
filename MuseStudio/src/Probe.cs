@@ -56,6 +56,7 @@ namespace MuseStudio
             if (room == "gropehand") { yield return GropeHand(); yield break; }
             if (room == "ikfight") { yield return IkFight(); yield break; }
             if (room == "reversed") { yield return ReversedPenis(); yield break; }
+            if (room.StartsWith("danlists")) { yield return DanLists(room.Length > 9 ? room.Substring(9) : ""); yield break; }
             if (room.StartsWith("hold:")) { yield return Hold(float.Parse(room.Substring(5), System.Globalization.CultureInfo.InvariantCulture)); yield break; }
             if (room.StartsWith("photosany:")) { h.Play.AnySpotForProbe = true; yield return Photos(room.Substring(10)); yield break; }
             if (room.StartsWith("photos")) { yield return Photos(room.Length > 7 ? room.Substring(7) : ""); yield break; }
@@ -872,6 +873,159 @@ namespace MuseStudio
             MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
             yield return new WaitForSeconds(0.5f);
             Application.Quit();
+        }
+
+        // --muse-probe=danlists[:<ids>]: the original's aim lists (each play's paramMale.fileLookAt, read as HSceneProc reads them)
+        // and, for the insertions (<ids>, or all), where the penis points now against them: before, at and after the insertion and
+        // in the loop - she receiving, and reversed with your male body receiving (her futanari penis)
+        IEnumerator DanLists(string only)
+        {
+            yield return new WaitForSeconds(1.5f);
+            var st = h.Stage;
+            var pc = h.Play;
+            var lists = new Dictionary<string, List<string[]>>();
+            foreach (var row in pc.List(null))
+            {
+                string id = Json.Str(row, "id"), group = Json.Str(row, "group");
+                if (!Json.Has(row, "motion_id")) continue;
+                var hi = HData.Info((int)Json.Num(row, "mode"), (int)Json.Num(row, "motion_id"));
+                string file = hi != null && hi.paramMale != null ? hi.paramMale.fileLookAt : "";
+                lines.AppendLine(string.Format("PLAY {0} {1} {2} anal {3} lookat {4}", id, group, Json.Str(row, "name"), hi != null && hi.paramFemale.isAnal, file));
+                if (string.IsNullOrEmpty(file) || lists.ContainsKey(file)) continue;
+                var rows = new List<string[]>();
+                try
+                {
+                    string text = GlobalMethod.LoadAllListText("h/list/", file, null);
+                    string[,] a;
+                    GlobalMethod.GetListString(text, out a);
+                    for (int i = 0; i < a.GetLength(0); i++)
+                    {
+                        var r = new string[Math.Min(5, a.GetLength(1))];
+                        for (int j = 0; j < r.Length; j++) r[j] = a[i, j];
+                        int shapes = 0;
+                        for (int j = 5; j + 6 < a.GetLength(1); j += 7) { int sh; if (int.TryParse(a[i, j], out sh)) shapes++; else break; }
+                        rows.Add(r);
+                        lines.AppendLine(string.Format("LIST {0} | {1} | shapes {2}", file, string.Join(" | ", r), shapes));
+                    }
+                }
+                catch (Exception e) { lines.AppendLine("LIST " + file + ": " + e.Message); }
+                lists[file] = rows;
+            }
+            var ids = new HashSet<string>(only.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+            bool silWas = h.YourSilhouette.Value;
+            h.YourSilhouette.Value = false;
+            foreach (bool reversed in new[] { false, true })
+            {
+                pc.WhoForCheck = new Dictionary<string, Dictionary<string, object>> {
+                    { "character", new Dictionary<string, object> { { "body", "female" }, { "futanari", reversed } } },
+                    { "player", new Dictionary<string, object> { { "body", "male" }, { "futanari", false } } } };
+                foreach (var row in pc.List(null))
+                {
+                    string id = Json.Str(row, "id");
+                    if (Json.Str(row, "group") != "sonyu" || (ids.Count > 0 && !ids.Contains(id))) continue;
+                    if (reversed && !pc.Reversible(row)) continue;
+                    var spots = pc.Spots(row);
+                    if (spots.Count == 0) { lines.AppendLine(id + ": no spot here"); continue; }
+                    string err = pc.Begin(id, "probe", spots[0].Id, reversed);
+                    if (err.Length > 0) { lines.AppendLine((reversed ? "REV " : "NOR ") + id + ": " + err); continue; }
+                    string file = pc.HInfo != null && pc.HInfo.paramMale != null ? pc.HInfo.paramMale.fileLookAt : "";
+                    List<string[]> list;
+                    lists.TryGetValue(file ?? "", out list);
+                    string tag = (reversed ? "REV " : "NOR ") + id;
+                    pc.Condom = false;
+                    bool pics = id == "sonyu_00" || id == "sonyu_02" || id == "sonyu_04";
+                    Vector3 c = st.Cha.transform.position + Vector3.up * 0.55f;
+                    yield return new WaitForSeconds(2.5f);
+                    yield return new WaitForEndOfFrame();
+                    lines.AppendLine(DanAim(tag, "wait", list, reversed));
+                    // the motion's own penis? its base bone across a moment, nothing aiming it
+                    var gv = reversed ? st.Heroine.charInfo : st.Partner.charInfo;
+                    var b101 = HIK.Find(gv.objBodyBone.transform, "cm_J_dan101_00");
+                    var b100 = HIK.Find(gv.objBodyBone.transform, "cm_J_dan100_00");
+                    var rots = new List<string>();
+                    for (int k = 0; k < 4; k++) { yield return new WaitForSeconds(0.3f); rots.Add((b100 != null ? b100.localEulerAngles.ToString("F1") : "-") + "/" + (b101 != null ? b101.localEulerAngles.ToString("F1") : "-")); }
+                    lines.AppendLine(tag + " wait bones dan100/dan101 local: " + string.Join(" ", rots.ToArray()));
+                    if (pics) yield return Shot(c + st.Cha.transform.right * 1.6f, c, 40f, "danaim_" + (reversed ? "rev_" : "nor_") + id + "_1wait.png");
+                    pc.Insert(0);
+                    float t0 = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - t0 < 3f)
+                    {
+                        yield return new WaitForSeconds(0.3f);
+                        yield return new WaitForEndOfFrame();
+                        lines.AppendLine(DanAim(tag, "insert t" + (Time.realtimeSinceStartup - t0).ToString("F1"), list, reversed));
+                        if (pics && Time.realtimeSinceStartup - t0 > 0.55f && Time.realtimeSinceStartup - t0 < 0.9f)
+                            yield return Shot(c + st.Cha.transform.right * 1.6f, c, 40f, "danaim_" + (reversed ? "rev_" : "nor_") + id + "_2insert.png");
+                    }
+                    pc.SetPace(1, "probe");
+                    yield return new WaitForSeconds(2f);
+                    yield return new WaitForEndOfFrame();
+                    lines.AppendLine(DanAim(tag, "loop", list, reversed));
+                    if (pics) yield return Shot(c + st.Cha.transform.right * 1.6f, c, 40f, "danaim_" + (reversed ? "rev_" : "nor_") + id + "_3loop.png");
+                    pc.Pull();
+                    t0 = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - t0 < 3.5f)
+                    {
+                        yield return new WaitForSeconds(0.3f);
+                        yield return new WaitForEndOfFrame();
+                        lines.AppendLine(DanAim(tag, "pull t" + (Time.realtimeSinceStartup - t0).ToString("F1"), list, reversed));
+                        if (pics && Time.realtimeSinceStartup - t0 > 2.5f && Time.realtimeSinceStartup - t0 < 2.85f)
+                            yield return Shot(c + st.Cha.transform.right * 1.6f, c, 40f, "danaim_" + (reversed ? "rev_" : "nor_") + id + "_4after.png");
+                    }
+                    pc.End("probe");
+                    yield return new WaitForSeconds(0.4f);
+                }
+            }
+            pc.WhoForCheck = null;
+            h.YourSilhouette.Value = silWas;
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0" + "\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // where the giver's penis points (its base cm_J_dan101_00 to its tip cm_J_dan109_00) against the original's aim point for
+        // the state (the list's null on the receiver) and the receiver's other points the list names
+        string DanAim(string tag, string when, List<string[]> list, bool reversed)
+        {
+            var st = h.Stage;
+            var pc = h.Play;
+            var giver = reversed ? st.Heroine.charInfo : st.Partner != null ? st.Partner.charInfo : null;
+            var recv = pc.FemaleCha;
+            if (giver == null || recv == null) return tag + " " + when + ": no bodies";
+            var root = HIK.Find(giver.objBodyBone.transform, "cm_J_dan101_00");
+            var tip = HIK.Find(giver.objBodyBone.transform, "cm_J_dan109_00");
+            if (root == null || tip == null) return tag + " " + when + ": no dan bones";
+            Vector3 dir = (tip.position - root.position).normalized;
+            string state = pc.LastState;
+            string want = "";
+            var names = new List<string>();
+            if (list != null)
+                foreach (var r in list)
+                {
+                    if (r.Length > 2 && r[2].Length > 0 && !names.Contains(r[2])) names.Add(r[2]);
+                    if (r.Length > 2 && recv.animBody != null && recv.animBody.GetCurrentAnimatorStateInfo(0).IsName(r[0])) want = r[2];
+                }
+            foreach (var extra in new[] { "cf_j_kokan", "cf_J_Ana", "cf_j_ana", "cf_d_ana", "cf_d_kokan" }) if (!names.Contains(extra)) names.Add(extra);
+            var sb = new StringBuilder();
+            sb.AppendFormat("{0} {1}: state {2} anim {3} BP {4} run {5} dan {6} in {7} | want {8}", tag, when, state, AnimName(recv), Penetration.Get(giver), Penetration.Running(giver), pc.Dan.On, pc.Inserted, want.Length > 0 ? want : "-");
+            foreach (var n in names)
+            {
+                var tr = HIK.Find(recv.objBodyBone.transform, n);
+                if (tr == null) { sb.Append(" | " + n + " none"); continue; }
+                float ang = Vector3.Angle(dir, tr.position - root.position);
+                sb.AppendFormat(" | {0}{1} ang {2:F0} tip {3:F3}", n == want ? "*" : "", n, ang, (tip.position - tr.position).magnitude);
+            }
+            return sb.ToString();
+        }
+
+        static string AnimName(ChaControl c)
+        {
+            if (c == null || c.animBody == null) return "-";
+            var s = c.animBody.GetCurrentAnimatorStateInfo(0);
+            foreach (var n in new[] { "Idle", "Insert", "InsertIdle", "WLoop", "SLoop", "OLoop", "Pull", "Drop", "A_Insert", "A_InsertIdle", "A_WLoop", "A_SLoop", "A_Idle", "A_Pull", "A_Drop" })
+                if (s.IsName(n)) return n;
+            return "?" + s.shortNameHash;
         }
 
         // who takes her feet off their IK targets (the user's note: her legs follow her hips, the soles lose the floor - the targets
