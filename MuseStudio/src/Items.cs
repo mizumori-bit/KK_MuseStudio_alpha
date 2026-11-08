@@ -368,7 +368,7 @@ namespace MuseStudio
                 { "from", holder == "shelf" ? "shelf" : holder == "user" ? "user" : "hers" } };
             After(() =>
             {
-                if (!onUser) h.Stage.HoldProp(Json.Arr(d, "prop"), (float)Json.Num(Def, "drink_seconds", 12));
+                if (!onUser) h.Stage.HoldProp(Json.Obj(d, "hold"), (float)Json.Num(Def, "drink_seconds", 12));
                 Log.Add("used " + item + " by " + by + " on " + (onUser ? "user" : "character") + " " + Json.Write(applied));
                 h.Bridge.Event("item_used", ev);
             });

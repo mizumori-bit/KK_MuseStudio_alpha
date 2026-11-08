@@ -1345,6 +1345,17 @@ namespace MuseStudio
                 yield return Wait(0.4f);
                 bp.Advance(true);
                 bool itPending = h.Mood.PendingCountForCheck >= 2 && it.Count(her, "beer") == 0 && EventCount("item_used") == itUsedEv0 + 1;
+                // (the owner's note on #70) held as the original holds a drink: its bottle on the right hand's item point, her
+                // body the original's standing drink; over, the bottle gone and her scene again
+                yield return Wait(0.4f);
+                bool itHold = st.PropShown == "p_o_koi_ei_petboto00" && st.PropParent == "k_f_handR_00" && st.PropMotionNow == "Drink3"
+                              && st.Cha.animBody.GetCurrentAnimatorStateInfo(0).IsName("Drink3");
+                string itHoldWhy = st.PropShown + " on " + st.PropParent + " motion " + st.PropMotionNow + " playing Drink3 " + st.Cha.animBody.GetCurrentAnimatorStateInfo(0).IsName("Drink3");
+                st.EndPropForCheck();
+                yield return Wait(0.6f);
+                bool itHoldOver = st.PropShown == "" && st.PropMotionNow == "" && !st.Cha.animBody.GetCurrentAnimatorStateInfo(0).IsName("Drink3");
+                Check("items: her drink held as the original holds one - its bottle on the right hand's item point, her body its standing drink (Drink3); over, the bottle gone and her scene again (the owner's note on #70)",
+                      itHold && itHoldOver, itHoldWhy + " over " + itHoldOver);
                 h.Mood.FlowForCheck(0.3f);
                 yield return Wait(0.8f);
                 float ix1 = h.Mood.ValueForCheck("intoxication");
