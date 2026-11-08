@@ -42,6 +42,7 @@ namespace MuseStudio
             if (room == "shoes") { yield return ShoesTry(); yield break; }
             if (room == "drinks") { yield return DrinksTry(); yield break; }
             if (room == "drinkplay") { yield return DrinkPlayTry(); yield break; }
+            if (room == "looktable") { yield return LookTableTry(); yield break; }
             if (room == "gripview") { yield return GripViewTry(); yield break; }
             if (room == "advitems") { yield return AdvItemsTry(); yield break; }
             if (room == "animeoptions") { yield return AnimeOptionsTry(); yield break; }
@@ -1715,14 +1716,14 @@ namespace MuseStudio
             if (given.Length > 0) foreach (var g in given.Split(';')) cases.Add(g.Split('|'));
             else
             {
-                cases.Add(new[] { "action/mapitem/00.unity3d", "p_o_koi_ei_petboto00" });
-                cases.Add(new[] { "action/mapitem/00.unity3d", "p_o_koi_ei_cup00", "", "", "chair_desk", "f_suwari_00_08_00", "f_suwari_00_08_01" });
+                cases.Add(new[] { "item", "beer" });
+                cases.Add(new[] { "item", "coffee" });
             }
             int k = 0;
             foreach (var cs in cases)
             {
                 k++;
-                var hold = new Dictionary<string, object> { { "bundle", cs[0] }, { "asset", cs[1] }, { "type", "k_f_handR_00" } };
+                var hold = cs[0] == "item" ? Json.Obj(h.Items.ItemDef(cs[1]), "hold") : new Dictionary<string, object> { { "bundle", cs[0] }, { "asset", cs[1] }, { "type", "k_f_handR_00" } };
                 if (cs.Length > 2 && cs[2].Length > 0) { var p = cs[2].Split(','); hold["pos"] = new List<object> { double.Parse(p[0]), double.Parse(p[1]), double.Parse(p[2]) }; }
                 if (cs.Length > 3 && cs[3].Length > 0) { var a = cs[3].Split(','); hold["angle"] = new List<object> { double.Parse(a[0]), double.Parse(a[1]), double.Parse(a[2]) }; }
                 if (cs.Length > 4 && cs[4].Length > 0) hold["arm"] = new Dictionary<string, object> { { "asset", cs[4] }, { "hold", cs[5] }, { "drink", cs[6] }, { "hand", cs.Length > 7 ? cs[7] : "R" } };
@@ -1739,13 +1740,15 @@ namespace MuseStudio
                 st.SipNowForCheck();
                 float t0 = Time.time, dMin = 99f, tMin = 0f;
                 int shot = 1;
-                while (Time.time - t0 < 15f)
+                while (Time.time - t0 < 18f)
                 {
                     float el = Time.time - t0;
                     float d = point != null ? Vector3.Distance(point.position, headT.position) : -1f;
                     if (d < dMin) { dMin = d; tMin = el; }
                     if ((shot == 1 && el >= 2.6f) || (shot == 2 && el >= 3.6f) || (shot == 3 && el >= 6f) || (shot == 4 && el >= 9f))
                     {
+                        lines.AppendLine(string.Format("  at {0:F1}s look {1} neck {2} eyes {3} away {4} arm {5} head {6:F2} motion {7}", el, h.Look.Why, cha.fileStatus.neckLookPtn,
+                            cha.fileStatus.eyesLookPtn, st.DrinkLooksAway, st.PropArmNow, st.PropArmHead, st.PropMotionNow));
                         Application.CaptureScreenshot(System.IO.Path.Combine(outDir, string.Format("item_{0}_{1}.png", k, shot)));
                         shot++;
                     }
@@ -2005,6 +2008,98 @@ namespace MuseStudio
                     cup != null ? (Quaternion.Inverse(hand.rotation) * cup.rotation).eulerAngles.ToString("F1") : "-",
                     arm != null ? (Quaternion.Inverse(arm.rotation) * hand.rotation).eulerAngles.ToString("F1") : "-",
                     cup != null ? cup.up.ToString("F2") : "-"));
+                st.EndPropForCheck();
+                yield return new WaitForSeconds(1f);
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // --muse-probe=looktable (#79: her upper body and her look while she drinks, as the original's): the original's table
+        // of the neck's look per motion state (action/list/talklookneck/: ActionGame.TalkLookNeck - ActionScene.talkLookNeckDic:
+        // isLook, may her neck turn to the one she talks to; else LookForDefault - eyes 0, neck 3 by the motion) - every entry
+        // with a drink's name, the count; then her personality's action controller's Drink3 / Drink / Drink4 played on her and
+        // their states' course (each state's name from the table, its time, its clip) for 26 s; then the head's turn against
+        // the neck through Drink3's sip
+        IEnumerator LookTableTry()
+        {
+            yield return new WaitForSeconds(2f);
+            var table = new Dictionary<int, string>();
+            var look = new Dictionary<int, bool>();
+            int all = 0;
+            try
+            {
+                foreach (var bn in CommonLib.GetAssetBundleNameListFromPath("action/list/talklookneck/", true))
+                    foreach (var tl in AssetBundleManager.LoadAllAsset(bn, typeof(ActionGame.TalkLookNeck), null).GetAllAssets<ActionGame.TalkLookNeck>())
+                        foreach (var p in tl.param)
+                        {
+                            all++;
+                            int hsh = Animator.StringToHash(p.StateName);
+                            table[hsh] = p.StateName;
+                            look[hsh] = p.isLook;
+                            string low = p.StateName.ToLower();
+                            if (low.Contains("drink") || low.Contains("juice") || low.Contains("tea") || low.Contains("cup"))
+                                lines.AppendLine("LOOK " + bn + " | " + tl.name + " | " + p.StateName + " isLook " + p.isLook);
+                        }
+            }
+            catch (Exception e) { lines.AppendLine("talklookneck: " + e.Message); }
+            lines.AppendLine("table entries " + all);
+            var looks = new List<string>();
+            foreach (var kv in table) looks.Add(kv.Value + (look[kv.Key] ? "+" : "-"));
+            looks.Sort();
+            lines.AppendLine("ALL " + string.Join(" ", looks.ToArray()));
+            var st = h.Stage;
+            var cha = st.Cha;
+            var an = cha.animBody;
+            var ctl = Stage.ActionController(cha.chaFile.parameter.personality);
+            var neck = HIK.Find(cha.objBodyBone.transform, "cf_j_neck");
+            var head = HIK.Find(cha.objBodyBone.transform, "cf_j_head");
+            foreach (var state in new[] { "Drink3", "Drink", "Drink4" })
+            {
+                var hold = new Dictionary<string, object> { { "asset", state == "Drink3" ? "p_o_koi_ei_petboto00" : state == "Drink" ? "p_o_koi_ei_cup00" : "p_o_koi_ei_petboto00" }, { "type", "k_f_handR_00" } };
+                st.HoldProp(hold, 60f, new Dictionary<string, object> { { "bundle", ctl[0] }, { "asset", ctl[1] }, { "hold", state } });
+                float t0 = Time.time;
+                int was = 0;
+                var sb = new StringBuilder();
+                while (Time.time - t0 < 26f)
+                {
+                    var si = an.GetCurrentAnimatorStateInfo(0);
+                    if (si.shortNameHash != was)
+                    {
+                        was = si.shortNameHash;
+                        string nm;
+                        if (!table.TryGetValue(was, out nm)) nm = "#" + was;
+                        var ci = an.GetCurrentAnimatorClipInfo(0);
+                        bool lk;
+                        sb.Append(string.Format("{0:F1}s {1} (isLook {2}, clip {3}, length {4:F2}) | ", Time.time - t0, nm, look.TryGetValue(was, out lk) ? lk.ToString() : "-",
+                            ci.Length > 0 && ci[0].clip != null ? ci[0].clip.name : "-", si.length));
+                    }
+                    yield return new WaitForSeconds(0.1f);
+                }
+                lines.AppendLine("COURSE " + state + ": " + sb);
+                st.EndPropForCheck();
+                yield return new WaitForSeconds(1f);
+            }
+            // the head through the original's standing drink (the bottle): its turn against the neck, the neck's against the
+            // chest, with the neck by the motion (3) and with it at the camera (1)
+            foreach (int ptn in new[] { 3, 1 })
+            {
+                st.Heroine.ChangeLookNeckPtn(ptn);
+                var hold = new Dictionary<string, object> { { "asset", "p_o_koi_ei_petboto00" }, { "type", "k_f_handR_00" } };
+                st.HoldProp(hold, 30f, Json.Obj(h.Items.Def, "drinking"));
+                yield return new WaitForSeconds(1.0f);
+                st.SipNowForCheck();
+                float t0 = Time.time;
+                var sb = new StringBuilder();
+                while (Time.time - t0 < 7f)
+                {
+                    sb.Append(string.Format("{0:F1}:{1:F0}/{2:F0} ", Time.time - t0, Quaternion.Angle(neck.parent.rotation, neck.rotation), Quaternion.Angle(neck.rotation, head.rotation)));
+                    yield return new WaitForSeconds(0.5f);
+                }
+                lines.AppendLine("HEAD neck pattern " + ptn + " (look " + h.Look.Why + " ptn now " + cha.fileStatus.neckLookPtn + "): " + sb);
                 st.EndPropForCheck();
                 yield return new WaitForSeconds(1f);
             }

@@ -26,11 +26,16 @@ namespace MuseStudio
         GameObject copy;
         Animator an;
         public string HoldState = "", SipState = "";
+        readonly List<Transform> headReal = new List<Transform>();
+        readonly List<Transform> headMine = new List<Transform>();
+        public float SipWeight;               // (the neck and head the sip's: 0 - 1)
+        bool seenSip;
+        public int StateHash { get { return an == null ? 0 : an.GetCurrentAnimatorStateInfo(0).shortNameHash; } }
         public int Bones { get { return real.Count; } }
         public string Now { get { return an == null ? "" : an.GetCurrentAnimatorStateInfo(0).IsName(SipState) ? SipState : HoldState; } }
 
         // hands: "R", "L" or "LR" (the original's tea bowl is held in both)
-        public static BorrowedArm Make(ChaControl cha, RuntimeAnimatorController rac, string hold, string sip, string hands)
+        public static BorrowedArm Make(ChaControl cha, RuntimeAnimatorController rac, string hold, string sip, string hands, List<string> head = null)
         {
             if (cha == null || cha.animBody == null || rac == null || string.IsNullOrEmpty(hold)) return null;
             var top = cha.animBody.transform;
@@ -57,6 +62,15 @@ namespace MuseStudio
                 a.moves.Add(point);
                 a.placeWas.Add(t.localPosition);
                 a.turnWas.Add(t.localRotation);
+            }
+            // (her neck and head too, through the sip: the original drinks with them - #79; turned towards the sip's over
+            // SipWeight, from the look's own before it)
+            foreach (var name in head ?? new List<string>())
+            {
+                var b = HIK.Find(body, name);
+                if (b == null) continue;
+                a.headReal.Add(b);
+                a.headMine.Add(CopyOf(b, top, a.copy.transform, made));
             }
             a.an = a.copy.AddComponent<Animator>();
             a.an.runtimeAnimatorController = rac;
@@ -87,19 +101,34 @@ namespace MuseStudio
             return c;
         }
 
-        public void Sip() { if (an != null && SipState.Length > 0) an.CrossFadeInFixedTime(SipState, 0.3f, 0, 0f); }
+        public void Sip() { if (an != null && SipState.Length > 0) { an.CrossFadeInFixedTime(SipState, 0.3f, 0, 0f); seenSip = false; } }
 
-        public void Back() { if (an != null) an.CrossFadeInFixedTime(HoldState, 0.4f, 0, 0f); }
+        public void Back() { if (an != null && !an.GetCurrentAnimatorStateInfo(0).IsName(HoldState)) an.CrossFadeInFixedTime(HoldState, 0.4f, 0, 0f); }
 
+        // over: the original's own way back to the hold done (its sip state returns by itself), or the sip at its end
         public bool SipOver
         {
             get
             {
                 if (an == null || SipState.Length == 0) return true;
                 var si = an.GetCurrentAnimatorStateInfo(0);
-                return si.IsName(SipState) && si.normalizedTime >= 0.97f && !an.IsInTransition(0);
+                bool inSip = si.IsName(SipState);
+                if (inSip) seenSip = true;
+                return !an.IsInTransition(0) && seenSip && (!inSip || si.normalizedTime >= 0.97f);
             }
         }
+
+        public bool InSip
+        {
+            get
+            {
+                if (an == null || SipState.Length == 0) return false;
+                if (an.GetCurrentAnimatorStateInfo(0).IsName(SipState)) return true;
+                return an.IsInTransition(0) && an.GetNextAnimatorStateInfo(0).IsName(SipState);
+            }
+        }
+
+        public void Tick(float dt) { SipWeight = Mathf.MoveTowards(SipWeight, InSip ? 1f : 0f, dt / 0.4f); }
 
         public void Apply(float speed)
         {
@@ -111,6 +140,9 @@ namespace MuseStudio
                 real[i].localRotation = mine[i].localRotation;
                 if (moves[i]) real[i].localPosition = mine[i].localPosition;
             }
+            if (SipWeight > 0f)
+                for (int i = 0; i < headReal.Count; i++)
+                    if (headReal[i] != null && headMine[i] != null) headReal[i].localRotation = Quaternion.Slerp(headReal[i].localRotation, headMine[i].localRotation, SipWeight);
         }
 
         public void Destroy()

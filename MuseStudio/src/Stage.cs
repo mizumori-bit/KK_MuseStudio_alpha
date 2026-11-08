@@ -1290,6 +1290,8 @@ namespace MuseStudio
         BorrowedArm propArm;                 // (the arm holding the item as the original holds it, where her body's own drink does not - BorrowedArm.cs)
         public string PropArmNow = "";       // (checks) the arm's state now ("" none)
         public int PropArmBones;             // (checks)
+        public float PropArmHead { get { return propArm != null ? propArm.SipWeight : 0f; } }     // (checks) the neck and head the sip's
+        bool propSeenSip;
         public int PropSips;                 // (checks) sips begun
         public int PropSipsDone;             // (checks) sips played to their end
         RuntimeAnimatorController propRacWas, propRacDrink;      // (her motion before the drink, and the drink's controller)
@@ -1366,7 +1368,12 @@ namespace MuseStudio
                     var racWas = an.runtimeAnimatorController;
                     var si = an.GetCurrentAnimatorStateInfo(0);
                     Blend.Next(Cha, 0.4f);
-                    var mo = new Illusion.Game.Elements.EasyLoader.Motion(Json.Str(dm, "bundle", "studio/anime/00.unity3d"), Json.Str(dm, "asset", "tachi"), holdState);
+                    // (her personality's action controller - the original's own states, their speeds, their look table - unless
+                    // a controller is given)
+                    var ctl = Json.Has(dm, "asset") ? new[] { Json.Str(dm, "bundle", "studio/anime/00.unity3d"), Json.Str(dm, "asset", "") }
+                                                    : (ActionController(Cha.chaFile.parameter.personality) ?? ActionController(0));
+                    if (ctl == null) return;
+                    var mo = new Illusion.Game.Elements.EasyLoader.Motion(ctl[0], ctl[1], holdState);
                     mo.Setting(an);
                     if (an.HasState(0, Animator.StringToHash(holdState)))
                     {
@@ -1380,6 +1387,7 @@ namespace MuseStudio
                         propHoldState = holdState;
                         propSipState = an.HasState(0, Animator.StringToHash(sipState)) ? sipState : "";
                         propPhase = 0;
+                        propSeenSip = false;
                         propSipAt = Time.realtimeSinceStartup + (float)Json.Num(dm, "sip_after", 1.5);
                         propSipMax = (float)Json.Num(dm, "sip_max_seconds", 10.0);
                         // the arm as the original holds this item, where her standing drink's is the bottle's (hold.arm: the
@@ -1390,8 +1398,13 @@ namespace MuseStudio
                         {
                             try
                             {
-                                var rac = CommonLib.LoadAsset<RuntimeAnimatorController>(Json.Str(arm, "bundle", "studio/anime/00.unity3d"), Json.Str(arm, "asset", ""), false, string.Empty);
-                                propArm = BorrowedArm.Make(Cha, rac, Json.Str(arm, "hold", ""), Json.Str(arm, "drink", ""), Json.Str(arm, "hand", "R"));
+                                var actl = Json.Has(arm, "asset") ? new[] { Json.Str(arm, "bundle", "studio/anime/00.unity3d"), Json.Str(arm, "asset", "") }
+                                                                  : (ActionController(Cha.chaFile.parameter.personality) ?? ActionController(0));
+                                var rac = actl != null ? CommonLib.LoadAsset<RuntimeAnimatorController>(actl[0], actl[1], false, string.Empty) : null;
+                                var headBones = new List<string>();
+                                var hb = Json.Arr(arm, "head");
+                                if (hb != null) foreach (var x in hb) headBones.Add(Convert.ToString(x));
+                                propArm = BorrowedArm.Make(Cha, rac, Json.Str(arm, "hold", ""), Json.Str(arm, "drink", ""), Json.Str(arm, "hand", "R"), headBones);
                                 if (propArm != null)
                                 {
                                     propSipMax = (float)Json.Num(arm, "sip_max_seconds", 15.0);
@@ -1414,6 +1427,60 @@ namespace MuseStudio
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: the drink held: " + e.Message); DropProp(); }
         }
 
+        // Her look while she drinks, as the original's (#79: her head did not drink with her arm - the talk's look turned her
+        // neck to the user all through): the original's table of the neck's look per motion state (action/list/talklookneck/:
+        // ActionScene.talkLookNeckDic; read by --muse-probe=looktable) lets the hold turn it to the one she talks to (Drink3,
+        // Drink, Drink4: isLook) and not the sip (Drink3 0, Drink 0, Drink4 0); there the original looks ahead by the motion
+        // (Base.LookForDefault: the eyes' pattern 0, the neck's 3) - her head drinks as the motion has it. The state is her
+        // body's, or the arm's when an arm holds the item.
+        static Dictionary<int, bool> lookTable;
+
+        static bool LookAllowed(int stateHash)
+        {
+            if (lookTable == null)
+            {
+                lookTable = new Dictionary<int, bool>();
+                try
+                {
+                    foreach (var bn in CommonLib.GetAssetBundleNameListFromPath("action/list/talklookneck/", true))
+                        foreach (var tl in AssetBundleManager.LoadAllAsset(bn, typeof(ActionGame.TalkLookNeck), null).GetAllAssets<ActionGame.TalkLookNeck>())
+                            foreach (var p in tl.param) lookTable[Animator.StringToHash(p.StateName)] = p.isLook;
+                }
+                catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: the look table: " + e.Message); }
+            }
+            bool ok;
+            return !lookTable.TryGetValue(stateHash, out ok) || ok;
+        }
+
+        public bool DrinkLooksAway
+        {
+            get
+            {
+                if (!propMotion || Cha == null || Cha.animBody == null || Cha.animBody.runtimeAnimatorController != propRacDrink) return false;
+                int hash = propArm != null ? propArm.StateHash : Cha.animBody.GetCurrentAnimatorStateInfo(0).shortNameHash;
+                return hash != 0 && !LookAllowed(hash);
+            }
+        }
+
+        bool drinkEyes;
+        public int DrinkLooks;               // (checks) times her look went ahead for a sip
+
+        void DrinkLookTick()
+        {
+            if (Heroine == null || Cha == null) return;
+            if (DrinkLooksAway)
+            {
+                if (!drinkEyes) DrinkLooks++;
+                drinkEyes = true;
+                if (Cha.fileStatus.eyesLookPtn != 0) Heroine.ChangeLookEyesPtn(0);
+            }
+            else if (drinkEyes)
+            {
+                drinkEyes = false;
+                SceneGaze();                 // (her eyes at the user again)
+            }
+        }
+
         internal void EndPropForCheck() { if (propUntil > 0f) { propUntil = Time.realtimeSinceStartup; propSipMax = 0f; } }     // (checks) the drink over now
         internal void SipNowForCheck() { if (propMotion && propPhase == 0) propSipAt = Time.realtimeSinceStartup; }             // (checks) the sip now
 
@@ -1426,9 +1493,10 @@ namespace MuseStudio
             float now = Time.realtimeSinceStartup;
             if (propArm != null)
             {
-                // (the arm's sip: her body holds still)
+                // (the arm's sip - her body holds still, her neck and head the sip's: BorrowedArm)
                 if (propPhase == 0 && propArm.SipState.Length > 0 && now >= propSipAt) { propArm.Sip(); propPhase = 1; propSipSince = now; PropSips++; }
                 else if (propPhase == 1 && now - propSipSince > 0.5f && (propArm.SipOver || now - propSipSince >= propSipMax)) { propArm.Back(); propPhase = 2; PropSipsDone++; }
+                propArm.Tick(Time.deltaTime);
                 PropArmNow = propArm.Now;
                 return;
             }
@@ -1442,10 +1510,14 @@ namespace MuseStudio
             }
             else if (propPhase == 1 && now - propSipSince > 0.5f)
             {
+                // (over: the original's own way back to the hold done - or its sip at its end, or the time past)
                 var si = an.GetCurrentAnimatorStateInfo(0);
-                if ((si.IsName(propSipState) && si.normalizedTime >= 0.97f && !an.IsInTransition(0)) || now - propSipSince >= propSipMax)
+                bool inSip = si.IsName(propSipState);
+                if (inSip) propSeenSip = true;
+                bool over = !an.IsInTransition(0) && propSeenSip && (!inSip || si.normalizedTime >= 0.97f);
+                if (over || now - propSipSince >= propSipMax)
                 {
-                    an.CrossFadeInFixedTime(propHoldState, 0.4f, 0, 0f);
+                    if (!si.IsName(propHoldState)) an.CrossFadeInFixedTime(propHoldState, 0.4f, 0, 0f);
                     propPhase = 2;
                     PropMotionNow = propHoldState;
                     PropSipsDone++;
@@ -1516,6 +1588,7 @@ namespace MuseStudio
             if (Partner != null) PartnerPushup.Tick(Partner.charInfo);
             diag.Tick(this);
             PropSipTick();
+            DrinkLookTick();
             if (propUntil > 0f && (MuseStudioPlugin.Instance.Play.Active || (Time.realtimeSinceStartup >= propUntil
                 && (propPhase != 1 || Time.realtimeSinceStartup - propSipSince >= propSipMax)))) DropProp();
             SceneFaceTick();
