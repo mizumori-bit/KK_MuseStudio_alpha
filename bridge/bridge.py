@@ -134,7 +134,7 @@ STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "e
                 "settings", "play_serial", "items", "contract")      # (the contract's 7.4: test_state_fields.py holds them to it)
 # (#70 adopted, 5) the contract's version this bridge speaks (MUSE_GUIDE.md's: test_contract_quick.py holds them together);
 # the app's own is in its state (contract)
-CONTRACT = "1.38"
+CONTRACT = "1.39"
 SPEAKERS = ("self", "opponent")        # package.speaker (the match: the opponent's package, forwarded by the local Muse)
 MATCH_PHASES = ("intro", "negotiation", "sex", "end")
 MATCH_SIDES = ("host", "guest")

@@ -43,7 +43,7 @@ namespace MuseStudio
         internal ConfigEntry<int> YourClothes;
         internal ConfigEntry<bool> ShowGaugePercent;     // (#70 adopted: the gauge's % on the screen - off by default, the setting kept)
         // (#70 adopted, 5) the contract's version this app speaks (MUSE_GUIDE.md's: the bridge's tests hold them together)
-        public const string Contract = "1.38";
+        public const string Contract = "1.39";
         internal ConfigEntry<KeyboardShortcut> HitShapesKey;
         internal ConfigEntry<KeyboardShortcut> HideUiKey;
         ConfigEntry<string> resetCameraEntry, resetPlacesEntry, scanRoomsEntry;
@@ -806,23 +806,31 @@ namespace MuseStudio
                 // standard one)
                 string ck = Stage.CameraKey;
                 if (!CameraMemory.Recall(key) && (ck.Length == 0 || ck.StartsWith("play") || !Stage.ApplyCamera(ck, true))) Stage.ApplyCamera("medium", true);
-                // (while she is out on her own, or he went alone, where he goes is nothing she knows: told when she is with him again)
-                if (!Outing.Out && !Presence.Apart)
+                // where he goes is known to her (#101 item 1, the owner's decision: where the two are is open), apart too - but
+                // while she is out on her own (the app holds it back: told when she is done or finds him); the catalog (his
+                // room's plays) when she is with him
+                if (!Outing.Out)
                 {
-                    if (!alone || Presence.Cause != "user_came")
-                        Bridge.Event("location_changed", new Dictionary<string, object> { { "location", Stage.LocationInfo(key) }, { "previous", prev }, { "source", source } });
-                    SendCatalog();
+                    Bridge.Event("location_changed", LocationChanged(key, prev, source));
+                    if (!Presence.Apart) SendCatalog();
                 }
             }
         }
 
-        // she is with him again after being out (met at her return, or found by his call): his room now, if it is not the one she
-        // left him in, told then (and the catalog of it)
+        // she is out no more (met at her return, back apart, or found by his call): his room now, if it is not the one she left
+        // him in, told then (and the catalog of it, with him)
         public void Rejoined(string cause, string known)
         {
             if (known.Length == 0 || known == Stage.Location) return;
-            Bridge.Event("location_changed", new Dictionary<string, object> { { "location", Stage.LocationInfo(Stage.Location) }, { "previous", known }, { "source", cause } });
-            SendCatalog();
+            Bridge.Event("location_changed", LocationChanged(Stage.Location, known, cause));
+            if (!Presence.Apart) SendCatalog();
+        }
+
+        // location_changed: his room (and where she is, and the two's presence: apart or not - #101 item 1)
+        Dictionary<string, object> LocationChanged(string key, string prev, string source)
+        {
+            return new Dictionary<string, object> { { "location", Stage.LocationInfo(key) }, { "previous", prev }, { "source", source },
+                { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "presence", Presence.Info() } };
         }
 
         public Dictionary<string, object> State()
@@ -830,7 +838,7 @@ namespace MuseStudio
             return new Dictionary<string, object> {
                 { "app_name", "MuseStudio" }, { "mode", Chars.Creating ? "creation" : "stage" },
                 { "character", Chars.Info() }, { "outfit", Stage.Cha != null ? CharaSummary.OutfitNow(Stage.Cha) : null },
-                { "location", Stage.LocationInfo(Outing.Out && Outing.KnownRoom.Length > 0 ? Outing.KnownRoom : Presence.Apart ? Presence.HerRoom : Stage.Location) },     // (her knowledge of where he is: out, or he went alone - where she last saw him)
+                { "location", Stage.LocationInfo(Outing.Out && Outing.KnownRoom.Length > 0 ? Outing.KnownRoom : Stage.Location) },     // (his room - but while she is out: the room she left him in; #101 item 1)
                 { "scene", Play.Active ? Play.SceneInfo() : new Dictionary<string, object> { { "key", Stage.SceneKey }, { "intensity", Stage.Intensity }, { "speed", Stage.Speed } } },
                 { "emotion", Stage.Emotion }, { "face", Stage.FaceInfo() }, { "camera", Stage.CameraKey }, { "package", Blocks.Info() }, { "play", Play.Info() }, { "play_serial", Play.Serial }, { "contract", Contract },
                 { "gauge", Gauge.Info() }, { "beat", Beat.Info() }, { "mood", Mood.Info() },
@@ -913,7 +921,14 @@ namespace MuseStudio
         {
             var unknown = new List<string>();
             var noHalf = new List<string>();
+            var before = Stage.Cha != null ? (byte[])Stage.Cha.fileStatus.clothesState.Clone() : null;
             var changed = Clothes.Apply(Stage.Cha, want, unknown, null, noHalf);
+            if (before != null && Play.Active)
+            {
+                // (in a play: her base clothes from now on - what its end puts back; #101 item 2)
+                var now = Stage.Cha.fileStatus.clothesState;
+                for (int k = 0; k < Math.Min(before.Length, now.Length); k++) if (now[k] != before[k]) Play.Rebase(k, now[k]);
+            }
             if (changed.Count > 0)
                 Bridge.Event("clothes_changed", new Dictionary<string, object> { { "clothes", Clothes.Info(Stage.Cha) }, { "changed", changed }, { "by", by } });
             if (unknown.Count > 0 && by == "muse")

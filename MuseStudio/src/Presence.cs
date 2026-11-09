@@ -71,7 +71,9 @@ namespace MuseStudio
 
         public Dictionary<string, object> Info()
         {
-            return new Dictionary<string, object> { { "user_present", Perceived }, { "together", Together } };
+            // location_known: the state's location is his room now (false while she is out and does not see him: the room she
+            // left him in - #101 item 1)
+            return new Dictionary<string, object> { { "user_present", Perceived }, { "together", Together }, { "location_known", !h.Outing.Out || h.Outing.SeesHim } };
         }
 
         public Dictionary<string, object> BeliefInfo() { return new Dictionary<string, object> { { "user_away", BeliefAway } }; }

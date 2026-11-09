@@ -1029,10 +1029,13 @@ namespace MuseStudio
             var cha = stage.Cha;
             Strapon.Off(cha);
             stage.Heroine.SetVisibleSon(charSonBefore);
-            foreach (var kv in clothesBefore) cha.SetClothesState(kv.Key, kv.Value, false);
+            bool together = nudeNow;
+            // her base clothes again: as before the play, with what was changed in it (#101 item 2, the owner's decision); after
+            // the bath's play (shower together) the outfit she has on, worn in full (not the card's)
+            if (together) for (int k = 0; k < cha.fileStatus.clothesState.Length; k++) cha.SetClothesState(k, 0, false);
+            else foreach (var kv in clothesBefore) cha.SetClothesState(kv.Key, kv.Value, false);
             BathAccessories.Back(cha, accBefore);
             accBefore = null;
-            bool together = nudeNow;
             nudeNow = false;
             clothesBefore.Clear();
             Current = null;
@@ -1104,7 +1107,8 @@ namespace MuseStudio
         }
 
         // HSceneProc.SetClothStateStartMotion: the position's numFemaleUpperCloth / LowerCloth through the original's
-        // GlobalMethod.SetAllClothState (only towards bare). Put back when the play ends, as the original after H.
+        // GlobalMethod.SetAllClothState (only towards bare). Put back when the play ends, as the original after H: her base
+        // clothes (clothesBefore), which take what is changed while the play runs (Rebase - #101 item 2).
         // an insertion: the receiver's shorts shifted aside (the trial run of 2026-11-04) where the garment has a half state (the
         // original's 半脱 of its state kinds); else as the position has them
         ChaControl ReceiverCha()
@@ -1134,6 +1138,13 @@ namespace MuseStudio
             if (cha.dictStateType == null || !cha.dictStateType.TryGetValue(3, out kinds) || !kinds.ContainsKey(1)) return false;
             cha.SetClothesState(3, 1, false);
             return true;
+        }
+
+        // a change of her clothes while the play runs (the panel's 服, a block's clothes): her base from now on - left as it is
+        // when the play ends or changes (#101 item 2: her clothes kept; the position's undressing is the play's own)
+        public void Rebase(int k, byte v)
+        {
+            if (Active && clothesBefore.Count > 0) clothesBefore[k] = v;
         }
 
         void Undress()
