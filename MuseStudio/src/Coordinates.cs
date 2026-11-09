@@ -135,6 +135,7 @@ namespace MuseStudio
             if (h.Stage == null || h.Stage.Heroine == null || !h.Stage.Ready) return "not_ready";
             if (h.Chars.Creating) return "creation";
             if (h.Match.Active || h.Match.Loading) return "in_match";
+            if (h.Bath.Busy) return "in_bath";          // (the bath: nude until it ends - #70 adopted)
             if (h.Play.Active) return "in_play";
             if (h.Outing.Out && !ownChange) return "she_is_out";
             return "";

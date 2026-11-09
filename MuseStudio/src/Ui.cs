@@ -817,6 +817,7 @@ namespace MuseStudio
             }
             if (host.Match.Active) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（対戦中）", small);
             else if (host.Kensei.Busy) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（献精中）", small);
+            else if (host.Bath.Busy) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（入浴中）", small);
             else if (GUI.Button(new Rect(x, y, w, lh), menu == "chara" ? "閉じる" : "キャラ：" + host.Stage.Name, menu == "chara" ? openButton : button)) menu = menu == "chara" ? "" : "chara";
             y += lh + 4f * s;
             bool auto = GUI.Toggle(new Rect(x, y, w / 2f - 4f, lh), host.Blocks.Auto, host.Blocks.Auto ? "自動送り：入" : "自動送り：切", button);
@@ -915,13 +916,36 @@ namespace MuseStudio
             Buttons["場所"] = new Rect(x, y, w3, lh);
             Buttons["プレイ"] = new Rect(x + w3 + 4f, y, w3, lh);
             Buttons["服"] = new Rect(x + 2f * (w3 + 4f), y, w3, lh);
-            GUI.enabled = !host.Kensei.Busy;          // (献精室: the room and the plays are the run's - or being tried)
+            // (献精室: the room and the plays are the run's - or being tried; the bath: its room and the two nude until it ends)
+            if (host.Bath.Busy && (menu == "location" || menu == "clothes" || menu == "chara" || menu == "replay")) menu = "";
+            GUI.enabled = !host.Kensei.Busy && !host.Bath.Busy;
             if (GUI.Button(new Rect(x, y, w3, lh), menu == "location" ? "閉じる" : "場所", menu == "location" ? openButton : button)) menu = menu == "location" ? "" : "location";
+            GUI.enabled = !host.Kensei.Busy && !host.Bath.Going && !host.Bath.Leaving;
             if (GUI.Button(new Rect(x + w3 + 4f, y, w3, lh), menu == "play" ? "閉じる" : "プレイ", menu == "play" ? openButton : button)) menu = menu == "play" ? "" : "play";
-            GUI.enabled = !host.Outing.Out;
+            GUI.enabled = !host.Outing.Out && !host.Bath.Busy;
             if (GUI.Button(new Rect(x + 2f * (w3 + 4f), y, w3, lh), menu == "clothes" ? "閉じる" : "服", menu == "clothes" ? openButton : button)) menu = menu == "clothes" ? "" : "clothes";
             GUI.enabled = true;
             y += lh + 6f * s;
+            // the bath (#70 adopted): where it goes back to; its end (in a play: プレイを終える below)
+            var bath = host.Bath;
+            if (bath.Going || bath.Leaving)
+            {
+                GUI.Label(new Rect(x, y, w, lh), bath.Going ? "浴室へ移っています…" : "部屋へ戻っています…", small);
+                y += lh + 4f * s;
+            }
+            else if (bath.Active)
+            {
+                string back = Json.Str(host.Stage.LocationInfo(bath.ReturnRoom), "name", bath.ReturnRoom);
+                GUI.Label(new Rect(x, y, w, lh), "入浴中（終えると「" + back + "」へ戻ります）", small);
+                y += lh;
+                if (pc == null || !pc.Active)
+                {
+                    Buttons["入浴を終える"] = new Rect(x, y, w, lh);
+                    if (GUI.Button(new Rect(x, y, w, lh), "入浴を終える", accentButton)) bath.Finish("user");
+                    y += lh;
+                }
+                y += 4f * s;
+            }
             if (pc != null && pc.Active)
             {
                 GUI.Label(new Rect(x, y, w, lh), string.Format("{0}（{1}）{2}", Json.Str(pc.Current, "name"), Json.Str(pc.Info(), "pace_name"),
@@ -946,7 +970,7 @@ namespace MuseStudio
                     GUI.Label(new Rect(x, y, w, lh), (pc.Inserted ? "入っている　" : "抜けている（入れるかは Muse）　") + ct, small);
                     y += lh;
                     GUI.enabled = pc.Inserted && !pc.Climax.Running;
-                    if (GUI.Button(new Rect(x, y, w, lh), pc.Inserted ? "抜く" : "抜いた", button)) { pc.LastInput = Time.realtimeSinceStartup; pc.Pull(); }
+                    if (GUI.Button(new Rect(x, y, w, lh), pc.Inserted ? "抜く" : "抜いた", button)) { pc.UserPull(); }
                     GUI.enabled = true;
                     y += lh;
                 }
@@ -957,7 +981,13 @@ namespace MuseStudio
                     // the user's eyes / the position's camera; the user's clothes
                     if (GUI.Button(new Rect(x, y, w / 2f - 4f, lh), pc.View == "pov" ? "体位カメラへ" : "目線へ", button)) pc.SetView(pc.View == "pov" ? "position" : "pov");
                     int cl = Mathf.Clamp(host.YourClothes.Value, 0, 2);
-                    if (GUI.Button(new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh), "あなたの服：" + new[] { "着たまま", "半脱ぎ", "脱ぐ" }[cl], button)) pc.SetPartnerClothes((cl + 1) % 3);
+                    if (bath.Active)
+                    {
+                        GUI.enabled = false;
+                        GUI.Button(new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh), "あなたの服：脱ぐ（入浴中）", button);
+                        GUI.enabled = true;
+                    }
+                    else if (GUI.Button(new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh), "あなたの服：" + new[] { "着たまま", "半脱ぎ", "脱ぐ" }[cl], button)) pc.SetPartnerClothes((cl + 1) % 3);
                     y += lh + 4f * s;
                     // your body as the original H's male: shown / see-through / a silhouette / hidden (Z / V / C), the penis (X)
                     int bm = !host.YourBodyShown.Value ? 3 : !pc.SilhouetteAvailable ? 0 : host.YourTranslucent.Value ? 1 : host.YourSilhouette.Value ? 2 : 0;
@@ -981,7 +1011,12 @@ namespace MuseStudio
                 }
                 // the original's camera of the position again after the user turned it (the Godot app's カメラを戻す)
                 if (GUI.Button(new Rect(x, y, w / 2f - 4f, lh), "カメラを戻す", button)) { if (pc.View == "pov") pc.SetView("pov"); else pc.Camera(false); }
-                if (GUI.Button(new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh), "プレイを終える", button)) pc.End("user");
+                Buttons["プレイを終える"] = new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh);
+                if (GUI.Button(new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh), "プレイを終える", button))
+                {
+                    if (bath.Active) bath.Finish("user");          // (in the bath: its end - the play's first, then back to the room)
+                    else pc.End("user");
+                }
                 y += lh + 6f * s;
             }
             else
@@ -993,7 +1028,10 @@ namespace MuseStudio
                     host.Stage.ApplyCamera(key.Length > 0 && !key.StartsWith("play") ? key : "medium", false);
                 }
                 Buttons["リプレイ"] = new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh);
-                if (GUI.Button(new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh), menu == "replay" ? "閉じる" : "リプレイ", menu == "replay" ? openButton : button))
+                GUI.enabled = !bath.Busy;           // (a replay: another stage, her card swapped - not in the bath)
+                bool replayPressed = GUI.Button(new Rect(x + w / 2f + 4f, y, w / 2f - 4f, lh), menu == "replay" ? "閉じる" : "リプレイ", menu == "replay" ? openButton : button);
+                GUI.enabled = true;
+                if (replayPressed)
                 {
                     menu = menu == "replay" ? "" : "replay";
                     replays = null;
@@ -1291,7 +1329,7 @@ namespace MuseStudio
             string blocked = co.Blocked(false);
             if (blocked.Length > 0)
             {
-                GUILayout.Label(blocked == "in_play" ? "プレイ中は着替えられません" : blocked == "in_match" ? "対戦中は着替えられません"
+                GUILayout.Label(blocked == "in_bath" ? "入浴中は着替えられません" : blocked == "in_play" ? "プレイ中は着替えられません" : blocked == "in_match" ? "対戦中は着替えられません"
                     : blocked == "she_is_out" ? "彼女が出かけています" : "今は着替えられません", small);
                 return;
             }

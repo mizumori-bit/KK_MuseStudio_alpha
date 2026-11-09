@@ -131,10 +131,10 @@ RATE_LIMITS = {"muse": [20, 100], "app": [100, 400], "all": [120, 500], "anon": 
 APP_SEEN_SECONDS = 5.0         # the app polls /api/packages/next every second: "connected" if it did within this
 STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "emotion", "face", "camera", "package", "gauge", "play", "mood",
                 "beat", "presence", "belief", "urges", "outing", "her_location", "relationship", "clothes", "app_name", "match",
-                "settings", "play_serial", "items", "contract", "standby", "kensei")      # (the contract's 7.4: test_state_fields.py holds them to it)
+                "settings", "play_serial", "items", "contract", "standby", "kensei", "bath")      # (the contract's 7.4: test_state_fields.py holds them to it)
 # (#70 adopted, 5) the contract's version this bridge speaks (MUSE_GUIDE.md's: test_contract_quick.py holds them together);
 # the app's own is in its state (contract)
-CONTRACT = "1.42"
+CONTRACT = "1.43"
 SPEAKERS = ("self", "opponent")        # package.speaker (the match: the opponent's package, forwarded by the local Muse)
 MATCH_PHASES = ("intro", "negotiation", "sex", "end")
 MATCH_SIDES = ("host", "guest")

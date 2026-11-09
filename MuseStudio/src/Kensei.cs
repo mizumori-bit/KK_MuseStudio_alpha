@@ -183,6 +183,7 @@ namespace MuseStudio
         {
             if (Busy) return Active ? "running" : "scanning";
             if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
+            if (h.Bath.Busy) return "in_bath";
             if (h.Outing.Out) return "she_is_out";
             if (h.Presence.Apart) return "apart";
             if (h.Chars.Creating) return "creation";
@@ -262,6 +263,7 @@ namespace MuseStudio
             if (endDirty) return "ending";
             if (Pending != null) return "pending";
             if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
+            if (h.Bath.Busy) return "in_bath";            // (the bath: #70 adopted)
             if (h.Outing.Out) return "she_is_out";
             if (h.Presence.Apart) return "apart";
             if (h.Chars.Creating) return "creation";
@@ -279,6 +281,7 @@ namespace MuseStudio
                 case "pending": return "終わっていない献精の記録があります（続けるか、終えるかを選んでください）";
                 case "in_match": return "対戦・リプレイの間は始められません";
                 case "she_is_out": return "彼女がお出かけ中です";
+                case "in_bath": return "入浴中は始められません";
                 case "apart": return "彼女と同じ部屋にいるときだけ始められます";
                 case "creation": return "キャラメイクの間は始められません";
                 case "needs_male_body": return "あなたの体が男性の体のときだけ遊べます（設定「あなたの体」）";
@@ -899,6 +902,7 @@ namespace MuseStudio
             if (Active) return "running";
             if (endDirty) return "ending";
             if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
+            if (h.Bath.Busy) return "in_bath";            // (the bath: #70 adopted)
             if (h.Outing.Out) return "she_is_out";
             if (h.Presence.Apart) return "apart";
             if (h.Chars.Creating) return "creation";

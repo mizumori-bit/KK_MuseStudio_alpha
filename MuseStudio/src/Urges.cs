@@ -12,7 +12,7 @@ namespace MuseStudio
     // told again until the mood has been below its mark. The moods carry over a restart: at the start (the character chosen)
     // and on a switch the urges holding then are told (carried_over / character_changed). A block's action (Muse's entry for
     // what she does): masturbation (her own play at the spot nearest her, as the mood's trigger did), toilet / shower (she
-    // goes on her own: Outing), shower_together (both move to the shower room, nude, and a play begins there).
+    // goes on her own: Outing), shower_together (both move to the shower room, nude - the bath: Bath; no play begins with it).
     public class Urges
     {
         public class Urge { public string Key = "", Name = "", Cause = ""; public DateTime Since; public float LastTold; public int Told; public bool ByMood; }
@@ -133,7 +133,7 @@ namespace MuseStudio
         }
 
         // an action of Muse's met the urges it answers
-        void Answered(string action)
+        internal void Answered(string action)
         {
             foreach (var kv in Defs)
             {
@@ -156,9 +156,11 @@ namespace MuseStudio
             else if (h.Outing.Out) why = "she_is_out";
             else if (h.Match.Active || h.Match.Loading) why = "in_match";
             else if (h.Chars.Creating) why = "creation";
+            else if (h.Bath.Busy && kind != "masturbation") why = "in_bath";       // (the bath: no outing, no second bath - #70 adopted)
             else if (kind == "masturbation") why = h.Mood.StartMasturbation("arousal", "action");
             else if (kind == "toilet" || kind == "shower" || kind == "alone" || kind == "change") why = h.Outing.Go(kind, opts);
-            else if (kind == "shower_together") MuseStudioPlugin.Instance.StartCoroutine(ShowerTogether(Json.Str(opts, "play")));
+            else if (kind == "shower_together") why = h.Bath.Go(opts);
+            if (why.Length == 0 && kind == "shower_together") return;           // (told at the arrival: Bath)
             if (why.Length > 0)
             {
                 h.Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "action" }, { "value", kind }, { "reason", why },
@@ -170,33 +172,6 @@ namespace MuseStudio
             h.Mood.ActionDone(kind);           // (a shower: the wish to shower back to 0)
             Answered(kind);
             if (kind == "alone" && h.Outing.Masturbating) Answered("masturbation");      // (her own time with her hand: the arousal's urge)
-        }
-
-        // both to the shower room, nude, and the first play that can start there (or the block's)
-        IEnumerator ShowerTogether(string play)
-        {
-            var st = Json.Obj(Doc, "shower_together");
-            string room = Json.Str(st, "room", "bathroom");
-            if (h.Play.Active) h.Play.End("action");
-            if (h.Stage.Location != room)
-            {
-                h.MoveTo(room, "action");
-                float t0 = Now;
-                while ((h.Stage.Location != room || h.Stage.Moving) && Now - t0 < 30f) yield return null;
-            }
-            var ids = new List<string>();
-            if (!string.IsNullOrEmpty(play)) ids.Add(play);
-            foreach (var p in Json.Arr(st, "plays") ?? new List<object>()) ids.Add((string)p);
-            h.Play.NudeOnce = true;
-            foreach (var id in ids)
-            {
-                var row = h.Play.Row(id);
-                if (row == null || !(bool)h.Play.Availability(row)["ok"]) continue;
-                if (h.Play.Begin(id, "action").Length == 0) yield break;
-            }
-            h.Play.NudeOnce = false;
-            h.Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "action" }, { "value", "shower_together" }, { "reason", "no_play" },
-                { "available", new List<object>(ids.ToArray()) } });
         }
 
         public List<object> Info()

@@ -147,6 +147,7 @@ namespace MuseStudio
             if (!File.Exists(path)) return "no card " + path;
             if (h.Outing.Out) return "she is out (" + h.Outing.Kind + ")";
             if (h.Match.Active || h.Match.Loading) return "in a match";
+            if (h.Bath.Busy) return "in the bath";
             var prev = Info();
             if (h.Play.Active) h.Play.End("character");
             h.Blocks.DropPendingFor("card:" + Path.GetFileName(path));           // (what waits was for the one before - PR #24)

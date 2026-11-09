@@ -1,6 +1,6 @@
 # 早見表：プレイ（体位・行為の最中）
 
-契約の版：1.42（`MUSE_GUIDE.md`。この表は見る状態・使える操作・結果の確認先だけ。型・上限・断る理由は示した節で）
+契約の版：1.43（`MUSE_GUIDE.md`。この表は見る状態・使える操作・結果の確認先だけ。型・上限・断る理由は示した節で）
 
 ## 見る状態（`GET /api/state`、第 7.4 節）
 
@@ -22,7 +22,7 @@
 ## 結果の確認先（出来事、第 7.3 節）
 
 - `play_started`（`previous`、あなたの変更なら `request`）・`play_ended`（`reason`。あなたの終了なら `"muse"` と `request`）
-- `play_pace_changed`（`source: "idle"` は 45 秒の放置でアプリが止めた。プレイは続いている）
+- `play_pace_changed`（`source: "idle"` は 45 秒の放置でアプリが止めた。プレイは続いている。あなたの次のブロックが出ると、アプリが止まる前のペースに戻す＝`source: "resume"`。止めたままなら `pace: 0` を書く。版 1.43、第 3.7 節）
 - `play_insertion_changed`・`play_condom_changed`・`play_finish`・`climax`・`gauge_milestone`
 - `touch`（`item`：手や道具。愛撫・奉仕・挿入）・`player_clothes_changed`
 - `block_refused`（`field` と `reason`。開始・終了の断りは `request` 付き）・`package_shown`
