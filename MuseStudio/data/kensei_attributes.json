@@ -1,0 +1,24 @@
+{
+ "_note": "献精室's attributes of a play (#115 §4; the scoring's source of truth - not the play summaries' prose): a weak spot is a combo of a part (part: the play's category, data/play_categories.json, mapped by parts) and a lead (who drives the motion: giver - the side that serves / puts in, receiver - the side served / taken; the app reads it as her / him by the group's giver, data/plays.json groups). Worked out in this order: the group's rules (its categories to parts - a category not listed is left out; the lead by default, receiver for a name with a word of receiver_words or a category of receiver_categories), then overrides by the play's id ({part, lead}, or null to leave it out), then what is left out - a name with a word of exclude_words, a name with the words of two categories (mixed: which part it is is not plain), a service play whose receiving parts lack require_receiver_part (it does not work on his penis), a play given by the player or by both (彼から, mutual: not for him). Reversed starts are never candidates (the first prototype). Mirrored into the catalog (plays' kensei) and MUSE_GUIDE_plays.md; bridge/tests/test_kensei_data.py checks them against this file.",
+ "version": 1,
+ "groups": {
+  "houshi": {
+   "parts": {"手": "手", "口": "口", "胸": "胸", "足": "足", "素股・尻": "素股・尻"},
+   "lead": "giver",
+   "receiver_words": ["イラマ", "無理やり"],
+   "receiver_categories": [],
+   "exclude_words": ["導かれる"],
+   "require_receiver_part": "penis"
+  },
+  "sonyu": {
+   "parts": {"騎乗位": "騎乗位", "後背位": "後背位", "側位": "側位", "立位": "立位", "正常位": "正常位"},
+   "lead": "giver",
+   "receiver_words": [],
+   "receiver_categories": ["騎乗位"],
+   "exclude_words": ["ネルソン", "抱え上げ騎乗"],
+   "require_receiver_part": null
+  }
+ },
+ "exclude_mixed": true,
+ "overrides": {}
+}
