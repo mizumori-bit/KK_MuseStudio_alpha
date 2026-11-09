@@ -179,16 +179,18 @@ namespace MuseStudio
                     parts.Add(c.Part);
                     leads.Add(c.Who);
                 }
-                string cl = "この部屋の候補 " + cands.Count + " 組" + (k.RangeRandom ? "（この中から、始めるときに範囲を選びます）" : "") + "：" + string.Join("、", names.ToArray());
+                int nItems = k.CountOf(cands), most = 0;
+                foreach (var v in cands.Values) most = Math.Max(most, v.Count);
+                string cl = "この部屋の候補 " + (k.Rules.Unit == "play" ? nItems + " プレイ（" + cands.Count + " 組）" : cands.Count + " 組") + (k.RangeRandom ? "（この中から、始めるときに範囲を選びます）" : "") + "：" + string.Join("、", names.ToArray());
                 float ch = wrapSmall.CalcHeight(new GUIContent(cl), w - 12f);
                 GUI.Label(new Rect(x + 6f, y, w - 12f, ch), cl, wrapSmall);
                 y += ch + 4f * s;
-                string why = k.CannotStart(cands.Count);
+                string why = k.CannotStart(nItems);
                 if (why.Length == 0)
                 {
                     int pts;
-                    int lim = k.Rules.Limit(parts.Count, leads.Count, k.WeakN, k.Vary, k.Tighten, k.Need, k.Tol);
-                    double coef = k.Rules.Coefficient(cands.Count, k.WeakN, k.Vary, k.Tighten, k.Need, k.Tol, k.Disclose, k.DecayOn, k.RangeRandom, out pts);
+                    int lim = k.Rules.Limit(parts.Count, leads.Count, most, k.WeakN, k.Vary, k.Tighten, k.Need, k.Tol);
+                    double coef = k.Rules.Coefficient(cands.Count, nItems, k.WeakN, k.Vary, k.Tighten, k.Need, k.Tol, k.Disclose, k.DecayOn, k.RangeRandom, out pts);
                     GUI.Label(new Rect(x + 6f, y, w - 12f, lh), string.Format("制限 {0} 手　難度係数 ×{1:0.0#}", lim, coef), small);
                     y += lh;
                 }
@@ -281,7 +283,7 @@ namespace MuseStudio
                     foreach (var p in Json.Arr(rec, "phases") ?? new List<object>())
                     {
                         var ws = new List<string>();
-                        foreach (var c in Json.Arr(p, "weak") ?? new List<object>()) ws.Add(ComboName((string)c));
+                        foreach (var c in Json.Arr(p, "weak") ?? new List<object>()) ws.Add(((string)c).Contains("/") ? ComboName((string)c) : PlayName((string)c));
                         lines.Add(string.Format("{0} 手目から：弱点 {1}", Json.Num(p, "from_turn"), string.Join("・", ws.ToArray())));
                     }
                 foreach (var o in Json.Arr(rec, "turns") ?? new List<object>()) lines.Add(TurnLine(o as Dictionary<string, object>));
@@ -329,7 +331,7 @@ namespace MuseStudio
                 return string.Format("{0}. {1}　{2}{3}\n　答え：{4}", turn, play, came ? "射精した" : "―", more, a);
             }
             string grade = Json.Str(t, "grade", "");
-            string gn = grade == "big" ? "大弱点" : grade == "near" ? "近傍" : "非弱点";
+            string gn = grade == "big" ? "大弱点" : grade == "combo" ? "同じ組" : grade == "near" ? "近傍" : "非弱点";
             return string.Format("{0}. {1}［{2}］　{3}　+{4}{5}{6}", turn, play, ComboName(Json.Str(t, "combo", "/")), gn, Json.Num(t, "rise"),
                 Json.Num(t, "decay_uses") > 0 ? "（減衰 " + Json.Num(t, "decay_uses") + " 回）" : "",
                 came ? "　射精 " + Json.Num(t, "amount") + " ml（うち超過 " + Json.Num(t, "overkill") + "）" : "");

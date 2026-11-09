@@ -21,7 +21,7 @@ import statistics
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent.parent / "data"
-GRADES = ("non", "near", "big")          # 0, 1, 2: how many axes of one weak combo match
+GRADES = ("non", "near", "combo", "big")   # 0..3: none / one axis / the same combo, another play (play unit) / the weak itself
 
 
 def load(name: str) -> dict:
@@ -134,23 +134,60 @@ class Rng:
         return a[:k]
 
 
-def grade(c, weak) -> int:
-    return max(((c[0] == w[0]) + (c[1] == w[1]) for w in weak), default=0)
+def unit_of(rules: dict) -> str:
+    """what a weak spot is: "combo" (version 1 - a part and lead) or "play" (version 2, #115 P+ - one play)"""
+    return rules.get("unit", "combo")
+
+
+def rise_of(rules: dict, g: int) -> int:
+    return int(rules["rise"].get(GRADES[g], 0))
+
+
+def base_of(rules: dict, g: int) -> int:
+    return int(rules["base"].get(GRADES[g], 0))
+
+
+def combo_key(c) -> str:
+    return f"{c[0]}/{c[1]}"
+
+
+def items_of_combos(combos) -> list:
+    """the items of a combo-unit run (version 1): each combo its own item"""
+    return [(combo_key(c), tuple(c)) for c in combos]
+
+
+def items_of_plays(cands: dict) -> list:
+    """the items of a play-unit run (version 2): every play, with its combo - sorted as the app sorts them"""
+    out = [(pid, tuple(c)) for c, ids in cands.items() for pid in ids]
+    return sorted(out, key=lambda x: (x[1][0], x[1][1], x[0]))
+
+
+def grade(item, weak) -> int:
+    """3 the weak item itself (a combo-unit run: its combo), 2 the same combo - another play (play unit), 1 one axis, 0 none;
+    each weak item judged on its own, the highest kept"""
+    best = 0
+    for w in weak:
+        if item[0] == w[0]:
+            return 3
+        m = (item[1][0] == w[1][0]) + (item[1][1] == w[1][1])
+        best = max(best, 2 if m == 2 else m)
+    return best
 
 
 # ---- the limit and the coefficient ----
 
-def fewest_turns(rules: dict, need: int, tol: int, grades=(2, 1, 0)) -> tuple[int, int]:
+def fewest_turns(rules: dict, need: int, tol: int, big_only: bool = False) -> tuple[int, int]:
     """(turns, ejaculations of a fewest path) knowing the answer: fresh rises, the worst tolerance"""
     thr, worst = rules["threshold"], 1.0 - tol / 100.0
+    grades = [3] if big_only else [g for g in (3, 2, 1, 0) if rise_of(rules, g) > 0]
     level = {(0, 0): 0}
     for t in range(1, 200):
         nxt = {}
         for (g, tot), ej in level.items():
             for gr in grades:
-                ng, nt, ne = g + rules["rise"][GRADES[gr]], tot, ej
+                ng, nt, ne = g + rise_of(rules, gr), tot, ej
                 if ng >= thr:
-                    nt += half_up(rules["base"][GRADES[gr]] * worst) + (ng - thr)
+                    nt += half_up(base_of(rules, gr) * worst) + (ng - thr)
                     ng, ne = 0, ej + 1
                 if nt >= need:
                     return t, ne
@@ -161,23 +198,39 @@ def fewest_turns(rules: dict, need: int, tol: int, grades=(2, 1, 0)) -> tuple[in
     return 999, 0
 
 
-def turn_limit(rules: dict, parts: int, leads: int, weak: int, vary: bool, tighten: str, need: int, tol: int) -> int:
+def shape(items) -> tuple[int, int, int, int]:
+    """(parts, leads, combos, the most plays in one combo)"""
+    combos = {}
+    for _, c in items:
+        combos[c] = combos.get(c, 0) + 1
+    return len({c[0] for c in combos}), len({c[1] for c in combos}), len(combos), max(combos.values(), default=0)
+
+
+def turn_limit(rules: dict, items, weak: int, vary: bool, tighten: str, need: int, tol: int) -> int:
     t_opt, _ = fewest_turns(rules, need, tol)
-    t_big, ej = fewest_turns(rules, need, tol, (2,))
+    t_big, ej = fewest_turns(rules, need, tol, True)
     lim = rules["limit"]
-    axis = (parts + leads) / weak
-    a = axis * lim["per_axis_value"]
+    parts, leads, _, most = shape(items)
+    span = (parts + leads) / weak
+    a = span * lim["per_axis_value"]
+    plays = float(most) if unit_of(rules) == "play" else 0.0      # (the plays of the largest combo, tried one by one: not split by the weak count)
+    a += plays * lim.get("per_play", 0.0)
     if vary:
-        a += max(0, ej - 1) * lim["per_redraw"] * axis
+        a += max(0, ej - 1) * lim["per_redraw"] * (span + plays)
     a = max(1, half_up(a * lim["tighten"][tighten]))
     return max(t_opt + a, t_big)
 
 
-def coefficient(rules: dict, n: int, weak: int, vary: bool, tighten: str, need: int, tol: int, disclose: str,
+def coefficient(rules: dict, items, weak: int, vary: bool, tighten: str, need: int, tol: int, disclose: str,
                 decay: bool, range_random: bool) -> float:
     d = rules["difficulty"]
     p = d["points"]
-    pts = max(0, n - p["candidate_over"]["from"]) * p["candidate_over"]["each"]
+    _, _, combos, _ = shape(items)
+    n = len(items)
+    pts = max(0, combos - p["candidate_over"]["from"]) * p["candidate_over"]["each"]
+    ps = p.get("plays_step")
+    if ps and unit_of(rules) == "play":
+        pts += max(0, n - ps["from"]) // ps["each"] * ps["points"]
     pts += p["range_random"] if range_random else 0
     pts += (need - p["need_step"]["from"]) // p["need_step"]["each"] * p["need_step"]["points"]
     pts += p["tighten"][tighten]
@@ -190,7 +243,7 @@ def coefficient(rules: dict, n: int, weak: int, vary: bool, tighten: str, need: 
 
 
 def invalid(n: int, weak: int, vary: bool, weak_max: int) -> str:
-    """the settings' own check (#115 §0): K within the candidates; a full change needs 2K <= N"""
+    """the settings' own check (#115 §0): K within the candidates (combos or plays: the run's unit); a full change needs 2K <= N"""
     if n < 1:
         return "no_candidates"
     if weak < 1 or weak > weak_max or weak > n:
@@ -220,37 +273,38 @@ def title(rules: dict, score: int) -> str:
 # ---- one run ----
 
 class Run:
-    def __init__(self, rules: dict, combos: list, seed: int, weak: int = 1, vary: bool = False, decay: bool = False,
+    """items: [(id, (part, who))] - the combos of a combo-unit run (items_of_combos), the plays of a play-unit one"""
+
+    def __init__(self, rules: dict, items: list, seed: int, weak: int = 1, vary: bool = False, decay: bool = False,
                  tol: int = 0, need: int | None = None, tighten: str = "standard", disclose: str = "numbers"):
-        self.r, self.combos, self.rng = rules, list(combos), Rng(seed)
+        self.r, self.items, self.rng = rules, list(items), Rng(seed)
         self.k, self.vary, self.decay, self.tol = weak, vary, decay, tol
         self.need = need or rules["need"]["default"]
-        parts = len({c[0] for c in combos})
-        leads = len({c[1] for c in combos})
-        self.limit = turn_limit(rules, parts, leads, weak, vary, tighten, self.need, tol)
-        self.weak = self.rng.pick(self.combos, weak)
+        self.limit = turn_limit(rules, self.items, weak, vary, tighten, self.need, tol)
+        self.weak = self.rng.pick(self.items, weak)
         self.used: dict = {}
         self.gauge = self.total = 0
         self.turn = 1
         self.result = ""
         self.redraws = 0
 
-    def step(self, c) -> dict:
+    def step(self, item) -> dict:
         r = self.r
-        gr = grade(c, self.weak)
-        rise = r["rise"][GRADES[gr]]
+        gr = grade(item, self.weak)
+        rise = rise_of(r, gr)
         uses = 0
+        ck = combo_key(item[1])
         if gr == 0 and self.decay:
-            uses = self.used.get(c, 0)
+            uses = self.used.get(ck, 0)
             rise = max(r["decay"]["floor"], half_up(rise * r["decay"]["factor"] ** uses))
-            self.used[c] = uses + 1
+            self.used[ck] = uses + 1
         before = self.gauge
         g = before + rise
-        rec = {"turn": self.turn, "combo": c, "grade": gr, "rise": rise, "uses": uses, "before": before, "came": False}
+        rec = {"turn": self.turn, "item": item[0], "combo": item[1], "grade": gr, "rise": rise, "uses": uses, "before": before, "came": False}
         if g >= r["threshold"]:
             over = g - r["threshold"]
             factor = 1.0 + self.tol / 100.0 * (2.0 * self.rng.unit() - 1.0) if self.tol > 0 else 1.0
-            amount = half_up(r["base"][GRADES[gr]] * factor) + over
+            amount = half_up(base_of(r, gr) * factor) + over
             self.total += amount
             self.gauge = 0
             rec.update(came=True, amount=amount, over=over)
@@ -262,7 +316,7 @@ class Run:
         elif self.turn >= self.limit:
             self.result = "failure"
         if rec["came"] and not self.result and self.vary:
-            rest = [x for x in self.combos if x not in self.weak]
+            rest = [x for x in self.items if x not in self.weak]
             self.weak = self.rng.pick(rest, self.k)
             self.used = {}
             self.redraws += 1
@@ -274,12 +328,14 @@ class Run:
 # ---- the strategies ----
 
 def play(run: Run, strategy: str, noise: float, disclose: str, rng: random.Random) -> int | None:
-    combos = run.combos
-    hyps = [frozenset(h) for h in itertools.combinations(combos, run.k)]
+    items = run.items
+    hyps = [frozenset(h) for h in itertools.combinations(items, run.k)]
     post = {h: 1.0 for h in hyps}
 
     def observe(c, seen):
         for h in post:
+            if post[h] == 0.0:
+                continue
             g = grade(c, h)
             post[h] *= (1 - noise) if seen == g else (noise / 2 if abs(seen - g) == 1 else 1e-9)
         s = sum(post.values()) or 1.0
@@ -288,24 +344,28 @@ def play(run: Run, strategy: str, noise: float, disclose: str, rng: random.Rando
 
     while not run.result:
         if strategy == "random":
-            c = rng.choice(combos)
+            c = rng.choice(items)
         elif strategy == "big_only":
             c = run.weak[0]
         else:
-            score = {x: sum(p for h, p in post.items() if x in h) for x in combos}
-            c = max(combos, key=lambda x: (score[x], -combos.index(x)))
+            score = {}
+            for h, p in post.items():
+                if p:
+                    for x in h:
+                        score[x] = score.get(x, 0.0) + p
+            c = max(items, key=lambda x: (score.get(x, 0.0), -items.index(x)))
         rec = run.step(c)
         if strategy == "search":
             seen = rec["grade"]
             if noise and rng.random() < noise:
-                seen = min(2, max(0, seen + rng.choice((-1, 1))))
+                seen = min(3, max(0, seen + rng.choice((-1, 1))))
             observe(c, seen)
             if rec["came"] and disclose == "numbers":
                 observe(c, rec["grade"])          # (the amount's band is the grade's: an exact second look)
             if rec.get("redrawn"):
-                # (a redraw: what was learnt is gone; the combo that just made him come, if it read as big, is not weak now)
+                # (a redraw: what was learnt is gone; the item that just made him come, if it read as big, is not weak now)
                 for h in post:
-                    post[h] = 0.0 if seen == 2 and c in h else 1.0
+                    post[h] = 0.0 if seen == 3 and c in h else 1.0
                 s = sum(post.values()) or 1.0
                 for h in post:
                     post[h] /= s
@@ -317,35 +377,36 @@ def main():
     ap.add_argument("--range", choices=("all", "houshi"), default="all")
     ap.add_argument("--grid", default="")
     ap.add_argument("--runs", type=int, default=300)
+    ap.add_argument("--rules", default="", help="another rules file (e.g. bridge/tests/kensei_rules_v1.json)")
     a = ap.parse_args()
-    rules = load("kensei_rules.json")
+    rules = json.loads(Path(a.rules).read_text(encoding="utf-8")) if a.rules else load("kensei_rules.json")
     if a.grid:
         p, l = (int(x) for x in a.grid.split("x"))
-        combos = [(i, j) for i in range(p) for j in range(l)]
-        print(f"grid {a.grid}: {len(combos)} combos")
+        items = items_of_combos([(i, j) for i in range(p) for j in range(l)])
+        print(f"grid {a.grid}: {len(items)} combos")
     else:
         cands = candidates(("houshi",) if a.range == "houshi" else ("houshi", "sonyu"))
-        combos = sorted(cands)
-        print(f"{len(combos)} combos from the plays:", ", ".join(f"{c[0]}x{c[1]}({len(v)})" for c, v in sorted(cands.items())))
-    print(f"fewest turns to {rules['need']['default']}: {fewest_turns(rules, rules['need']['default'], 0)[0]} "
-          f"(big moves alone {fewest_turns(rules, rules['need']['default'], 0, (2,))[0]})")
+        items = items_of_plays(cands) if unit_of(rules) == "play" else items_of_combos(sorted(cands))
+        print(f"unit {unit_of(rules)}: {len(items)} items from", ", ".join(f"{c[0]}x{c[1]}({len(v)})" for c, v in sorted(cands.items())))
+    need = rules["need"]["default"]
+    print(f"fewest turns to {need}: {fewest_turns(rules, need, 0)[0]} (big moves alone {fewest_turns(rules, need, 0, True)[0]})")
     rng = random.Random(5)
     print("weak vary disclose noise | search: success / mean turns | random: success | limit")
     for weak, vary in ((1, False), (1, True), (2, False)):
-        if weak > len(combos) or (vary and 2 * weak > len(combos)):
+        if weak > len(items) or (vary and 2 * weak > len(items)):
             continue
         for disclose in ("numbers", "none"):
             for noise in (0.0, 0.15, 0.3):
                 ok, turns, rok = 0, [], 0
                 lim = 0
                 for i in range(a.runs):
-                    run = Run(rules, combos, 1000 + i, weak, vary, disclose=disclose)
+                    run = Run(rules, items, 1000 + i, weak, vary, disclose=disclose)
                     lim = run.limit
                     t = play(run, "search", noise, disclose, rng)
                     if t:
                         ok += 1
                         turns.append(t)
-                    if play(Run(rules, combos, 5000 + i, weak, vary), "random", 0, disclose, rng):
+                    if play(Run(rules, items, 5000 + i, weak, vary), "random", 0, disclose, rng):
                         rok += 1
                 print(f"{weak}    {int(vary)}    {disclose:8} {noise:4.2f}  | {ok / a.runs:5.0%} / "
                       f"{statistics.mean(turns) if turns else 0:5.1f}       | {rok / a.runs:5.0%} | {lim}")

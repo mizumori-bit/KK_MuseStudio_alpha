@@ -43,7 +43,7 @@ namespace MuseStudio
         internal ConfigEntry<int> YourClothes;
         internal ConfigEntry<bool> ShowGaugePercent;     // (#70 adopted: the gauge's % on the screen - off by default, the setting kept)
         // (#70 adopted, 5) the contract's version this app speaks (MUSE_GUIDE.md's: the bridge's tests hold them together)
-        public const string Contract = "1.41";
+        public const string Contract = "1.42";
         internal ConfigEntry<KeyboardShortcut> HitShapesKey;
         internal ConfigEntry<KeyboardShortcut> HideUiKey;
         ConfigEntry<string> resetCameraEntry, resetPlacesEntry, scanRoomsEntry;

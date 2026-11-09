@@ -236,13 +236,23 @@ namespace MuseStudio
 
         public void StopScan() { scanStop = true; }
 
-        static List<KenseiCombo> CombosOf(IEnumerable<string> keys)
+        // the run's items of the candidates by the rules' unit (#115 P+): every play with its combo, or (version 1) the combos -
+        // in the draws' order (KenseiItem.Order, tools/kensei_sim.py's)
+        public static List<KenseiItem> ItemsOf(IDictionary<string, List<string>> cands, KenseiRules rules)
         {
-            var l = new List<KenseiCombo>();
-            foreach (var k in keys) l.Add(KenseiCombo.Of(k));
-            l.Sort((a, b) => { int c = string.CompareOrdinal(a.Part, b.Part); return c != 0 ? c : string.CompareOrdinal(a.Who, b.Who); });
+            var l = new List<KenseiItem>();
+            foreach (var kv in cands)
+            {
+                var c = KenseiCombo.Of(kv.Key);
+                if (rules.Unit == "play") foreach (var p in kv.Value) l.Add(new KenseiItem(p, c));
+                else l.Add(KenseiItem.OfCombo(c));
+            }
+            l.Sort(KenseiItem.Order);
             return l;
         }
+
+        // how many the weak are drawn from (2K <= N's N): the plays, or (version 1) the combos
+        public int CountOf(IDictionary<string, List<string>> cands) { return ItemsOf(cands, Rules).Count; }
 
         // why a run cannot start now (""; the panel greys its button out with it)
         public string CannotStart(int n)
@@ -288,11 +298,12 @@ namespace MuseStudio
             var parts = PartsForCheck ?? (RangeRandom ? RandomParts() : null);
             PartsForCheck = null;
             var cands = Candidates(Range, parts);
-            string why = CannotStart(cands.Count);
+            var items = ItemsOf(cands, Rules);
+            string why = CannotStart(items.Count);
             if (why.Length > 0) { Error = Why(why); return why; }
             uint seed = SeedForCheck != 0 ? SeedForCheck : ((uint)DateTime.Now.Ticks ^ (uint)Environment.TickCount ^ 0x9E3779B9u) | 1u;
             SeedForCheck = 0;
-            var run = new KenseiRun(Rules, CombosOf(cands.Keys), seed, WeakN, Vary, DecayOn, Tol, Need, Tighten);
+            var run = new KenseiRun(Rules, items, seed, WeakN, Vary, DecayOn, Tol, Need, Tighten);
             var was = new Dictionary<string, List<string>>(PlaysOf);
             Run = run;
             RunId = "k" + DateTime.Now.ToString("yyyyMMddHHmmss") + "-" + (seed & 0xFFFF).ToString("x4");
@@ -302,7 +313,7 @@ namespace MuseStudio
             runNeed = Need; runTighten = Tighten; runTol = Tol;
             RangeParts = new List<string>();
             foreach (var c in run.Combos) if (!RangeParts.Contains(c.Part)) RangeParts.Add(c.Part);
-            Coef = Rules.Coefficient(cands.Count, runWeak, runVary, runTighten, runNeed, runTol, runDisclose, runDecay, runRandom, out Points);
+            Coef = Rules.Coefficient(cands.Count, items.Count, runWeak, runVary, runTighten, runNeed, runTol, runDisclose, runDecay, runRandom, out Points);
             Score = 0;
             Title = "";
             Room = h.Stage.Location;
@@ -334,13 +345,14 @@ namespace MuseStudio
         {
             var all = Candidates(Range);
             var parts = new List<string>();
-            foreach (var c in CombosOf(all.Keys)) if (!parts.Contains(c.Part)) parts.Add(c.Part);
+            foreach (var k in all.Keys) { var c = KenseiCombo.Of(k); if (!parts.Contains(c.Part)) parts.Add(c.Part); }
+            parts.Sort(string.CompareOrdinal);
             var r = new System.Random();
             for (int i = parts.Count - 1; i > 0; i--) { int j = r.Next(i + 1); var t = parts[i]; parts[i] = parts[j]; parts[j] = t; }
             for (int n = Math.Max(1, (parts.Count + 1) / 2); n <= parts.Count; n++)
             {
                 var pick = parts.GetRange(0, n);
-                if (KenseiRun.Invalid(Candidates(Range, pick).Count, WeakN, Vary, Rules.WeakMax).Length == 0) return pick;
+                if (KenseiRun.Invalid(CountOf(Candidates(Range, pick)), WeakN, Vary, Rules.WeakMax).Length == 0) return pick;
             }
             return null;
         }
@@ -361,9 +373,9 @@ namespace MuseStudio
 
         // ---- a move (BlockPlayer, before the block is told shown) ----
 
-        public string MoveRefusal(Dictionary<string, object> mv, Dictionary<string, object> pkg, out KenseiCombo combo, out string detail)
+        public string MoveRefusal(Dictionary<string, object> mv, Dictionary<string, object> pkg, out KenseiItem item, out string detail)
         {
-            combo = default(KenseiCombo);
+            item = default(KenseiItem);
             detail = "";
             if (!Active) return Run != null && Json.Str(mv, "run", "") == RunId ? "run_over" : "no_run";
             if (Json.Str(mv, "run", "") != RunId) { detail = RunId; return "other_run"; }
@@ -379,7 +391,14 @@ namespace MuseStudio
             if (ReferenceEquals(moveIn, pkg)) return "second_move";
             string play = Json.Str(mv, "play", "");
             bool found = false;
-            foreach (var kv in PlaysOf) if (kv.Value.Contains(play)) { combo = KenseiCombo.Of(kv.Key); found = true; }
+            foreach (var kv in PlaysOf)
+                if (kv.Value.Contains(play))
+                {
+                    var c = KenseiCombo.Of(kv.Key);
+                    item = Run.R.Unit == "play" ? new KenseiItem(play, c) : KenseiItem.OfCombo(c);
+                    var id = item.Id;
+                    found = Run.Items.Exists(x => x.Id == id);
+                }
             if (!found) return "not_candidate";
             if (Json.Has(mv, "pace"))
             {
@@ -398,10 +417,10 @@ namespace MuseStudio
 
         public IEnumerator Move(Dictionary<string, object> mv, Dictionary<string, object> pkg)
         {
-            KenseiCombo combo;
+            KenseiItem item;
             string detail;
             string req = Json.Str(mv, "request", "");
-            string why = MoveRefusal(mv, pkg, out combo, out detail);
+            string why = MoveRefusal(mv, pkg, out item, out detail);
             if (why.Length > 0) { Refuse("move", req, why, detail); yield break; }
             // (bound to its run and its turn: a wait that comes back to another run, or a turn already gone, lapses - GPT's
             // post-review of #118, 4; until it is taken, its request is free again)
@@ -460,7 +479,7 @@ namespace MuseStudio
             // the turn, written before anything of it is told or shown (it cannot be: taken back, refused - GPT's post-review of
             // #118, 1; the same request may come again)
             var snap = run.Snapshot();
-            var t = run.Step(combo, play, req);
+            var t = run.Step(item, play, req);
             if (t.Came) t.FinishPlace = "outside";
             t.Package = PackageCopy(pkg);
             t.Told = TurnView(t);
@@ -526,10 +545,10 @@ namespace MuseStudio
                 cl.Add(new Dictionary<string, object> { { "combo", c.Key }, { "part", c.Part }, { "who", c.Who },
                     { "plays", new List<object>((pl ?? new List<string>()).ToArray()) } });
             }
-            var d = new Dictionary<string, object> { { "run", RunId }, { "phase", Active ? "running" : endDirty ? "ending" : "ended" }, { "turn", Run.Turn },
+            var d = new Dictionary<string, object> { { "run", RunId }, { "unit", Run.R.Unit }, { "phase", Active ? "running" : endDirty ? "ending" : "ended" }, { "turn", Run.Turn },
                 { "turns_max", Run.Limit }, { "turns_left", Math.Max(0, Run.Limit - Run.Turn + 1) }, { "settings", Settings() },
                 { "coefficient", Coef }, { "candidates", cl }, { "last", Last != null ? (object)Last.Told : null },
-                { "rules_version", Rules.Version } };
+                { "rules_version", Run.R.Version } };
             if (runDisclose == "numbers") d["total"] = Run.Total;
             else if (runDisclose == "levels") d["progress"] = Rules.Progress(Run.Total, runNeed);
             if (!Active && !endDirty)
@@ -716,7 +735,10 @@ namespace MuseStudio
                 d["package"] = t.Package;
                 turns.Add(d);
             }
+            var items = new List<object>();
+            foreach (var it in Run.Items) items.Add(new Dictionary<string, object> { { "id", it.Id }, { "combo", it.Combo.Key } });
             return new Dictionary<string, object> { { "kind", "musestudio_kensei_run" }, { "version", 1 }, { "run", RunId }, { "rules_version", Rules.Version },
+                { "unit", Rules.Unit }, { "items", items },
                 { "rules", Rules.Doc }, { "attributes_version", Json.Num(attrs, "version", 0) }, { "started", Started }, { "room", Room },
                 { "launch", recLaunch }, { "character", recCharacter }, { "resumed_in", new List<object>(resumedIn.ToArray()) }, { "settings", Settings() },
                 { "seed", (double)Run.Seed }, { "candidates", cands }, { "limit", Run.Limit }, { "coefficient", Coef }, { "points", Points },
@@ -776,22 +798,26 @@ namespace MuseStudio
             string why = CannotResume();
             if (why.Length > 0) { Error = Why(why); return why; }
             var rules = new KenseiRules(Json.Obj(Pending, "rules"));
-            var keys = new List<string>();
             var plays = new Dictionary<string, List<string>>();
             foreach (var o in Json.Arr(Pending, "candidates") ?? new List<object>())
             {
-                keys.Add(Json.Str(o, "combo"));
                 var pl = new List<string>();
                 foreach (var p in Json.Arr(o, "plays") ?? new List<object>()) pl.Add((string)p);
                 plays[Json.Str(o, "combo")] = pl;
             }
+            // (its items as they were drawn from: kept in the record - a play found without its finish later is out of the plays,
+            // not of the items; a version 1 record has its combos)
+            var recItems = new List<KenseiItem>();
+            var ri = Json.Arr(Pending, "items");
+            if (ri != null) foreach (var o in ri) recItems.Add(new KenseiItem(Json.Str(o, "id", ""), KenseiCombo.Of(Json.Str(o, "combo", "/"))));
+            else recItems = ItemsOf(plays, rules);
             var st = Json.Obj(Pending, "settings");
             var recorded = new List<KenseiTurn>();
             foreach (var o in Json.Arr(Pending, "turns") ?? new List<object>())
-                recorded.Add(new KenseiTurn { Turn = (int)Json.Num(o, "turn"), Combo = Json.Str(o, "combo", ""), Play = Json.Str(o, "play", ""), Request = Json.Str(o, "request", ""),
+                recorded.Add(new KenseiTurn { Turn = (int)Json.Num(o, "turn"), Combo = Json.Str(o, "combo", ""), Item = Json.Str(o, "item", ""), Play = Json.Str(o, "play", ""), Request = Json.Str(o, "request", ""),
                     Grade = Array.IndexOf(KenseiRules.Grades, Json.Str(o, "grade", "")), Amount = (int)Json.Num(o, "amount", 0), Total = (int)Json.Num(o, "total", 0),
                     Came = True(o, "came"), Told = Json.Obj(o, "told"), Answer = Json.Obj(o, "answer"), FinishPlace = Json.Str(o, "finish", ""), Package = Json.Obj(o, "package") });
-            var run = KenseiRun.Replayed(rules, CombosOf(keys), (uint)Json.Num(Pending, "seed"), (int)Json.Num(st, "weak", 1), True(st, "vary"), True(st, "decay"),
+            var run = KenseiRun.Replayed(rules, recItems, (uint)Json.Num(Pending, "seed"), (int)Json.Num(st, "weak", 1), True(st, "vary"), True(st, "decay"),
                                          (int)Json.Num(st, "tolerance", 0), (int)Json.Num(st, "need", 360), Json.Str(st, "tighten", "standard"), recorded);
             if (run == null || run.Result.Length > 0)
             {
