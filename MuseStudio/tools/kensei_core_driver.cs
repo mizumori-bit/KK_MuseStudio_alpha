@@ -37,6 +37,8 @@ namespace MuseStudio
             var cats = Load(dir, "play_categories.json");
             var attrs = Load(dir, "kensei_attributes.json");
             var rules = new KenseiRules(Load(dir, "kensei_rules.json"));
+            // (a version 1 run - unit combo - read back as it was: the rules it began with, from the tests' copy)
+            var rulesV1 = new KenseiRules((Dictionary<string, object>)Json.Parse(File.ReadAllText(args[2], Encoding.UTF8)));
             var outAttrs = new Dictionary<string, object>();
             foreach (var o in Json.Arr(plays, "plays"))
             {
@@ -49,21 +51,36 @@ namespace MuseStudio
             }
             var combos = new List<KenseiCombo> { new KenseiCombo("手", "her"), new KenseiCombo("口", "her"), new KenseiCombo("口", "him"),
                 new KenseiCombo("胸", "her"), new KenseiCombo("足", "her") };
-            var run = new KenseiRun(rules, combos, 12345u, 1, true, true, 10, 360, "standard");
+            var cItems = combos.ConvertAll(KenseiItem.OfCombo);
+            var run = new KenseiRun(rulesV1, cItems, 12345u, 1, true, true, 10, 360, "standard");
             int[] moves = { 0, 1, 2, 3, 4, 3, 3, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 0, 1 };
             var turns = new List<object>();
-            var weakFirst = run.WeakNow[0].Key;
+            var weakFirst = run.WeakNow[0].Id;
             foreach (int m in moves)
             {
                 if (run.Result.Length > 0) break;
-                var t = run.Step(combos[m], "p" + m, "r" + run.Turn);
+                var t = run.Step(cItems[m], "p" + m, "r" + run.Turn);
                 turns.Add(t.Truth());
+            }
+            // the version 2 run (#115 P+: a weak spot is a play): every grade, the decay, three redraws, a failure at the limit
+            var pItems = new List<KenseiItem> { new KenseiItem("p_b1", new KenseiCombo("口", "her")), new KenseiItem("p_b2", new KenseiCombo("口", "her")),
+                new KenseiItem("p_c1", new KenseiCombo("口", "him")), new KenseiItem("p_a1", new KenseiCombo("手", "her")),
+                new KenseiItem("p_a2", new KenseiCombo("手", "her")), new KenseiItem("p_d1", new KenseiCombo("胸", "her")) };
+            var run2 = new KenseiRun(rules, pItems, 4242u, 1, true, true, 10, 360, "standard");
+            int[] moves2 = { 2, 2, 4, 3, 5, 1, 1, 4, 4, 4, 0, 0, 0, 2, 2, 3, 3, 5, 5, 1, 1, 4, 4, 0, 2, 3, 5 };
+            var turns2 = new List<object>();
+            foreach (int m in moves2)
+            {
+                if (run2.Result.Length > 0) break;
+                turns2.Add(run2.Step(pItems[m], pItems[m].Id, "q" + run2.Turn).Truth());
             }
             int ej;
             var fewest = new List<object> { rules.Fewest(360, 0, false, out ej), rules.Fewest(466, 0, false, out ej), rules.Fewest(360, 10, false, out ej),
                 rules.Fewest(360, 0, true, out ej), ej };
             int pts;
-            double coef = rules.Coefficient(5, 1, true, "standard", 360, 10, "numbers", true, false, out pts);
+            double coef = rules.Coefficient(5, 6, 1, true, "standard", 360, 10, "numbers", true, false, out pts);
+            int pts2;
+            double coef2 = rules.Coefficient(11, 156, 1, false, "standard", 360, 0, "numbers", false, false, out pts2);
             // WholeFile (GPT's re-review of #119, 2): a new file; over a read-only one (no leftover); with an old .bak held open
             var wf = new List<object>();
             if (args.Length > 1)
@@ -79,9 +96,11 @@ namespace MuseStudio
             }
             var result = new Dictionary<string, object> { { "attributes", outAttrs }, { "limit", run.Limit }, { "weak_first", weakFirst }, { "turns", turns },
                 { "wholefile", wf },
-                { "result", run.Result }, { "fewest", fewest }, { "coefficient", coef }, { "points", pts },
-                { "limits", new List<object> { rules.Limit(10, 2, 1, false, "standard", 360, 0), rules.Limit(10, 2, 1, true, "standard", 360, 0),
-                                               rules.Limit(5, 2, 2, false, "tight", 360, 0), rules.Limit(5, 2, 1, false, "loose", 480, 10) } },
+                { "result", run.Result }, { "limit2", run2.Limit }, { "turns2", turns2 }, { "result2", run2.Result }, { "weak2_first", run2.Phases[0]["weak"] },
+                { "fewest", fewest }, { "coefficient", coef }, { "points", pts }, { "coefficient2", coef2 },
+                { "limits", new List<object> { rules.Limit(10, 2, 26, 1, false, "standard", 360, 0), rules.Limit(10, 2, 26, 1, true, "standard", 360, 0),
+                                               rules.Limit(5, 2, 17, 2, false, "tight", 360, 0), rules.Limit(5, 2, 17, 1, false, "loose", 480, 10),
+                                               rulesV1.Limit(10, 2, 0, 1, false, "standard", 360, 0), rulesV1.Limit(10, 2, 0, 1, true, "standard", 360, 0) } },
                 { "invalid", new List<object> { KenseiRun.Invalid(4, 3, true, 3), KenseiRun.Invalid(4, 2, true, 3), KenseiRun.Invalid(1, 1, true, 3),
                                                 KenseiRun.Invalid(0, 1, false, 3), KenseiRun.Invalid(3, 4, false, 3) } },
                 { "progress", new List<object> { Json.Str(rules.Progress(0, 360), "key"), Json.Str(rules.Progress(130, 360), "key"), Json.Str(rules.Progress(300, 360), "key") } },

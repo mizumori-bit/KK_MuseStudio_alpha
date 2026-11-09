@@ -13,17 +13,20 @@ namespace MuseStudio
     {
         public readonly Dictionary<string, object> Doc;
         public readonly int Version, Threshold, NeedDefault, WeakDefault, WeakMax, DecayFloor, TolDefault;
-        public readonly int[] Rise = new int[3], Base = new int[3];          // by grade: 0 non, 1 near, 2 big
-        public readonly double DecayFactor, PerAxis, PerRedraw;
+        // by grade: 0 non, 1 near (one axis), 2 combo (the same combo, another play - the play unit only), 3 big (the weak itself)
+        public readonly int[] Rise = new int[4], Base = new int[4];
+        public readonly double DecayFactor, PerAxis, PerPlay, PerRedraw;
+        public readonly string Unit;           // what a weak spot is: "play" (version 2, #115 P+) / "combo" (version 1)
         public readonly List<int> NeedChoices = new List<int>(), TolChoices = new List<int>();
-        public static readonly string[] Grades = { "non", "near", "big" };
+        public static readonly string[] Grades = { "non", "near", "combo", "big" };
 
         public KenseiRules(Dictionary<string, object> doc)
         {
             Doc = doc ?? new Dictionary<string, object>();
             Version = (int)Json.Num(Doc, "version", 0);
+            Unit = Json.Str(Doc, "unit", "combo");
             Threshold = (int)Json.Num(Doc, "threshold", 100);
-            for (int g = 0; g < 3; g++)
+            for (int g = 0; g < 4; g++)
             {
                 Rise[g] = (int)Json.Num(Json.Obj(Doc, "rise"), Grades[g], 0);
                 Base[g] = (int)Json.Num(Json.Obj(Doc, "base"), Grades[g], 0);
@@ -40,6 +43,7 @@ namespace MuseStudio
             foreach (var o in Json.Arr(tol, "choices") ?? new List<object>()) TolChoices.Add(Convert.ToInt32(o));
             var lim = Json.Obj(Doc, "limit");
             PerAxis = Json.Num(lim, "per_axis_value", 1.0);
+            PerPlay = Json.Num(lim, "per_play", 0.0);
             PerRedraw = Json.Num(lim, "per_redraw", 0.5);
         }
 
@@ -59,8 +63,9 @@ namespace MuseStudio
                 foreach (var kv in level)
                 {
                     int g = (int)(kv.Key >> 32), tot = (int)(kv.Key & 0xFFFFFFFF), ej = kv.Value;
-                    for (int gr = 2; gr >= (bigOnly ? 2 : 0); gr--)
+                    for (int gr = 3; gr >= (bigOnly ? 3 : 0); gr--)
                     {
+                        if (Rise[gr] <= 0) continue;           // (a grade the rules have not: version 1's combo)
                         int ng = g + Rise[gr], nt = tot, ne = ej;
                         if (ng >= Threshold)
                         {
@@ -79,26 +84,32 @@ namespace MuseStudio
             return 999;
         }
 
-        // the turn limit: the fewest + the search allowance (#115 §11), never below what big moves alone take
-        public int Limit(int parts, int leads, int weak, bool vary, string tighten, int need, int tol)
+        // the turn limit: the fewest + the search allowance (#115 §11; version 2: the plays of the largest combo too - tried one
+        // by one, not split by the weak count), never below what big moves alone take
+        public int Limit(int parts, int leads, int most, int weak, bool vary, string tighten, int need, int tol)
         {
             int ej;
             int opt = Fewest(need, tol, false, out ej);
             int big = Fewest(need, tol, true, out ej);
-            double axis = (parts + leads) / (double)Math.Max(1, weak);
-            double a = axis * PerAxis;
-            if (vary) a += Math.Max(0, ej - 1) * PerRedraw * axis;
+            double span = (parts + leads) / (double)Math.Max(1, weak);
+            double plays = Unit == "play" ? most : 0.0;
+            double a = span * PerAxis + plays * PerPlay;
+            if (vary) a += Math.Max(0, ej - 1) * PerRedraw * (span + plays);
             int allow = Math.Max(1, HalfUp(a * Tighten(tighten)));
             return Math.Max(opt + allow, big);
         }
 
         // the difficulty coefficient of a run's settings (#115 §3), and its points
-        public double Coefficient(int n, int weak, bool vary, string tighten, int need, int tol, string disclose, bool decay, bool rangeRandom, out int points)
+        // (combos: the candidates' combos; n: the items - the combos, or the plays of a play-unit run)
+        public double Coefficient(int combos, int n, int weak, bool vary, string tighten, int need, int tol, string disclose, bool decay, bool rangeRandom, out int points)
         {
             var d = Json.Obj(Doc, "difficulty");
             var p = Json.Obj(d, "points");
             var co = Json.Obj(p, "candidate_over");
-            int pts = Math.Max(0, n - (int)Json.Num(co, "from", 6)) * (int)Json.Num(co, "each", 1);
+            int pts = Math.Max(0, combos - (int)Json.Num(co, "from", 6)) * (int)Json.Num(co, "each", 1);
+            var ps = Json.Obj(p, "plays_step");
+            if (ps != null && Unit == "play")
+                pts += Math.Max(0, n - (int)Json.Num(ps, "from", 20)) / Math.Max(1, (int)Json.Num(ps, "each", 20)) * (int)Json.Num(ps, "points", 1);
             if (rangeRandom) pts += (int)Json.Num(p, "range_random", 0);
             var ns = Json.Obj(p, "need_step");
             pts += (int)Math.Floor((need - Json.Num(ns, "from", 360)) / Json.Num(ns, "each", 120)) * (int)Json.Num(ns, "points", 1);
@@ -142,6 +153,23 @@ namespace MuseStudio
         public string Key { get { return Part + "/" + Who; } }
         public static KenseiCombo Of(string key) { int i = key.LastIndexOf('/'); return new KenseiCombo(key.Substring(0, i), key.Substring(i + 1)); }
         public override string ToString() { return Key; }
+    }
+
+    // what a weak spot is, one of the run's: a play with its combo (version 2), or a combo itself (version 1: its id its key)
+    public struct KenseiItem
+    {
+        public string Id;
+        public KenseiCombo Combo;
+        public KenseiItem(string id, KenseiCombo combo) { Id = id; Combo = combo; }
+        public static KenseiItem OfCombo(KenseiCombo c) { return new KenseiItem(c.Key, c); }
+
+        // the order of the draws (tools/kensei_sim.py's): the part, the lead, the id - ordinal
+        public static int Order(KenseiItem a, KenseiItem b)
+        {
+            int c = string.CompareOrdinal(a.Combo.Part, b.Combo.Part);
+            if (c == 0) c = string.CompareOrdinal(a.Combo.Who, b.Combo.Who);
+            return c != 0 ? c : string.CompareOrdinal(a.Id, b.Id);
+        }
     }
 
     public static class KenseiAttributes
@@ -219,7 +247,7 @@ namespace MuseStudio
         public int Turn, Grade, Rise, Uses, Before, After, Amount, Over, Total, Phase;
         public bool Came, Redrawn;
         public double Factor = 1.0;
-        public string Combo = "", Play = "", Request = "", Result = "";
+        public string Combo = "", Item = "", Play = "", Request = "", Result = "";
         public Dictionary<string, object> Told;        // (Kensei) what Muse was told of it
         public Dictionary<string, object> Answer;      // (Kensei) the user's answer as Muse wrote it down (null: not yet)
         public Dictionary<string, object> Package;     // (Kensei) the package that carried the move, as Muse sent it
@@ -227,7 +255,7 @@ namespace MuseStudio
 
         public Dictionary<string, object> Truth()
         {
-            var d = new Dictionary<string, object> { { "turn", Turn }, { "request", Request }, { "play", Play }, { "combo", Combo },
+            var d = new Dictionary<string, object> { { "turn", Turn }, { "request", Request }, { "play", Play }, { "combo", Combo }, { "item", Item },
                 { "grade", KenseiRules.Grades[Grade] }, { "rise", Rise }, { "decay_uses", Uses }, { "gauge_before", Before }, { "gauge_after", After },
                 { "came", Came }, { "total", Total }, { "phase", Phase } };
             if (Came) { d["amount"] = Amount; d["overkill"] = Over; d["factor"] = Math.Round(Factor, 6); d["finish"] = FinishPlace; }
@@ -239,23 +267,28 @@ namespace MuseStudio
     public class KenseiRun
     {
         public readonly KenseiRules R;
-        public readonly List<KenseiCombo> Combos;
+        public readonly List<KenseiItem> Items;          // the candidates the weak are drawn from (plays, or combos: the rules' unit)
+        public readonly List<KenseiCombo> Combos;        // (the items' combos, sorted)
         public readonly uint Seed;
         public readonly KenseiRng Rng;
         public readonly int Weak, Need, Tol, Limit;
         public readonly bool Vary, Decay;
         public readonly string Tightening;
-        public List<KenseiCombo> WeakNow;
+        public List<KenseiItem> WeakNow;
         public readonly List<Dictionary<string, object>> Phases = new List<Dictionary<string, object>>();     // the assignments, each from its turn
         public readonly List<KenseiTurn> Turns = new List<KenseiTurn>();
         readonly Dictionary<string, int> used = new Dictionary<string, int>();
         public int Gauge, Total, Turn = 1;
         public string Result = "";      // "": going on; success / failure / abandoned / interrupted
 
-        public KenseiRun(KenseiRules rules, List<KenseiCombo> combos, uint seed, int weak, bool vary, bool decay, int tol, int need, string tighten)
+        public KenseiRun(KenseiRules rules, List<KenseiItem> items, uint seed, int weak, bool vary, bool decay, int tol, int need, string tighten)
         {
             R = rules;
-            Combos = new List<KenseiCombo>(combos);
+            Items = new List<KenseiItem>(items);
+            Combos = new List<KenseiCombo>();
+            var seen = new HashSet<string>();
+            foreach (var it in Items) if (seen.Add(it.Combo.Key)) Combos.Add(it.Combo);
+            Combos.Sort((a, b) => { int c = string.CompareOrdinal(a.Part, b.Part); return c != 0 ? c : string.CompareOrdinal(a.Who, b.Who); });
             Seed = seed;
             Rng = new KenseiRng(seed);
             Weak = weak;
@@ -266,16 +299,26 @@ namespace MuseStudio
             Tightening = tighten;
             var parts = new HashSet<string>();
             var leads = new HashSet<string>();
-            foreach (var c in Combos) { parts.Add(c.Part); leads.Add(c.Who); }
-            Limit = R.Limit(parts.Count, leads.Count, weak, vary, tighten, need, tol);
-            WeakNow = Rng.Pick(Combos, weak);
+            var per = new Dictionary<string, int>();
+            int most = 0;
+            foreach (var it in Items)
+            {
+                parts.Add(it.Combo.Part);
+                leads.Add(it.Combo.Who);
+                int n;
+                per.TryGetValue(it.Combo.Key, out n);
+                per[it.Combo.Key] = ++n;
+                most = Math.Max(most, n);
+            }
+            Limit = R.Limit(parts.Count, leads.Count, most, weak, vary, tighten, need, tol);
+            WeakNow = Rng.Pick(Items, weak);
             Phases.Add(PhaseOf(1));
         }
 
         Dictionary<string, object> PhaseOf(int from)
         {
             var w = new List<object>();
-            foreach (var c in WeakNow) w.Add(c.Key);
+            foreach (var c in WeakNow) w.Add(c.Id);
             return new Dictionary<string, object> { { "from_turn", from }, { "weak", w } };
         }
 
@@ -288,27 +331,34 @@ namespace MuseStudio
             return "";
         }
 
-        public static int GradeOf(KenseiCombo c, List<KenseiCombo> weak)
+        // 3 the weak item itself (a combo-unit run: its combo), 2 the same combo - another play, 1 one axis, 0 none; each weak item
+        // judged on its own, the highest kept (never one weak's part with another's lead - #115, GPT's handoff)
+        public static int GradeOf(KenseiItem c, List<KenseiItem> weak)
         {
             int g = 0;
-            foreach (var w in weak) g = Math.Max(g, (c.Part == w.Part ? 1 : 0) + (c.Who == w.Who ? 1 : 0));
+            foreach (var w in weak)
+            {
+                if (c.Id == w.Id) return 3;
+                int m = (c.Combo.Part == w.Combo.Part ? 1 : 0) + (c.Combo.Who == w.Combo.Who ? 1 : 0);
+                g = Math.Max(g, m == 2 ? 2 : m);
+            }
             return g;
         }
 
         // one move confirmed (#115 §6, §7, §9): its grade under the assignment now, the rise (a non-weak combo's decay), the gauge,
         // him coming - the amount with its tolerance and overkill - the total, the result, then a redraw (vary, he came, not done)
-        public KenseiTurn Step(KenseiCombo c, string play, string request)
+        public KenseiTurn Step(KenseiItem c, string play, string request)
         {
-            var t = new KenseiTurn { Turn = Turn, Combo = c.Key, Play = play ?? "", Request = request ?? "", Phase = Phases.Count - 1 };
+            var t = new KenseiTurn { Turn = Turn, Combo = c.Combo.Key, Item = c.Id, Play = play ?? "", Request = request ?? "", Phase = Phases.Count - 1 };
             t.Grade = GradeOf(c, WeakNow);
             t.Rise = R.Rise[t.Grade];
             if (t.Grade == 0 && Decay)
             {
                 int u;
-                used.TryGetValue(c.Key, out u);
+                used.TryGetValue(c.Combo.Key, out u);           // (a combo's uses: another pose of it is the same - #115 §9)
                 t.Uses = u;
                 t.Rise = Math.Max(R.DecayFloor, KenseiRules.HalfUp(t.Rise * Math.Pow(R.DecayFactor, u)));
-                used[c.Key] = u + 1;
+                used[c.Combo.Key] = u + 1;
             }
             t.Before = Gauge;
             int g = Gauge + t.Rise;
@@ -328,7 +378,7 @@ namespace MuseStudio
             else if (Turn >= Limit) Result = "failure";
             if (t.Came && Result.Length == 0 && Vary)
             {
-                var rest = Combos.FindAll(x => !WeakNow.Exists(w => w.Key == x.Key));
+                var rest = Items.FindAll(x => !WeakNow.Exists(w => w.Id == x.Id));
                 WeakNow = Rng.Pick(rest, Weak);
                 used.Clear();
                 t.Redrawn = true;
@@ -346,20 +396,20 @@ namespace MuseStudio
             public int Gauge, Total, Turn, Phases, Turns;
             public string Result;
             public uint Rng;
-            public List<KenseiCombo> Weak;
+            public List<KenseiItem> Weak;
             public Dictionary<string, int> Used;
         }
 
         public Snap Snapshot()
         {
             return new Snap { Gauge = Gauge, Total = Total, Turn = Turn, Phases = Phases.Count, Turns = Turns.Count, Result = Result, Rng = Rng.S,
-                Weak = new List<KenseiCombo>(WeakNow), Used = new Dictionary<string, int>(used) };
+                Weak = new List<KenseiItem>(WeakNow), Used = new Dictionary<string, int>(used) };
         }
 
         public void Restore(Snap s)
         {
             Gauge = s.Gauge; Total = s.Total; Turn = s.Turn; Result = s.Result; Rng.S = s.Rng;
-            WeakNow = new List<KenseiCombo>(s.Weak);
+            WeakNow = new List<KenseiItem>(s.Weak);
             used.Clear();
             foreach (var kv in s.Used) used[kv.Key] = kv.Value;
             if (Phases.Count > s.Phases) Phases.RemoveRange(s.Phases, Phases.Count - s.Phases);
@@ -368,13 +418,16 @@ namespace MuseStudio
 
         // a run read back from its record (Kensei's resume): the same seed and the same moves give the same run - checked
         // against the record's own numbers (a different outcome: the rules changed under it - null)
-        public static KenseiRun Replayed(KenseiRules rules, List<KenseiCombo> combos, uint seed, int weak, bool vary, bool decay, int tol, int need,
+        public static KenseiRun Replayed(KenseiRules rules, List<KenseiItem> items, uint seed, int weak, bool vary, bool decay, int tol, int need,
                                          string tighten, List<KenseiTurn> recorded)
         {
-            var run = new KenseiRun(rules, combos, seed, weak, vary, decay, tol, need, tighten);
+            var run = new KenseiRun(rules, items, seed, weak, vary, decay, tol, need, tighten);
             foreach (var r in recorded)
             {
-                var t = run.Step(KenseiCombo.Of(r.Combo), r.Play, r.Request);
+                string id = r.Item.Length > 0 ? r.Item : r.Combo;            // (a version 1 record: its combo the item)
+                var it = items.Find(x => x.Id == id);
+                if (it.Id == null) return null;
+                var t = run.Step(it, r.Play, r.Request);
                 if (t.Grade != r.Grade || t.Amount != r.Amount || t.Total != r.Total || t.Came != r.Came) return null;
                 t.Told = r.Told;
                 t.Answer = r.Answer;

@@ -16,11 +16,11 @@ namespace MuseStudio
     {
         readonly List<string> kShown = new List<string>();
 
-        static int[] ScriptMoves = { 0, 1, 2, 3, 4, 3, 3, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 0, 1 };
-        // (bridge/tests/test_kensei_data.py's SCRIPTED: turn, grade, rise, gauge after, amount, total)
-        static readonly int[,] Scripted = { { 1, 2, 45, 45, 0, 0 }, { 2, 1, 20, 65, 0, 0 }, { 3, 0, 8, 73, 0, 0 }, { 4, 1, 20, 93, 0, 0 }, { 5, 1, 20, 0, 72, 72 },
-            { 6, 1, 20, 20, 0, 72 }, { 7, 1, 20, 40, 0, 72 }, { 8, 1, 20, 60, 0, 72 }, { 9, 1, 20, 80, 0, 72 }, { 10, 1, 20, 0, 59, 131 }, { 11, 1, 20, 20, 0, 131 },
-            { 12, 1, 20, 40, 0, 131 }, { 13, 0, 8, 48, 0, 131 }, { 14, 0, 6, 54, 0, 131 }, { 15, 1, 20, 74, 0, 131 }, { 16, 1, 20, 94, 0, 131 }, { 17, 2, 45, 0, 165, 296 } };
+        static int[] ScriptMoves = { 2, 2, 4, 3, 5, 1, 1, 4, 4, 4, 0, 0, 0, 2, 2, 3, 3, 5, 5, 1, 1, 4, 4, 0, 2, 3, 5 };
+        // (bridge/tests/test_kensei_data.py's SCRIPTED2 - version 2, a weak spot a play: turn, grade, rise, gauge after, amount, total)
+        static readonly int[,] Scripted = { { 1, 0, 8, 8, 0, 0 }, { 2, 0, 6, 14, 0, 0 }, { 3, 2, 30, 44, 0, 0 }, { 4, 3, 45, 89, 0, 0 }, { 5, 1, 20, 0, 73, 73 },
+            { 6, 1, 20, 20, 0, 73 }, { 7, 1, 20, 40, 0, 73 }, { 8, 3, 45, 85, 0, 73 }, { 9, 3, 45, 0, 145, 218 }, { 10, 0, 8, 8, 0, 218 },
+            { 11, 1, 20, 28, 0, 218 }, { 12, 1, 20, 48, 0, 218 }, { 13, 1, 20, 68, 0, 218 }, { 14, 3, 45, 0, 125, 343 }, { 15, 1, 20, 20, 0, 343 } };
 
         Dictionary<string, object> KTags() { return D("launch", Launch.Id, "character", h.CharacterId()); }
 
@@ -68,17 +68,30 @@ namespace MuseStudio
         string KPlay(string key)
         {
             List<string> l;
+            if (key.Length > 0 && !key.Contains("/")) return key;          // (a play already: version 2's items)
             if (!h.Kensei.PlaysOf.TryGetValue(key, out l) || l.Count == 0) return "";
             foreach (var p in l) if (!p.StartsWith("al_")) return p;
             return l[0];
         }
 
         // a combo of the run's candidates of a grade under the weak now ("" none)
+        // a play of the run's items of a grade under the weak now (3 the weak play itself, 2 its combo's other plays, 1 one axis,
+        // 0 none; "" none) - an original play first (quick to start)
         string KCombo(int grade)
         {
             var k = h.Kensei;
-            foreach (var c in k.Run.Combos) if (KenseiRun.GradeOf(c, k.Run.WeakNow) == grade && KPlay(c.Key).Length > 0) return c.Key;
-            return "";
+            string any = "";
+            foreach (var it in k.Run.Items)
+            {
+                if (KenseiRun.GradeOf(it, k.Run.WeakNow) != grade) continue;
+                string p = KPlay(it.Id);
+                bool listed = false;
+                foreach (var kv in k.PlaysOf) if (kv.Value.Contains(p)) listed = true;
+                if (!listed) continue;
+                if (!p.StartsWith("al_")) return p;
+                if (any.Length == 0) any = p;
+            }
+            return any;
         }
 
         // the numbers a JSON value holds (recursively)
@@ -106,20 +119,21 @@ namespace MuseStudio
 
             // ---- the scoring as the reference counts it ----
             {
-                var combos = new List<KenseiCombo> { new KenseiCombo("手", "her"), new KenseiCombo("口", "her"), new KenseiCombo("口", "him"),
-                    new KenseiCombo("胸", "her"), new KenseiCombo("足", "her") };
-                var run = new KenseiRun(k.Rules, combos, 12345u, 1, true, true, 10, 360, "standard");
-                bool same = run.Limit == 17 && run.WeakNow[0].Key == "手/her";
+                var items = new List<KenseiItem> { new KenseiItem("p_b1", new KenseiCombo("口", "her")), new KenseiItem("p_b2", new KenseiCombo("口", "her")),
+                    new KenseiItem("p_c1", new KenseiCombo("口", "him")), new KenseiItem("p_a1", new KenseiCombo("手", "her")),
+                    new KenseiItem("p_a2", new KenseiCombo("手", "her")), new KenseiItem("p_d1", new KenseiCombo("胸", "her")) };
+                var run = new KenseiRun(k.Rules, items, 4242u, 1, true, true, 10, 360, "standard");
+                bool same = run.Limit == 15 && run.WeakNow[0].Id == "p_a1" && k.Rules.Unit == "play";
                 int n = 0;
                 foreach (int m in ScriptMoves)
                 {
                     if (run.Result.Length > 0) break;
-                    var t = run.Step(combos[m], "p" + m, "r" + run.Turn);
+                    var t = run.Step(items[m], items[m].Id, "q" + run.Turn);
                     if (n >= Scripted.GetLength(0) || t.Turn != Scripted[n, 0] || t.Grade != Scripted[n, 1] || t.Rise != Scripted[n, 2] || t.After != Scripted[n, 3]
                         || t.Amount != Scripted[n, 4] || t.Total != Scripted[n, 5]) same = false;
                     n++;
                 }
-                Check("献精室: the app's scoring counts the scripted run as tools/kensei_sim.py does (grades, the decay, the tolerance's amount, the redraws, the failure at the limit)",
+                Check("献精室: the app's scoring counts the scripted run as tools/kensei_sim.py does (version 2, a weak spot a play: every grade - the play, its combo, one axis, none - the decay, the tolerance's amount, the redraws, the failure at the limit)",
                       same && n == Scripted.GetLength(0) && run.Result == "failure", "limit " + run.Limit + " turns " + n + " " + run.Result);
             }
 
@@ -165,20 +179,17 @@ namespace MuseStudio
             foreach (var o in Json.Arr(Json.Obj(cat, "catalog"), "plays") ?? new List<object>())
                 if (Json.Str(o, "id") == "houshi_01") catKensei = Json.Write(Json.Obj(o, "kensei"));
             Check("献精室: the catalog's plays carry their attributes (kensei)", catKensei.Contains("手") && catKensei.Contains("her"), catKensei);
-            // (a range of two parts: 手/her, 口/her, 口/him here - three combos; two weak ones and vary need four)
+            // (N is what the weak are drawn from - the plays now (#115 P+): the count's own check, as the panel and the start use it)
             k.Range = "houshi";
-            var two = new List<string> { "手", "口" };
-            int n2 = k.Candidates("houshi", two).Count;
             k.WeakN = 2;
             k.Vary = true;
-            string why2k = k.CannotStart(n2);
-            k.PartsForCheck = two;
-            string started2k = k.Start();
+            string why2k = k.CannotStart(3), ok2k4 = k.CannotStart(4);
             k.Vary = false;
-            string ok2k = k.CannotStart(n2);
+            string ok2k = k.CannotStart(3);
             k.WeakN = 1;
-            Check("献精室: a full change of the weak combos needs 2K <= N (GPT on #115) - with fewer than 4 candidates, 2 weak combos and vary are refused (nothing starts); without vary they may",
-                  n2 >= 2 && n2 < 4 && why2k == "vary_needs_2k_le_n" && started2k == "vary_needs_2k_le_n" && !k.Active && ok2k == "", n2 + ": " + why2k + " / " + started2k + " / " + ok2k);
+            int nPlays = k.CountOf(k.Candidates("houshi"));
+            Check("献精室: a full change of the weak spots needs 2K <= N (GPT on #115) - with 3 candidates, 2 weak ones and vary are refused, with 4 not, without vary not; N is the plays (version 2)",
+                  why2k == "vary_needs_2k_le_n" && ok2k4 == "" && ok2k == "" && !k.Active && nPlays > hou.Count, why2k + " / " + ok2k4 + " / " + ok2k + " plays " + nPlays);
 
             // ---- a run through Muse's packages (numbers, one fixed weak combo, no decay, no tolerance) ----
             k.DecayOn = false;
@@ -197,8 +208,8 @@ namespace MuseStudio
                   && Json.Arr(sk, "candidates") != null && Json.Str(Json.Obj(stS, "gauge"), "held") == "kensei" && h.Gauge.Value == 0f,
                   st1 + " " + Json.Write(Json.Obj(stS, "gauge")) + " run " + k.RunId);
             if (!k.Active) yield break;
-            string big = KCombo(2), near = KCombo(1), non = KCombo(0);
-            Note("kensei: weak " + k.Run.WeakNow[0].Key + " near " + near + " non " + non + " limit " + k.Run.Limit);
+            string big = KCombo(3), sameCombo = KCombo(2), near = KCombo(1), non = KCombo(0);
+            Note("kensei: weak " + k.Run.WeakNow[0].Id + " (" + k.Run.WeakNow[0].Combo.Key + ") same combo " + sameCombo + " near " + near + " non " + non + " limit " + k.Run.Limit);
             var tags = KTags();
             // turn 1: a near move - no coming; the came line passed by
             yield return KTurn(new Dictionary<string, object>(tags), KMove("どうかな。", 1, "c1", KPlay(near)), With(Line("（出た！）いっぱい出たね。"), "came", true), Line("気持ちいい？"));
@@ -330,7 +341,7 @@ namespace MuseStudio
                     Check("献精室: a score kept wrong (an unfinished 0) put right from the run's record", Json.Str(ea2, "result") == "success" && Json.Num(ea2, "score") == scoreA,
                           Json.Write(ea2));
                 }
-                string b2 = KCombo(2);
+                string b2 = KCombo(3);
                 var states = new List<object>();
                 for (int turn = 1; turn <= 3; turn++)
                 {
@@ -392,7 +403,7 @@ namespace MuseStudio
                 yield return KTurn(new Dictionary<string, object>(tags), KMove("はじめるね。", 1, "a1", KPlay(KCombo(1))), Line("どう？"));
                 k.HoldMovesForCheck = true;
                 int rc0 = Refusals("move", "run_changed"), teA = k.TurnEventsForCheck;
-                SendPkg(new Dictionary<string, object>(tags), KMove("次はこれ。", 2, "a2", KPlay(KCombo(2))), Line("どう？"));
+                SendPkg(new Dictionary<string, object>(tags), KMove("次はこれ。", 2, "a2", KPlay(KCombo(3))), Line("どう？"));
                 yield return Until(() => bp.Moving, 10f);
                 bool waited = bp.Moving;
                 k.Abandon();
