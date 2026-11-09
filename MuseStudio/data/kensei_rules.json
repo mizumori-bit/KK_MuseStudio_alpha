@@ -1,0 +1,41 @@
+{
+ "_note": "献精室 (the content of #113-#115; the owner's decisions there): the scoring's own numbers - the app's source of truth (Kensei / KenseiCore), read as well by tools/kensei_sim.py and bridge/tests/test_kensei_data.py, so the three count alike. version: written into every run's record (a run is scored by the rules it began with). A move's rise by its grade (big: every axis of one weak combo matches, near: one axis, non: none - each weak combo judged on its own), the gauge to threshold makes him come: its amount = base of the grade x (1 +/- tolerance, drawn from the run's seed; 0 by default - the owner's decision) + what went past the threshold (the overkill, 1 to 1, taken before the gauge goes back to 0). decay: a non-weak combo's rise x factor for each time it was used before under the same assignment (cumulative, no recovery, cleared at a redraw), rounded, at least floor. The turn limit: the fewest turns to the need knowing the answer (big / near / non moves, the worst tolerance; at least what big moves alone take) + the search allowance - the candidates' axis values (their parts + their leads) / the weak combos x per_axis_value, a redraw (vary) adding per_redraw of that again, x the tightening - at least 1. The levels mode tells Muse the progress toward the need by the progress levels (below: a share of the need); amount levels (one ejaculation's) are empty: not sent (the owner's 'wait and see'). difficulty: points added at the start, the coefficient 1 + per_point x points (at least min); a run's score = its total x the coefficient; a title for a run's score. Provisional values: replace freely (a new version).",
+ "version": 1,
+ "threshold": 100,
+ "rise": {"big": 45, "near": 20, "non": 8},
+ "base": {"big": 120, "near": 60, "non": 30},
+ "need": {"default": 360, "choices": [240, 360, 480, 600]},
+ "weak": {"default": 1, "max": 3},
+ "decay": {"factor": 0.7, "floor": 2},
+ "tolerance": {"default": 0, "choices": [0, 5, 10, 20]},
+ "limit": {"per_axis_value": 0.75, "per_redraw": 0.25, "tighten": {"loose": 1.3, "standard": 1.0, "tight": 0.8}},
+ "levels": {
+  "progress": [
+   {"key": "far", "name": "まだ遠い", "below": 0.34},
+   {"key": "half", "name": "半分ほど", "below": 0.67},
+   {"key": "close", "name": "あと少し", "below": 1.0}
+  ],
+  "amount": []
+ },
+ "difficulty": {
+  "per_point": 0.1,
+  "min": 0.5,
+  "points": {
+   "candidate_over": {"from": 6, "each": 1},
+   "range_random": 2,
+   "need_step": {"from": 360, "each": 120, "points": 1},
+   "tighten": {"loose": -1, "standard": 0, "tight": 2},
+   "vary": 3,
+   "disclose": {"numbers": 0, "levels": 1, "none": 2},
+   "tolerance_each_5": 1,
+   "weak_extra": -2,
+   "decay": 1
+  }
+ },
+ "titles": [
+  {"min": 300, "name": "見習い"},
+  {"min": 500, "name": "一人前"},
+  {"min": 800, "name": "名手"},
+  {"min": 1200, "name": "達人"}
+ ]
+}
