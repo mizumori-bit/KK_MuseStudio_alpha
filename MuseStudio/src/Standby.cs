@@ -11,8 +11,8 @@ namespace MuseStudio
     // fits - the launch and character (tagged), the play (its serial, as it was sent), the climax's count, its time - else
     // drops it (package_dropped: replaced / expired / play_changed / other_character / in_match). Nothing waits for it: the
     // climax, the gauge, her face and motion go as ever. A package being shown then is not cut (plan C is not adopted - a
-    // monologue neither): the reaction goes first in the queue, right after it (in a play, or once its last block is out: in
-    // place of that last line), while it still fits - checked again right before it shows (Stale: its time, the play it was
+    // monologue neither): the reaction goes first in the queue, right after it (once its last block is out, in a play or not:
+    // in place of that last line - before that it waits, in a play too), while it still fits - checked again right before it shows (Stale: its time, the play it was
     // for, a match; the owner's decision of 2026-11-09, GPT's post-review of #105). The climax event names the request let go
     // (standby): gone into the queue - shown or not is told by package_shown / package_dropped. Its blocks are dialogue only - words, an emotion, a voice; anything else refuses the
     // whole package (block_refused field standby, not_allowed), and so does a package field other than its own few. Not in a

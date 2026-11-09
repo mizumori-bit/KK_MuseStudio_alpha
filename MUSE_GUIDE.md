@@ -650,7 +650,7 @@
   - そのときの `climax` イベントに、発火した待機の `request` が `standby` として付きます（発火しなければ null）。**これは「表示の待ちに移った」印で、出たことではありません**（版 1.40 の事後レビュー）。
     - 実際に出たかは `package_shown` と配送の段階（`started`）で、捨てられたかは `package_dropped` で確かめてください。待つ間に失効して、一度も出ないことがあります。
     - 待っている間に、同じ反応をもう一度送らないでください。失効したものは、出た出来事として覚えないでください。
-  - ほかのパッケージを出している最中なら、**打ち切りません**（独り言も同じです）。今のパッケージが終わるのを待ち、待っているほかのパッケージより先に出します（プレイ中や、最後のブロックが出終わっているときは、その最後のセリフの代わりにすぐ出ます。持ち主の決定 2026-11-09）。
+  - ほかのパッケージを出している最中なら、**打ち切りません**（独り言も同じです）。今のパッケージが終わるのを待ち、待っているほかのパッケージより先に出します（今のパッケージの最後のブロックまで出終わっていれば、プレイの中でも外でも、その最後のセリフの代わりにすぐ出ます。プレイ中でも、最後のブロックより前なら待ちます。持ち主の決定 2026-11-09）。
   - 出す直前に、もう一度確かめます。待つ間に期限を過ぎた（`"expired"`）、プレイが替わった・終わった（`"play_changed"`）、対戦が始まった（`"in_match"`）、キャラが替わった（`"other_character"`）ときは、出さずに捨てます（`package_dropped`）。
 - **失効**（`package_dropped`。`standby` に `request`）：`"expired"`（期限切れ）、`"play_changed"`（プレイの番号が変わった）、`"passed"`（その回の絶頂が過ぎた）、`"other_character"`（キャラの切り替え）、`"in_match"`（対戦が始まった）、`"replaced"`。アプリが再起動すると、ふだんのパッケージと同じく `app_restarted` です。
 - **断るとき**（`block_refused`、`field: "standby"`、`value` に `request`）：`not_an_object`、`unknown_on`、`no_request`、`duplicate_request`、`untargeted`（`launch`・`character` が無い）、`in_match`（対戦・リプレイの間）、`no_basis`（`play_serial` が無い）、`stale_basis`（`detail` に今の番号）、`stale_count`（`detail` に今の回数）、`out_of_range`（`expires_seconds`）、`not_allowed`。別の起動・別のキャラ宛ては、ふだんどおり `package_dropped`（`old_launch`・`other_character`）です。
