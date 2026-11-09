@@ -64,7 +64,21 @@ namespace MuseStudio
                 rules.Fewest(360, 0, true, out ej), ej };
             int pts;
             double coef = rules.Coefficient(5, 1, true, "standard", 360, 10, "numbers", true, false, out pts);
+            // WholeFile (GPT's re-review of #119, 2): a new file; over a read-only one (no leftover); with an old .bak held open
+            var wf = new List<object>();
+            if (args.Length > 1)
+            {
+                string p = Path.Combine(args[1], "whole.json");
+                string e;
+                wf.Add(WholeFile.Write(p, "one", out e) && File.ReadAllText(p) == "one");
+                File.SetAttributes(p, FileAttributes.ReadOnly);
+                wf.Add(WholeFile.Write(p, "two", out e) && File.ReadAllText(p) == "two" && !File.Exists(p + ".bak") && !File.Exists(p + ".part"));
+                File.WriteAllText(p + ".bak", "stale");
+                using (var held = new FileStream(p + ".bak", FileMode.Open, FileAccess.Read, FileShare.None))
+                    wf.Add(WholeFile.Write(p, "three", out e) && File.ReadAllText(p) == "three" && Directory.GetFiles(args[1], "whole.json.bak-*").Length == 0);
+            }
             var result = new Dictionary<string, object> { { "attributes", outAttrs }, { "limit", run.Limit }, { "weak_first", weakFirst }, { "turns", turns },
+                { "wholefile", wf },
                 { "result", run.Result }, { "fewest", fewest }, { "coefficient", coef }, { "points", pts },
                 { "limits", new List<object> { rules.Limit(10, 2, 1, false, "standard", 360, 0), rules.Limit(10, 2, 1, true, "standard", 360, 0),
                                                rules.Limit(5, 2, 2, false, "tight", 360, 0), rules.Limit(5, 2, 1, false, "loose", 480, 10) } },

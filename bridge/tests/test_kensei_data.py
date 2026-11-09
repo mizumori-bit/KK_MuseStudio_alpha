@@ -149,11 +149,14 @@ class AppCore(unittest.TestCase):
         src = ROOT / "MuseStudio"
         r = subprocess.run(cmd + ["-nologo", "-noconfig", "-nostdlib+", "-target:exe", "-langversion:7.3", f"-out:{exe}",
                                   f"-r:{fw / 'mscorlib.dll'}", f"-r:{fw / 'System.dll'}", f"-r:{fw / 'System.Core.dll'}",
-                                  str(src / "src" / "KenseiCore.cs"), str(src / "src" / "Json.cs"), str(src / "tools" / "kensei_core_driver.cs")],
+                                  str(src / "src" / "KenseiCore.cs"), str(src / "src" / "Json.cs"), str(src / "src" / "WholeFile.cs"),
+                                  str(src / "tools" / "kensei_core_driver.cs")],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             raise AssertionError("KenseiCore did not build: " + r.stdout + r.stderr)
-        out = subprocess.run([str(exe), str(src / "data")], capture_output=True, timeout=60)
+        work = tmp / "files"
+        work.mkdir()
+        out = subprocess.run([str(exe), str(src / "data"), str(work)], capture_output=True, timeout=60)
         if out.returncode != 0:
             raise AssertionError("KenseiCore's driver failed: " + out.stderr.decode("utf-8", "replace"))
         cls.doc = json.loads(out.stdout.decode("utf-8"))
@@ -178,6 +181,11 @@ class AppCore(unittest.TestCase):
             self.assertEqual((t["decay_uses"], t["gauge_before"], t["came"]), (x["uses"], x["before"], x["came"]))
             if x["came"]:
                 self.assertEqual(t["overkill"], x["over"])
+
+    def test_a_file_written_whole(self):
+        # (GPT's re-review of #119, 2) true once the new text is in place: a new file, over a read-only one (no leftover),
+        # with an old .bak held open
+        self.assertEqual(self.doc["wholefile"], [True, True, True])
 
     def test_the_counts(self):
         rules = ks.load("kensei_rules.json")

@@ -1062,6 +1062,16 @@ namespace MuseStudio
             MuseStudioPlugin.Instance.Mood.PlayEnded(together);
         }
 
+        // the stage's idle as a play's end leaves it - she at her stand, the idle scene, the default camera - for one ended
+        // without it (献精室's trial of the finishes, its last play: GPT's re-review of #119)
+        public void BackToIdle()
+        {
+            if (Active) return;
+            stage.Place(stage.Heroine);
+            stage.ApplyScene(Json.Str(stage.Cfg, "idle_scene", "idle"), 1, 1f);
+            MuseStudioPlugin.Instance.StartCoroutine(IdleCamera());
+        }
+
         IEnumerator IdleCamera()
         {
             yield return null;

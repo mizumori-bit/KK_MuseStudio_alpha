@@ -47,8 +47,14 @@ namespace MuseStudio
         int runWeak, runNeed, runTol;
         string recLaunch = "", recCharacter = "";  // (the record's own: the launch and the character it began with)
         readonly List<string> resumedIn = new List<string>();
-        bool scanned, endDirty, scoreDirty;
+        bool scanned, endDirty;
         float retryAt;
+        // a run's score still to be kept: its own id and values, taken at its end (another run started meanwhile is not it -
+        // GPT's re-review of #119, 1)
+        class ScoreDue { public string Id, Result, Title; public double Total, Coef, Score; }
+        readonly List<ScoreDue> scoresDue = new List<ScoreDue>();
+        public int ScoresDueForCheck { get { return scoresDue.Count; } }
+        public bool FailScoresForCheck;        // (checks) the scores' file is not writable
         public float EndedAt = -100f;
         // the plays' finish outside, tried once (true: it plays) - kept in this PC's file (UserData/MuseStudio/kensei_finishes.json)
         readonly Dictionary<string, bool> finishes = new Dictionary<string, bool>();
@@ -98,31 +104,17 @@ namespace MuseStudio
         public void Tick()
         {
             if (!scanned && h.Stage != null && h.Stage.Ready) { scanned = true; FindPending(); ReconcileScores(); }
-            if ((endDirty || scoreDirty) && Now >= retryAt) FinishEnd();
+            if ((endDirty || scoresDue.Count > 0) && Now >= retryAt) FinishEnd();
         }
 
-        // a file written whole: into a part file, then swapped in (the old one kept till the new one is there - Mood's way)
+        // a file written whole (WholeFile: true once the new text is in place - a leftover not cleared does not make it false)
         bool WriteWhole(string path, string text)
         {
-            try
-            {
-                if (FailWritesForCheck) throw new IOException("check: the write fails");
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
-                string part = path + ".part", bak = path + ".bak";
-                File.WriteAllText(part, text, new System.Text.UTF8Encoding(false));
-                if (!File.Exists(path)) { File.Move(part, path); return true; }
-                if (File.Exists(bak)) File.Delete(bak);
-                File.Move(path, bak);
-                try { File.Move(part, path); }
-                catch (Exception) { File.Move(bak, path); throw; }
-                File.Delete(bak);
-                return true;
-            }
-            catch (Exception e)
-            {
-                MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei: " + Path.GetFileName(path) + " not written: " + e.Message);
-                return false;
-            }
+            string err;
+            if (FailWritesForCheck) err = "check: the write fails";
+            else if (WholeFile.Write(path, text, out err)) return true;
+            MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei: " + Path.GetFileName(path) + " not written: " + err);
+            return false;
         }
 
         // ---- the candidates ----
@@ -209,20 +201,21 @@ namespace MuseStudio
             ScanLeft = todo.Count;
             var pc = h.Play;
             h.Bridge.Quiet = t => t.StartsWith("play_") || t == "climax";
+            bool touched = false;
             try
             {
-                if (pc.Active) pc.End("kensei_scan", false, false);
                 foreach (var id in todo)
                 {
                     if (scanStop || h.Outing.Out || h.Presence.Apart || h.Match.Active) break;
+                    if (pc.Active) { pc.End("kensei_scan", false, false); touched = true; }      // (the one before: the next starts at once)
                     if (pc.Begin(id, "kensei_scan", null).Length == 0)
                     {
+                        touched = true;
                         float t0 = Now;
                         while (pc.Active && string.IsNullOrEmpty(pc.LastState) && Now - t0 < 5f) yield return null;
                         yield return null;
                         yield return null;
                         if (pc.Active && !string.IsNullOrEmpty(pc.LastState)) finishes[id] = pc.Climax.Places().Contains("outside");
-                        if (pc.Active) pc.End("kensei_scan", false, false);
                     }
                     ScanLeft--;
                     yield return null;
@@ -230,7 +223,10 @@ namespace MuseStudio
             }
             finally
             {
+                // (the last one ended as a play's end does - her stance, the idle scene, the default camera; or, none left on,
+                // the same put back: GPT's re-review of #119)
                 if (pc.Active) pc.End("kensei_scan", true, false);
+                else if (touched) pc.BackToIdle();
                 h.Bridge.Quiet = null;
                 Scanning = false;
                 ScanLeft = 0;
@@ -587,37 +583,42 @@ namespace MuseStudio
             {
                 if (!Save()) { Error = Why("ending"); retryAt = Now + 5f; return; }
                 endDirty = false;
-                scoreDirty = Run.Result == "success";
+                if (Run.Result == "success")
+                    scoresDue.Add(new ScoreDue { Id = RunId, Result = Run.Result, Total = Run.Total, Coef = Coef, Score = Score, Title = Title });
                 Error = "";
                 var d = Info();
                 d["turns_used"] = Run.Turns.Count;
                 d["reveal"] = Reveal();
                 h.Bridge.Event("kensei_ended", d);
             }
-            if (scoreDirty)
+            for (int i = 0; i < scoresDue.Count; i++)
             {
-                if (AddScore(RunId, Run.Result, Run.Total, Coef, Score, Title)) scoreDirty = false;
-                else retryAt = Now + 5f;
+                if (!AddScore(scoresDue[i])) { retryAt = Now + 5f; return; }
+                scoresDue.RemoveAt(i--);
             }
         }
 
-        // the score of a run kept (once a run: its id)
-        bool AddScore(string id, string result, double total, double coef, double score, string title)
+        // a successful run's score kept (once a run: its id; an entry there with other values - one wrongly kept - put right)
+        bool AddScore(ScoreDue s)
         {
+            if (s == null || s.Result != "success" || string.IsNullOrEmpty(s.Id)) return true;      // (only a finished success has a score)
+            if (FailScoresForCheck) return false;
             Dictionary<string, object> doc;
             try { doc = File.Exists(ScoresPath) ? Json.Parse(File.ReadAllText(ScoresPath, System.Text.Encoding.UTF8)) as Dictionary<string, object> : null; }
             catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei scores: " + e.Message); return false; }
             doc = doc ?? new Dictionary<string, object> { { "kind", "musestudio_kensei_scores" }, { "version", 1 } };
             var runs = Json.Obj(doc, "runs") ?? new Dictionary<string, object>();
-            if (runs.ContainsKey(id)) return true;
-            runs[id] = new Dictionary<string, object> { { "result", result }, { "total", total }, { "coefficient", coef }, { "score", score },
-                { "title", title }, { "ended", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss") } };
+            var was = Json.Obj(runs, s.Id);
+            if (was != null && Json.Str(was, "result", "") == "success" && Json.Num(was, "score", -1) == s.Score && Json.Num(was, "total", -1) == s.Total) return true;
+            runs[s.Id] = new Dictionary<string, object> { { "result", s.Result }, { "total", s.Total }, { "coefficient", s.Coef }, { "score", s.Score },
+                { "title", s.Title }, { "ended", was != null ? Json.Str(was, "ended", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")) : DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss") } };
             doc["runs"] = runs;
             return WriteWhole(ScoresPath, Json.Write(doc));
         }
 
-        // a run's record whose score did not reach the scores' file (the app closed, the file was not writable): put in now
-        void ReconcileScores()
+        // the scores' file made good from the records (at start): a successful run's score missing - the app closed, the file was
+        // not writable - or kept with other values (an unfinished one's 0 kept by mistake) put in as its record says
+        public void ReconcileScores()
         {
             var sc = Scores();
             foreach (var f in RecordFiles())
@@ -625,11 +626,15 @@ namespace MuseStudio
                 var doc = ReadRecord(f);
                 if (doc == null || Json.Str(doc, "result", "") != "success" || Json.Num(doc, "score", 0) <= 0) continue;
                 string id = Json.Str(doc, "run", "");
-                if (id.Length == 0 || (sc != null && sc.ContainsKey(id))) continue;
+                if (id.Length == 0) continue;
                 double total = 0;
                 var turns = Json.Arr(doc, "turns");
                 if (turns != null && turns.Count > 0) total = Json.Num(turns[turns.Count - 1], "total", 0);
-                AddScore(id, "success", total, Json.Num(doc, "coefficient", 1.0), Json.Num(doc, "score", 0), Json.Str(doc, "title", ""));
+                var was = Json.Obj(sc, id);
+                if (was != null && Json.Str(was, "result", "") == "success" && Json.Num(was, "score", -1) == Json.Num(doc, "score", 0)) continue;
+                var due = new ScoreDue { Id = id, Result = "success", Total = total, Coef = Json.Num(doc, "coefficient", 1.0), Score = Json.Num(doc, "score", 0),
+                    Title = Json.Str(doc, "title", "") };
+                if (!AddScore(due) && !scoresDue.Exists(x => x.Id == id)) scoresDue.Add(due);
             }
         }
 
