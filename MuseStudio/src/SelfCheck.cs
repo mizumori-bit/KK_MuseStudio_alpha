@@ -1340,6 +1340,102 @@ namespace MuseStudio
             }
 
 
+            // (#102 adopted, plan D - a trial) a reaction made ready: held apart from the queue (not shown; the state's standby),
+            // let go at her gauge's climax at once (the climax event names it); a new one replaces the one held; its time runs
+            // out; one that does not fit is refused; a package showing at the climax is not cut - the reaction goes first after
+            // it, before the one waiting (the owner's decision of 2026-11-09)
+            {
+                yield return Until(() => !bp.Busy, 10f);
+                var sbG = h.Gauge;
+                string sbChar = h.CharacterId();
+                Func<string, int, double, Dictionary<string, object>, Dictionary<string, object>> sbPkg = (req, count, ex, line) =>
+                {
+                    turn++;
+                    return D("session", "check", "turn", turn, "launch", Launch.Id, "character", sbChar, "blocks", new List<object> { line },
+                        "standby", D("on", "climax", "request", req, "play_serial", pc.Serial, "count", count, "expires_seconds", ex));
+                };
+                sbG.Phase = "rising";
+                sbG.Value = 0.5f;
+                Http("POST", "/api/packages", sbPkg("sb-a", sbG.Climaxes + 1, 60.0, Line("……っ、あ……！")));
+                yield return Wait(1.0f);
+                var sbSt = Json.Obj(Json.Parse(Http("GET", "/api/state", null)), "standby");
+                bool sbHeld = h.Standby.Holding && !bp.Busy && Json.Str(sbSt, "request") == "sb-a";
+                sbG.Value = 0.999f;
+                sbG.Add(0.05f, D("source", "check"));
+                float sbT0 = Time.realtimeSinceStartup;
+                yield return Until(() => bp.Busy && bp.Text.StartsWith("……っ"), 3f);
+                float sbTook = Time.realtimeSinceStartup - sbT0;
+                yield return Wait(0.5f);
+                var sbClimax = LastEvent("climax");
+                Check("standby (#102): held apart from the queue (nothing shown, the state's standby), let go at her gauge's climax at once - the climax event names it",
+                      sbHeld && bp.Busy && bp.Text.StartsWith("……っ") && sbTook < 1.0f && Json.Str(sbClimax, "standby") == "sb-a" && !h.Standby.Holding,
+                      "held " + sbHeld + " " + Json.Write(sbSt) + string.Format(" took {0:F2} s ", sbTook) + Json.Write(sbClimax));
+                bp.Advance(true);
+                yield return Until(() => !bp.Busy, 5f);
+                // a new one replaces the one held; its time runs out
+                sbG.Phase = "rising";
+                sbG.Value = 0.3f;
+                int sbDrop0 = EventCount("package_dropped");
+                Http("POST", "/api/packages", sbPkg("sb-b", sbG.Climaxes + 1, 60.0, Line("（置き換わる）ん……")));
+                yield return Wait(0.6f);
+                Http("POST", "/api/packages", sbPkg("sb-c", sbG.Climaxes + 1, 5.0, Line("期限で消える。")));
+                yield return Wait(0.8f);
+                var sbRep = LastEvent("package_dropped");
+                bool sbReplaced = Json.Str(sbRep, "reason") == "replaced" && Json.Str(sbRep, "standby") == "sb-b" && h.Standby.Holding;
+                yield return Wait(5.5f);
+                var sbExp = LastEvent("package_dropped");
+                Check("standby (#102): a new one replaces the one held (package_dropped replaced); its time runs out (package_dropped expired) - nothing shown",
+                      sbReplaced && Json.Str(sbExp, "reason") == "expired" && Json.Str(sbExp, "standby") == "sb-c" && !h.Standby.Holding && !bp.Busy
+                      && EventCount("package_dropped") == sbDrop0 + 2, Json.Write(sbRep) + " / " + Json.Write(sbExp));
+                // refused: an old play serial, a field that is not a reaction's, no launch and character
+                int sbRef0 = EventCount("block_refused");
+                var sbOld = sbPkg("sb-d", sbG.Climaxes + 1, 60.0, Line("古い番号。"));
+                ((Dictionary<string, object>)sbOld["standby"])["play_serial"] = pc.Serial + 5;
+                Http("POST", "/api/packages", sbOld);
+                yield return Until(() => EventCount("block_refused") >= sbRef0 + 1, 5f);       // (the app's word through the bridge)
+                var sbR1 = LastEvent("block_refused");
+                Http("POST", "/api/packages", sbPkg("sb-e", sbG.Climaxes + 1, 60.0, With(Line("寄って。"), "camera", "close")));
+                yield return Until(() => EventCount("block_refused") >= sbRef0 + 2, 5f);
+                var sbR2 = LastEvent("block_refused");
+                var sbBare = sbPkg("sb-f", sbG.Climaxes + 1, 60.0, Line("宛先なし。"));
+                sbBare.Remove("launch");
+                sbBare.Remove("character");
+                Http("POST", "/api/packages", sbBare);
+                yield return Until(() => EventCount("block_refused") >= sbRef0 + 3, 5f);
+                yield return Wait(0.5f);
+                var sbR3 = LastEvent("block_refused");
+                Check("standby (#102): refused - an old play serial (stale_basis, the serial now), a field a reaction may not hold (not_allowed), no launch and character (untargeted); none held, none shown",
+                      Json.Str(sbR1, "field") == "standby" && Json.Str(sbR1, "reason") == "stale_basis" && Json.Str(sbR1, "detail") == pc.Serial.ToString()
+                      && Json.Str(sbR2, "reason") == "not_allowed" && Json.Str(sbR2, "detail") == "camera" && Json.Str(sbR3, "reason") == "untargeted"
+                      && EventCount("block_refused") == sbRef0 + 3 && !h.Standby.Holding && !bp.Busy,
+                      Json.Write(sbR1) + " / " + Json.Write(sbR2) + " / " + Json.Write(sbR3));
+                // a package showing at the climax is not cut: the reaction right after it (in place of its last line once out),
+                // before the package that waits
+                sbG.Phase = "rising";
+                sbG.Value = 0.3f;
+                Http("POST", "/api/packages", sbPkg("sb-g", sbG.Climaxes + 1, 60.0, Line("いまの、すごかった……。")));
+                yield return Wait(0.6f);
+                Send(Line("一つ目のセリフ。"), Line("二つ目のセリフ。"));
+                Send(Line("後のパッケージ。"));
+                yield return Until(() => bp.Busy && bp.Text == "一つ目のセリフ。", 10f);
+                sbG.Value = 0.999f;
+                sbG.Add(0.05f, D("source", "check"));
+                yield return Wait(0.4f);
+                bool sbNotCut = bp.Text == "一つ目のセリフ。" && Json.Str(LastEvent("climax"), "standby") == "sb-g";
+                bp.Advance(true);
+                yield return Until(() => bp.Busy && bp.Text == "いまの、すごかった……。", 5f);
+                bool sbAfter = bp.Text == "いまの、すごかった……。";
+                bp.Advance(true);
+                yield return Until(() => bp.Busy && bp.Text == "後のパッケージ。", 5f);
+                Check("standby (#102): a package showing at the climax is not cut - the reaction right after it (its last line once out), before the package waiting",
+                      sbNotCut && sbAfter && bp.Text == "後のパッケージ。", "not cut " + sbNotCut + " after " + sbAfter + " now [" + bp.Text + "]");
+                bp.Advance(true);
+                yield return Until(() => !bp.Busy, 5f);
+                sbG.Phase = "rising";
+                sbG.Value = 0.2f;
+            }
+
+
             // (PR #46 §7) items and the budget: the initial stock (the shelf's, the user's and hers the same); the budget by
             // running time alone, a part of an hour kept; not told to Muse unless the setting says so; his purchase; a gift done
             // when she takes it (Muse's block; the same request once); her drink flowing into her moods, dulled by the dose
