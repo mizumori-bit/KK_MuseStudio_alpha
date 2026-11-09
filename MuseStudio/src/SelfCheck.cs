@@ -160,6 +160,14 @@ namespace MuseStudio
 
         static Dictionary<string, object> With(Dictionary<string, object> b, string k, object v) { b[k] = v; return b; }
 
+        // a true in a JSON object (false when it is not there or not a bool)
+        static bool True(object v, string key)
+        {
+            var d = v as Dictionary<string, object>;
+            object b;
+            return d != null && d.TryGetValue(key, out b) && b is bool && (bool)b;
+        }
+
         static Dictionary<string, object> D(params object[] kv)
         {
             var d = new Dictionary<string, object>();
@@ -1195,8 +1203,9 @@ namespace MuseStudio
             bool ctClosed = uiM.MenuNow == "";
             Check("contents (real clicks): ← コンテンツへ戻る goes back to the contents' list from the match's menu, 閉じる closes the menu (#78)",
                   ctBack && ctClosed, "back " + ctBack + " closed " + ctClosed + " " + RealInput.LastError);
-            // ---- he moves alone (the panel's 場所; the trial run of 2026-11-04): she stays; Muse is told he left her, not where; she
-            // comes to him on Muse's location; his move back to her room is together again ----
+            // ---- he moves alone (the panel's 場所; the trial run of 2026-11-04): she stays; Muse is told he left her, and where he
+            // went (#101 item 1: where the two are is open); she comes to him on Muse's location; his move back to her room is
+            // together again ----
             string homeRoom = st.Location, awayRoom = homeRoom == "girls_room" ? "bedroom" : "girls_room";
             int lcA = EventCount("location_changed"), tcA = EventCount("together_changed");
             h.MoveTo(awayRoom, "user");
@@ -1204,12 +1213,16 @@ namespace MuseStudio
             yield return Wait(1.0f);
             var stA2 = Json.Parse(Http("GET", "/api/state", null));
             var tcLeft = LastEvent("together_changed");
+            var lcLeft = LastEvent("location_changed");
             Vector3 herAt = st.Heroine.oiCharInfo.changeAmount.pos;
             bool herStayed = h.Presence.HerRoom == homeRoom && Mathf.Abs(herAt.x - h.Rooms.OffsetOf(homeRoom).x) < 50f;
-            Check("apart: he moves alone - she stays in her room; together_changed (false, user_left) and no location_changed; the state's location stays where she saw him last, her_location hers",
-                  herStayed && Json.Str(tcLeft, "cause") == "user_left" && !(bool)tcLeft["together"] && EventCount("location_changed") == lcA
-                  && Json.Str(Json.Obj(stA2, "location"), "key") == homeRoom && Json.Str(Json.Obj(stA2, "her_location"), "key") == homeRoom
-                  && !(bool)Json.Obj(stA2, "presence")["together"], "her " + h.Presence.HerRoom + " at " + herAt + " " + Json.Write(tcLeft));
+            Check("apart: he moves alone - she stays in her room; together_changed (false, user_left); where he went is told (#101 item 1: location_changed, its presence apart, her_location hers); the state's location his room, location_known",
+                  herStayed && Json.Str(tcLeft, "cause") == "user_left" && !(bool)tcLeft["together"] && EventCount("location_changed") == lcA + 1
+                  && Json.Str(Json.Obj(lcLeft, "location"), "key") == awayRoom && Json.Str(Json.Obj(lcLeft, "her_location"), "key") == homeRoom
+                  && Json.Obj(lcLeft, "presence") != null && !True(Json.Obj(lcLeft, "presence"), "together")
+                  && Json.Str(Json.Obj(stA2, "location"), "key") == awayRoom && Json.Str(Json.Obj(stA2, "her_location"), "key") == homeRoom
+                  && !True(Json.Obj(stA2, "presence"), "together") && True(Json.Obj(stA2, "presence"), "location_known"),
+                  "her " + h.Presence.HerRoom + " at " + herAt + " " + Json.Write(tcLeft) + " / " + Json.Write(lcLeft));
             bool noPlay = pc.Begin("aibu_00", "check", "here").StartsWith("she is not here");
             Send(With(Line("待って、そっち行く。"), "location", awayRoom));
             yield return Until(() => h.Presence.Together, 10f);
@@ -1275,8 +1288,9 @@ namespace MuseStudio
                 yield return Until(() => bp.Busy && bp.Text.StartsWith("今日は"), 10f);
                 float smT0 = Time.realtimeSinceStartup;
                 string smText = bp.Text;
-                yield return Wait(0.3f);
-                int smPart = bp.Visible;
+                yield return Wait(0.6f);
+                // (#101 item 5) the text out whole at once (reveal_cps) while she still says it
+                bool smTextFast = bp.Visible == smText.Length && bp.Saying && bp.Revealing;
                 bool smFree = Mouth.FixedOf(smCha) < 0f && Mouth.Instance.Active && ReferenceEquals(Mouth.Instance.Target, smCha);
                 float smMax = 0f;
                 while (bp.Revealing && Time.realtimeSinceStartup - smT0 < 10f)
@@ -1287,23 +1301,30 @@ namespace MuseStudio
                 float smTook = Time.realtimeSinceStartup - smT0;
                 yield return Wait(0.8f);
                 bool smAfter = !Mouth.Instance.Active && Mathf.Abs(Mouth.FixedOf(smCha) - smFixed0) < 1e-4f && MouthOpenRate(smCha) < 0.05f;
-                bool smSaid = smText == "今日は、いっしょに帰ろうね。" && smPart > 0 && smPart < smText.Length && smTook >= 1.2f && smMax > 0.5f
+                bool smSaid = smText == "今日は、いっしょに帰ろうね。" && smTextFast && smTook >= 1.2f && smMax > 0.5f
                               && Mouth.Instance.Moves > smMoves0 && smFree && smAfter;
                 bp.Advance(true);
                 yield return Wait(0.4f);
-                // a press while it comes out: all of it at once, the mouth stopped
-                Send(Line("もうひとつ、ながいセリフを、ゆっくり言うね。"));
+                // (#101 item 5) a press while the text comes out: all of it at once, her mouth goes on saying it; a press with the
+                // text out whole: the next block, the line said no more (the mouth stopped)
+                Send(Line("もうひとつ、ながいセリフを、ゆっくり言うね。きょうはね、たくさん話したいことがあるの。"), Line("つぎ。"));
                 yield return Until(() => bp.Busy && bp.Text.StartsWith("もうひとつ"), 10f);
-                yield return Wait(0.3f);
-                bool smPressWas = bp.Revealing && Mouth.Instance.Active;
+                bool smPressWas = bp.Visible < bp.Text.Length;
                 bp.Advance();
                 yield return null;
                 yield return null;
                 yield return null;
-                bool smPress = smPressWas && !bp.Revealing && bp.Visible == bp.Text.Length && !Mouth.Instance.Active
-                               && Mathf.Abs(Mouth.FixedOf(smCha) - smFixed0) < 1e-4f && MouthOpenRate(smCha) < 0.05f;
+                bool smPressText = smPressWas && bp.Text.StartsWith("もうひとつ") && bp.Visible == bp.Text.Length && bp.Saying && Mouth.Instance.Active;
+                yield return Wait(0.3f);
+                bp.Advance();
+                yield return null;
+                yield return null;
+                yield return null;
+                bool smPress = smPressText && bp.Text == "つぎ。";
                 bp.Advance(true);
                 yield return Wait(0.4f);
+                bool smStopped = !bp.Busy && !Mouth.Instance.Active && Mathf.Abs(Mouth.FixedOf(smCha) - smFixed0) < 1e-4f && MouthOpenRate(smCha) < 0.05f;
+                smPress = smPress && smStopped;
                 // the setting off: at once, no mouth
                 h.SpeakMouth.Value = false;
                 Send(Line("はやいね。"));
@@ -1312,10 +1333,10 @@ namespace MuseStudio
                 bool smOff = !bp.Revealing && !Mouth.Instance.Active;
                 bp.Advance(true);
                 yield return Wait(0.4f);
-                Check("mouth (PR #46 §6): on by default; ruby parsed (shown without readings, one in （） gone); beats and pauses; a line said at its reading's pace, her mouth open within it, Studio's fixed mouth back after; a press shows all and stops it; off - at once, no mouth",
+                Check("mouth (PR #46 §6, #101 item 5): on by default; ruby parsed (shown without readings, one in （） gone); beats and pauses; the text out quickly, her mouth saying it at its reading's pace (open within it, presented after it), Studio's fixed mouth back after; a press shows the text and the mouth goes on, the next press the next block; off - at once, no mouth",
                       smDefault && smParse && smTimeline && smRubyPace && smSaid && smPress && smOff,
-                      string.Format("default {0} parse {1} '{2}' timeline {3} ({4} beats, {5:F3} s) ruby {6} said {7} ('{8}' part {9} took {10:F2} s max {11:F2} free {12} after {13} fixed0 {14}) press {15} off {16}",
-                                    smDefault, smParse, smDisp, smTimeline, smLine.Beats, smLine.Seconds, smRubyPace, smSaid, smText, smPart, smTook, smMax, smFree, smAfter, smFixed0, smPress, smOff));
+                      string.Format("default {0} parse {1} '{2}' timeline {3} ({4} beats, {5:F3} s) ruby {6} said {7} ('{8}' text fast {9} took {10:F2} s max {11:F2} free {12} after {13} fixed0 {14}) press {15} (text {17}) off {16}",
+                                    smDefault, smParse, smDisp, smTimeline, smLine.Beats, smLine.Seconds, smRubyPace, smSaid, smText, smTextFast, smTook, smMax, smFree, smAfter, smFixed0, smPress, smOff, smPressText));
             }
 
 
@@ -2201,6 +2222,29 @@ namespace MuseStudio
             bool same = true;
             for (int i = 0; i < clothes.Length; i++) if (clothes[i] != st.Cha.fileStatus.clothesState[i]) same = false;
             Check("play: ends - partner gone, clothes back, idle scene", !pc.Active && st.Partner == null && same && st.SceneKey == "idle");
+            // (#101 item 2) her clothes kept: a garment changed while a play runs (the panel's 服) is her base from then on - left
+            // through a change of play and after the play; the position's undressing is the play's own, put back
+            {
+                var base0 = (byte[])st.Cha.fileStatus.clothesState.Clone();
+                int kc = -1;
+                foreach (int k in new[] { 6, 4, 7, 5 }) if (kc < 0 && Clothes.Worn(st.Cha).Contains(k) && base0[k] == 0) kc = k;
+                string ek = pc.Begin("sonyu_00", "check", bed != null ? bed.Id : null);
+                yield return Wait(1.0f);
+                if (kc >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[kc], "off" } }, "user");
+                yield return Wait(0.3f);
+                string ek2 = pc.Begin("sonyu_00", "check", bed != null ? bed.Id : null);       // (a change of play)
+                yield return Wait(1.0f);
+                bool offInNext = kc >= 0 && st.Cha.fileStatus.clothesState[kc] == 3;
+                pc.End("check");
+                yield return Wait(0.5f);
+                bool keptOff = kc >= 0 && st.Cha.fileStatus.clothesState[kc] == 3, rest = true;
+                for (int i = 0; i < base0.Length; i++) if (i != kc && !(kc == 7 && i == 8) && st.Cha.fileStatus.clothesState[i] != base0[i]) rest = false;
+                Check("clothes kept (#101 item 2): a garment taken off in a play stays off through a change of play and after the play; the rest as before it (the position's undressing put back)",
+                      string.IsNullOrEmpty(ek) && string.IsNullOrEmpty(ek2) && offInNext && keptOff && rest,
+                      "garment " + kc + " begin [" + ek + "] / [" + ek2 + "] off in the next " + offInNext + " kept " + keptOff + " rest " + rest);
+                if (kc >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[kc], "on" } }, "user");
+                yield return Wait(0.3f);
+            }
             var fbEnd = st.Cha.animBody.GetComponent<RootMotion.FinalIK.FullBodyBipedIK>();
             Check("motion IK: after the play Studio's own IK targets are back", fbEnd != null && !fbEnd.enabled && fbEnd.solver.leftHandEffector.target != null
                   && fbEnd.solver.leftHandEffector.target.name.EndsWith("(work)"), fbEnd != null && fbEnd.solver.leftHandEffector.target != null ? fbEnd.solver.leftHandEffector.target.name : "none");
@@ -3698,6 +3742,10 @@ namespace MuseStudio
             h.Outing.SecondsForCheck = 9f;
             h.MoveTo("bathroom", "check");          // (he is there when she comes: she knows it)
             yield return Until(() => st.Location == "bathroom" && !st.Moving, 20f);
+            int kShower = -1;                        // (#101 item 2: a garment off before she goes - she comes back dressed in full)
+            foreach (int k in new[] { 6, 4, 5, 7 }) if (kShower < 0 && Clothes.Worn(st.Cha).Contains(k)) kShower = k;
+            if (kShower >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[kShower], "off" } }, "user");
+            yield return Wait(0.3f);
             Send(With(Line("シャワー浴びてくるね。"), "action", "shower"));
             yield return Until(() => h.Outing.Out, 10f);
             yield return Wait(1.0f);
@@ -3741,6 +3789,12 @@ namespace MuseStudio
             for (int i = 0; i < Math.Min(accParts.Length, st.Cha.fileStatus.showAccessory.Length); i++) if (accParts[i].type != 120 && st.Cha.fileStatus.showAccessory[i]) accBack++;
             Check("outing: done with him there, dressed again, accessories back (outing_ended user_there true)", !h.Outing.Out && h.Presence.Together && dressed && accBack > 0
                   && oe != null && oe["user_there"] is bool && (bool)oe["user_there"], oe == null ? "none" : Json.Write(oe));
+            {
+                bool full = true;
+                foreach (int k in Clothes.Worn(st.Cha)) if (st.Cha.fileStatus.clothesState[k] != 0) full = false;
+                Check("clothes (#101 item 2): back from the shower she wears the outfit she has on in full - a garment off before she went is on too",
+                      kShower >= 0 && full, "garment " + kShower + " " + Json.Write(Clothes.Info(st.Cha)));
+            }
             yield return Wait(2.0f);
             Check("urges: the shower taken today is not told again", !h.Urges.Pending("shower"));
             // the shower unseen (the user's note of 2026-11-04: her gaze looked held at the camera, known or not): he is in his room
@@ -3862,11 +3916,50 @@ namespace MuseStudio
             Check("change: she changes in her room into the outfit asked for and comes back to him dressed (outing_ended, user_there false)",
                   st.Cha.fileStatus.coordinateType == otherOutfit && dressedOn && Json.Str(oeC, "kind") == "change" && oeC["user_there"] is bool && !(bool)oeC["user_there"] && h.Presence.Together,
                   "outfit " + st.Cha.fileStatus.coordinateType + " on " + dressedOn + " " + Json.Write(oeC));
+            // (#101 item 1) where he is is open to her but while she is out: he moves alone while she changes back - nothing of it
+            // till she is done; then outing_ended tells his room now (and location_changed outing_ended), she back in the room she
+            // came from, apart; Muse's location to the room told takes her to him
+            {
+                int lcO = EventCount("location_changed");
+                Send(With(Line("やっぱり戻してくる。"), "action", D("kind", "change", "outfit", coordWas)));
+                yield return Until(() => h.Outing.Out, 10f);
+                bp.Advance(true);
+                string elseRoom = "";
+                foreach (var r in new[] { "bedroom", "myroom", "home_toilet" }) if (elseRoom.Length == 0 && r != camRoom && r != h.Outing.Room) elseRoom = r;
+                h.MoveTo(elseRoom, "user");
+                yield return Until(() => st.Location == elseRoom && !st.Moving, 20f);
+                yield return Wait(0.5f);
+                var stO = Json.Parse(Http("GET", "/api/state", null));
+                bool heldBack = h.Outing.Out && EventCount("location_changed") == lcO && Json.Str(Json.Obj(stO, "location"), "key") == camRoom
+                                && Json.Obj(stO, "presence") != null && !True(Json.Obj(stO, "presence"), "location_known");
+                yield return Until(() => !h.Outing.Out, 20f);
+                yield return Wait(1.0f);
+                var oeO = LastEvent("outing_ended");
+                var lcO2 = LastEvent("location_changed");
+                var stO2 = Json.Parse(Http("GET", "/api/state", null));
+                Check("where he is (#101 item 1): held back while she is out (no location_changed, the state's location the room she left him in, location_known false); told when she is done - outing_ended's location his room now, location_changed outing_ended, she back in her room apart",
+                      heldBack && Json.Str(Json.Obj(oeO, "location"), "key") == elseRoom && Json.Str(Json.Obj(oeO, "her_location"), "key") == camRoom
+                      && !True(Json.Obj(oeO, "presence"), "together") && Json.Str(lcO2, "source") == "outing_ended" && Json.Str(Json.Obj(lcO2, "location"), "key") == elseRoom
+                      && Json.Str(Json.Obj(stO2, "location"), "key") == elseRoom && True(Json.Obj(stO2, "presence"), "location_known") && h.Presence.Apart,
+                      "held back " + heldBack + " " + Json.Write(oeO) + " / " + Json.Write(lcO2));
+                Send(With(Line("ここにいたんだ。"), "location", elseRoom));
+                yield return Until(() => h.Presence.Together, 10f);
+                yield return Wait(0.5f);
+                var tcO = LastEvent("together_changed");
+                Check("where he is (#101 item 1): Muse's location to the room told takes her to him (together_changed true, she_came)",
+                      h.Presence.Together && Json.Str(tcO, "cause") == "she_came" && True(tcO, "together"), Json.Write(tcO));
+                bp.Advance(true);
+                h.MoveTo(camRoom, "check");
+                yield return Until(() => st.Location == camRoom && !st.Moving, 20f);
+            }
             st.Heroine.SetCoordinateInfo((ChaFileDefine.CoordinateType)coordWas, true);
             for (int k = 0; k < st.Cha.fileStatus.clothesState.Length; k++) st.Cha.SetClothesState(k, 0, false);
             h.Outing.SecondsForCheck = -1f;
             yield return Wait(0.5f);
             // shower together: both to the shower room, nude, a play there
+            int kBath = -1;                          // (#101 item 2: a garment off before - dressed in full after the bath's play)
+            foreach (int k in new[] { 6, 4, 5, 7 }) if (kBath < 0 && Clothes.Worn(st.Cha).Contains(k)) kBath = k;
+            if (kBath >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[kBath], "off" } }, "user");
             mood.Values["shower"] = 0.5f;
             Send(With(Line("一緒に入ろ？"), "action", "shower_together"));
             yield return Until(() => pc.Active, 30f);
@@ -3889,6 +3982,12 @@ namespace MuseStudio
             yield return Wait(0.5f);
             Check("shower wish: showering together resets it and adds nothing after (and counts as today's shower)", resetTogether && mood.Values["shower"] < 0.001f
                   && !h.Urges.Pending("shower"), mood.Values["shower"].ToString("F3"));
+            {
+                bool full = true;
+                foreach (int k in Clothes.Worn(st.Cha)) if (st.Cha.fileStatus.clothesState[k] != 0) full = false;
+                Check("clothes (#101 item 2): after the bath's play (shower together) she wears the outfit she has on in full - a garment off before is on too",
+                      kBath >= 0 && full, "garment " + kBath + " " + Json.Write(Clothes.Info(st.Cha)));
+            }
             h.Urges.ClockForCheck = DateTime.Today.AddHours(12);
             h.Outing.SecondsForCheck = -1f;
             h.MoveTo(camRoom, "check");

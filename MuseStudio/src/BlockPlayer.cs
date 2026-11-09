@@ -6,8 +6,9 @@ using UnityEngine;
 namespace MuseStudio
 {
     // Plays one turn package at a time (MUSE_GUIDE.md 5), one block per display unit: a block with "location" moves there
-    // first, then its emotion / scene / camera / play take effect and its text shows - revealed quickly (reveal_cps), the
-    // first press shows the rest, the next one advances. Advance: click / Enter / Space, or auto (characters x per_char +
+    // first, then its emotion / scene / camera / play take effect and its text shows - revealed quickly (reveal_cps; her
+    // mouth, with the setting 口の動き, says it at her pace meanwhile and after - presented when both are done: #101 item 5),
+    // the first press shows the rest, the next one advances. Advance: click / Enter / Space, or auto (characters x per_char +
     // base after the reveal; the voice is off). A block is presented when its text is all out (no voice): the scene's gauge
     // counts from then, the last block's presentation is the package's (the state's beat.since_presented counts from it); in
     // a play the next package may replace that last line without a tap. A package tagged for another launch or character is
@@ -29,13 +30,15 @@ namespace MuseStudio
         public float Pace = 1f;       // the reveal and the auto advance faster / slower (a replay's speed)
         public int Played;            // packages played (checks)
         public float ShownAt;         // when the block's text came out
-        float presentedAt = -1f;      // when its text was all out (-1: still revealing)
-        bool revealAll;
+        float presentedAt = -1f;      // when it was all out and said (-1: still revealing / being said)
+        bool textAll;                 // its text shown whole (a press while it came out)
+        bool sayStopped;              // the line said no more (its speaker switched)
         float waitLeft = -1f, monoWait = -1f;
         readonly float perChar, baseSec, revealCps, monoMin, monoMax, monoPerChar;
         readonly Dictionary<string, object> speechCfg;     // (stage.json speech: the words' pace and the mouth's beats)
         public Spoken Spoken;         // the block's words parsed (its ruby; null: a sound block)
-        public bool Speaking;         // its words come out at the pace she says them, her mouth with them (the setting 口の動き)
+        public bool Speaking;         // her mouth says its words at the pace she says them (the setting 口の動き); the text comes out
+                                      // quickly all the same (reveal_cps - #101 item 5, the owner's decision)
         string spokenBy = "";         // who says them (SpeakerKey as the block came out): the mouth only for that one
         public int SpeechExpired;     // (checks) lines no longer said: their speaker changed
         public bool MonologueMoved;   // the monologue's own block moved her (not a change of the situation)
@@ -120,16 +123,18 @@ namespace MuseStudio
 
         static float Now { get { return Time.realtimeSinceStartup; } }
 
-        // the characters out so far (the text is revealed reveal_cps a second)
+        // the characters out so far (the text is revealed reveal_cps a second - her mouth or not: #101 item 5)
         public int Visible
         {
             get
             {
-                if (revealAll || Moving) return Text.Length;
-                if (Speaking && Spoken != null) return Spoken.VisibleAt((Now - ShownAt) * Pace);      // (at the pace she says it)
+                if (textAll || Moving) return Text.Length;
                 return Mathf.Min(Text.Length, (int)((Now - ShownAt) * revealCps * Pace));
             }
         }
+
+        // the line is still being said: her mouth with it (the setting 口の動き), within its reading's time, not stopped
+        public bool Saying { get { return Busy && !Moving && Speaking && Spoken != null && !sayStopped && (Now - ShownAt) * Pace < Spoken.Seconds; } }
 
         public int Pending { get { return pending.Count; } }
 
@@ -140,7 +145,9 @@ namespace MuseStudio
             if (Busy) End(false, "cleared");
         }
 
-        public bool Revealing { get { return Busy && !Moving && Visible < Text.Length; } }
+        // the block is still being presented: its text coming out, or the line still being said (both done: presented - its
+        // wait, the auto advance, the monologue's time and a play's next package from then; #101 item 5)
+        public bool Revealing { get { return Busy && !Moving && (Visible < Text.Length || Saying); } }
 
         public bool Busy { get { return Pkg != null; } }
 
@@ -211,16 +218,16 @@ namespace MuseStudio
             MouthTick();
         }
 
-        // the speaker's mouth with the words (PR #46 §6): while the line is being said - not past its end, not once a press
-        // showed it all, not while the speaker's mouth is in use (a kiss, a service) or she is not on the stage; else the
-        // face's own mouth again
+        // the speaker's mouth with the words (PR #46 §6): while the line is being said - not past its end, not once the user
+        // went on to the next block (a press on the text out whole: #101 item 5), not while the speaker's mouth is in use (a
+        // kiss, a service) or she is not on the stage; else the face's own mouth again
         void MouthTick()
         {
             var m = Mouth.Instance;
             if (m == null) return;
             float t = (Now - ShownAt) * Pace;
-            if (Busy && Speaking && !revealAll && SpeakerKey() != spokenBy) SpeakerChanging();      // (another one there now: not hers to say)
-            ChaControl who = Busy && !Moving && Speaking && Spoken != null && !revealAll && t < Spoken.Seconds ? SpeakerCha() : null;
+            if (Busy && Speaking && !sayStopped && SpeakerKey() != spokenBy) SpeakerChanging();      // (another one there now: not hers to say)
+            ChaControl who = Saying ? SpeakerCha() : null;
             if (who == null) { if (m.Active) m.Stop(); return; }
             m.Drive(who, Spoken.OpenAt(t));
         }
@@ -247,7 +254,7 @@ namespace MuseStudio
         public void SpeakerChanging()
         {
             if (Mouth.Instance != null && Mouth.Instance.Active) Mouth.Instance.Stop();
-            if (Busy && Speaking && !revealAll) { revealAll = true; SpeechExpired++; }
+            if (Busy && Speaking && !sayStopped) { sayStopped = true; textAll = true; SpeechExpired++; }
         }
 
         // the user switched the character: what waits here was for the one before (the new one's tagged packages stay) -
@@ -330,11 +337,12 @@ namespace MuseStudio
             Advance(true);
         }
 
-        // the user's press: the rest of a revealing text first, then the next block (force: the next block at once)
+        // the user's press: the rest of a revealing text first (her mouth goes on saying it), then the next block - the line
+        // said no more (#101 item 5); force: the next block at once
         public void Advance(bool force = false)
         {
             if (!Busy || Moving) return;
-            if (!force && Revealing) { revealAll = true; return; }
+            if (!force && Visible < Text.Length) { textAll = true; return; }
             Index++;
             if (Index >= Blocks.Count) { End(true); return; }
             MuseStudioPlugin.Instance.StartCoroutine(Show(Blocks[Index] as Dictionary<string, object>));
@@ -577,7 +585,8 @@ namespace MuseStudio
             skipEmpty = Text.Length == 0;          // (all of it her inner thought: its effects, no box)
             ShownAt = Now;
             presentedAt = -1f;
-            revealAll = Text.Length == 0;
+            textAll = Text.Length == 0;
+            sayStopped = false;
             spokenBy = SpeakerKey();
             // (said at her pace: the line took its reading's time - the base's wait after it, as after a voice)
             waitLeft = Auto ? (Speaking ? (float)Json.Num(speechCfg, "after_seconds", baseSec) : Text.Length * perChar + baseSec) / Pace : -1f;

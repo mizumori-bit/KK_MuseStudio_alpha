@@ -22,15 +22,19 @@ namespace MuseStudio
     // there: slow, strong, her climax, after) and change (her clothes off and on, another outfit by number) - the same room
     // for both, so only peeping tells which. While she is out nothing that rests on where he is goes to Muse (Plugin: the
     // state's location stays the room she left him in, location_changed and the catalog wait; BlockPlayer: her monologue
-    // goes on its own time); she finds him only when he calls out (Call: user_found), or there when she is done.
+    // goes on its own time); she finds him only when he calls out (Call: user_found), or there when she is done. Out of it
+    // his room is known to her again (#101 item 1, the owner's decision: where the two are is open, the app holding back
+    // what she cannot know - his moves while she is out): outing_ended tells where he is now, with him or not.
     public class Outing
     {
         readonly MuseStudioPlugin h;
         public string Kind = "", Room = "";
         public bool Out { get { return Kind.Length > 0; } }
+        // (out) he is in her room and she knows it: there when she went, not gone since
+        public bool SeesHim { get { return Out && userWasThere && h.Stage.Location == Room; } }
         public float SecondsForCheck = -1f;       // (checks) a shorter outing
         public string Phase = "";                 // in / loop / out / climax / after / changing (checks)
-        public string KnownRoom = "";             // the room she left him in (what she knows of where he is)
+        public string KnownRoom = "";             // the room she left him in (what she knows of where he is while she is out)
         public float DressedAt = -1f;             // (checks) the toilet: her clothes on again, seconds into the Out clip
         Dictionary<string, object> opts;
         float endsAt;
@@ -133,7 +137,7 @@ namespace MuseStudio
             Room = room;
             userWasThere = h.Stage.Location == room;
             fromRoom = h.Presence.HerRoom;                      // (where she goes back to)
-            KnownRoom = h.Presence.Apart ? fromRoom : h.Stage.Location;
+            KnownRoom = h.Stage.Location;                       // (his room is known to her till she goes: #101 item 1)
             h.Presence.HerAt = room;
             returnAt = -1f;
             Vector3 pos;
@@ -407,7 +411,10 @@ namespace MuseStudio
             string kind = Kind, room = Room;
             bool userThere = h.Stage.Location == room;
             var cha = h.Stage.Cha;
-            foreach (var kv in clothesBefore) cha.SetClothesState(kv.Key, kv.Value, false);
+            // dressed again: after the shower the outfit she has on, worn in full (not the card's, not as before she went - #101
+            // item 2, the owner's decision); else as she was before she went
+            if (kind == "shower") for (int k = 0; k < cha.fileStatus.clothesState.Length; k++) cha.SetClothesState(k, 0, false);
+            else foreach (var kv in clothesBefore) cha.SetClothesState(kv.Key, kv.Value, false);
             BathAccessories.Back(cha, accBefore);
             accBefore.Clear();
             Kind = "";
@@ -431,8 +438,8 @@ namespace MuseStudio
             if (kind == "toilet") h.Mood.Relieve("bladder");
             bool with = h.Presence.HerAt.Length == 0;
             h.Bridge.Event("outing_ended", new Dictionary<string, object> { { "kind", kind }, { "room", h.Stage.LocationInfo(room) }, { "user_there", userThere },
-                { "location", h.Stage.LocationInfo(with ? h.Stage.Location : KnownRoom) }, { "her_location", h.Stage.LocationInfo(h.Presence.HerRoom) }, { "presence", h.Presence.Info() } });
-            if (with) h.Rejoined("met", KnownRoom);            // (where he is now, told once she is with him)
+                { "location", h.Stage.LocationInfo(h.Stage.Location) }, { "her_location", h.Stage.LocationInfo(h.Presence.HerRoom) }, { "presence", h.Presence.Info() } });
+            h.Rejoined(with ? "met" : "outing_ended", KnownRoom);     // (where he is now, known to her again: with him or not - #101 item 1)
             KnownRoom = "";
         }
 
