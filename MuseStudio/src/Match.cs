@@ -106,6 +106,7 @@ namespace MuseStudio
         {
             if (Active || Loading) { Refuse("match.start", Json.Str(st, "room", ""), "match_running"); return; }
             if (h.Outing.Out) { Refuse("match.start", Json.Str(st, "room", ""), "she_is_out"); return; }
+            if (h.Bath.Busy) { Refuse("match.start", Json.Str(st, "room", ""), "in_bath"); return; }      // (the bath: its room until it ends)
             h.StartCoroutine(StartRoutine(st));
         }
 

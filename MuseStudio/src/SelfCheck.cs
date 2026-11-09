@@ -4115,38 +4115,9 @@ namespace MuseStudio
             for (int k = 0; k < st.Cha.fileStatus.clothesState.Length; k++) st.Cha.SetClothesState(k, 0, false);
             h.Outing.SecondsForCheck = -1f;
             yield return Wait(0.5f);
-            // shower together: both to the shower room, nude, a play there
-            int kBath = -1;                          // (#101 item 2: a garment off before - dressed in full after the bath's play)
-            foreach (int k in new[] { 6, 4, 5, 7 }) if (kBath < 0 && Clothes.Worn(st.Cha).Contains(k)) kBath = k;
-            if (kBath >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[kBath], "off" } }, "user");
-            mood.Values["shower"] = 0.5f;
-            Send(With(Line("一緒に入ろ？"), "action", "shower_together"));
-            yield return Until(() => pc.Active, 30f);
-            yield return Wait(1.0f);
-            bool herBare = true;
-            foreach (var cs in st.Cha.fileStatus.clothesState) if (cs != 3) herBare = false;
-            int accTogether = 0;
-            var accP2 = st.Cha.nowCoordinate.accessory.parts;
-            for (int i = 0; i < Math.Min(accP2.Length, st.Cha.fileStatus.showAccessory.Length); i++)
-                if (accP2[i].type != 120 && !BathAccessories.IsHair(accP2[i]) && st.Cha.fileStatus.showAccessory[i]) accTogether++;
-            herBare = herBare && accTogether == 0;
-            Check("action: shower together - both in the shower room, nude (her accessories off but the hair's), a play begins", pc.Active && st.Location == "bathroom" && herBare && pc.Info()["player_clothes"] as string == "nude",
-                  st.Location + " " + (pc.Active ? Json.Str(pc.Current, "id") + " " + Json.Write(pc.Info()["player_clothes"]) : "no play") + " bare " + herBare);
-            yield return Shot("16_shower_together.png");
-            bp.Advance(true);
-            bool resetTogether = mood.Values["shower"] < 0.001f;
-            pc.SetPace(2, "check");
-            yield return Wait(2.0f);
-            pc.End("check");
-            yield return Wait(0.5f);
-            Check("shower wish: showering together resets it and adds nothing after (and counts as today's shower)", resetTogether && mood.Values["shower"] < 0.001f
-                  && !h.Urges.Pending("shower"), mood.Values["shower"].ToString("F3"));
-            {
-                bool full = true;
-                foreach (int k in Clothes.Worn(st.Cha)) if (st.Cha.fileStatus.clothesState[k] != 0) full = false;
-                Check("clothes (#101 item 2): after the bath's play (shower together) she wears the outfit she has on in full - a garment off before is on too",
-                      kBath >= 0 && full, "garment " + kBath + " " + Json.Write(Clothes.Info(st.Cha)));
-            }
+            // the bath (shower together; #70 adopted) and the pace after the idle stop (B): SelfCheckBath
+            yield return BathChecks();
+            yield return ResumeChecks();
             h.Urges.ClockForCheck = DateTime.Today.AddHours(12);
             h.Outing.SecondsForCheck = -1f;
             h.MoveTo(camRoom, "check");
@@ -5129,8 +5100,8 @@ namespace MuseStudio
             // (#70 adopted, 5) the checks' own packages use only the fields the app knows: the only unknown_field refusals of the
             // whole run are the two of their own check - a field the app reads but left out of its list would show here
             var ufAll = AllEvents().FindAll(e => Json.Str(e, "type") == "block_refused" && Json.Str(e, "reason") == "unknown_field").ConvertAll(e => Json.Str(e, "field"));
-            Check("block: no field the app reads is taken for unknown - the whole run's unknown_field refusals are only the test's own (future_thing, sparkle; the feed may have dropped them since) (#70 adopted, 5)",
-                  ufAll.TrueForAll(f => f == "future_thing" || f == "sparkle"), string.Join(",", ufAll.ToArray()));
+            Check("block: no field the app reads is taken for unknown - the whole run's unknown_field refusals are only the test's own (future_thing, sparkle, the bath's old action.play; the feed may have dropped them since) (#70 adopted, 5)",
+                  ufAll.TrueForAll(f => f == "future_thing" || f == "sparkle" || f == "action.play"), string.Join(",", ufAll.ToArray()));
 
             lines.AppendLine(string.Format("CHECK SUMMARY pass={0} fail={1}", pass, fail));
             Flush();

@@ -390,6 +390,7 @@ namespace MuseStudio
             if (startWithMove) { Refuse("location", loc, "with_start"); loc = null; }
             if (!string.IsNullOrEmpty(loc) && (h.Match.Active || opp)) { Refuse("location", loc, "in_match"); loc = null; }       // (the match's room stays)
             if (!string.IsNullOrEmpty(loc) && h.Kensei.Active) { Refuse("location", loc, "in_kensei"); loc = null; }            // (献精室: the room is the run's)
+            if (!string.IsNullOrEmpty(loc) && h.Bath.Busy && loc != h.Stage.Location) { Refuse("location", loc, "in_bath"); loc = null; }      // (the bath: its room until it ends)
             if (!string.IsNullOrEmpty(loc) && loc != h.Stage.Location && !h.Stage.Reachable(loc))
             {
                 // no such room (MUSE_GUIDE.md 3.4: every registered room is a place - the catalog's rooms; PR #46 §4.1): refused,
@@ -643,6 +644,8 @@ namespace MuseStudio
             waitLeft = Auto ? (Speaking ? (float)Json.Num(speechCfg, "after_seconds", baseSec) : Text.Length * perChar + baseSec) / Pace : -1f;
             monoWait = Monologue ? Mathf.Clamp(monoMin + Text.Length * monoPerChar, monoMin, monoMax) : -1f;
             h.Beat.Progress();
+            // (#70 adopted: B) her own block shown here puts back the pace the idle stop took (PlayCtl.ResumeAfterIdle's conditions)
+            if (Speaker != "opponent" && Text.Length > 0 && Showing && !h.Replay.Playing && !h.Match.Active && !h.Match.Replaying) h.Play.ResumeAfterIdle();
         }
 
         // the match's play: start (a play id, the original's male part by side, a spot, anal) / end - only in a match (the

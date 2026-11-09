@@ -280,8 +280,6 @@ namespace MuseStudio
 
         // ---- start / end ----
 
-        public bool NudeOnce;          // the next play strips both (shower together)
-
         public string Begin(string id, string source, string spotId = null, bool reverse = false, bool anal = false, string request = null)
         {
             var row = Row(id);
@@ -302,8 +300,8 @@ namespace MuseStudio
             if (Active) End("change", false, false);
             stage.StopWalk(false);            // a play stops the walk where she is
             Res = res;
-            nudeNow = NudeOnce;
-            NudeOnce = false;
+            nudeNow = MuseStudioPlugin.Instance.Bath.Active;      // (in the bath: the two nude - Bath)
+            resumePace = -1;
             Reversed = reverse;
             Anal = AnalOk(row) && (res.Parts["character"].Contains("anus") || res.Parts["player"].Contains("anus"));
             Current = row;
@@ -1030,13 +1028,13 @@ namespace MuseStudio
             Strapon.Off(cha);
             stage.Heroine.SetVisibleSon(charSonBefore);
             bool together = nudeNow;
-            // her base clothes again: as before the play, with what was changed in it (#101 item 2, the owner's decision); after
-            // the bath's play (shower together) the outfit she has on, worn in full (not the card's)
-            if (together) for (int k = 0; k < cha.fileStatus.clothesState.Length; k++) cha.SetClothesState(k, 0, false);
+            // her base clothes again: as before the play, with what was changed in it (#101 item 2, the owner's decision); in the
+            // bath they stay off - its end dresses her (the outfit she has on, in full: Bath; #70 adopted - a change of the play
+            // there dressed her before)
+            if (together) for (int k = 0; k < cha.fileStatus.clothesState.Length; k++) cha.SetClothesState(k, 3, false);
             else foreach (var kv in clothesBefore) cha.SetClothesState(kv.Key, kv.Value, false);
-            BathAccessories.Back(cha, accBefore);
-            accBefore = null;
             nudeNow = false;
+            resumePace = -1;
             clothesBefore.Clear();
             Current = null;
             CurrentSpot = null;
@@ -1164,8 +1162,7 @@ namespace MuseStudio
             for (int k = 0; k < cha.fileStatus.clothesState.Length; k++) clothesBefore[k] = cha.fileStatus.clothesState[k];
             if (nudeNow)
             {
-                for (int k = 0; k < cha.fileStatus.clothesState.Length; k++) cha.SetClothesState(k, 3, false);
-                accBefore = BathAccessories.Off(cha);        // (the bath: her accessories too, but the hair's)
+                for (int k = 0; k < cha.fileStatus.clothesState.Length; k++) cha.SetClothesState(k, 3, false);      // (the bath's: her accessories off already)
                 return;
             }
             if (HInfo == null) return;
@@ -1196,8 +1193,9 @@ namespace MuseStudio
         // a touch during an aibu play: the part's Touch state, then its loop while the play runs (Idle when stopped)
         public void Touched(string area)
         {
+            if (Active) resumePace = -1;          // (the user's touch after the idle stop, any play: his say - #70 adopted, B)
             if (!Active || Mode != 0 || Climax.Running || !AibuTouch.ContainsKey(area)) return;
-            LastInput = Time.realtimeSinceStartup;
+            UserInput();
             string p = AibuTouch[area];
             lastTouched = Time.realtimeSinceStartup;
             if (Kissing) return;
@@ -1217,7 +1215,7 @@ namespace MuseStudio
                 if (!Kissing) kissBack = touchPrefix;
                 Kissing = true;
                 touchPrefix = reacted = "K";
-                LastInput = Time.realtimeSinceStartup;
+                UserInput();
                 PlayState("K_Touch", 1f);
                 return true;
             }
@@ -1267,7 +1265,8 @@ namespace MuseStudio
         public void SetPace(int pace, string source)
         {
             if (!Active) return;
-            if (source == "user") LastInput = Time.realtimeSinceStartup;
+            if (source != "idle") resumePace = -1;          // (a pace of anyone's after the idle stop: its own)
+            if (source == "user") UserInput();
             if (source == "user" && pace > 0 && Group == "sonyu" && !Inserted) return;      // out: only Muse puts it in
             if (Climax.Running) { queuedPace = pace; return; }     // after the finish / the insertion
             PaceTo(pace, source);
@@ -1289,8 +1288,39 @@ namespace MuseStudio
             Pace = pace;
             PlayState(PaceStateName(pace), pace == 0 ? 1f : PaceSpeed(pace));
             if (prev != pace)
-                bridge.Event("play_pace_changed", new Dictionary<string, object> { { "play", Info() }, { "pace", pace }, { "pace_name", PaceNames[pace] },
-                    { "previous_pace", prev }, { "source", source } });
+            {
+                var ev = new Dictionary<string, object> { { "play", Info() }, { "pace", pace }, { "pace_name", PaceNames[pace] },
+                    { "previous_pace", prev }, { "source", source } };
+                if (source == "idle") ev["resume_pace"] = resumePace > 0 ? (object)resumePace : null;      // (put back by her next block: #70 adopted)
+                bridge.Event("play_pace_changed", ev);
+            }
+        }
+
+        // (#70 adopted: the owner's B, on GPT's conditions) the pace the idle stop took (source idle) put back by her next block
+        // shown here (BlockPlayer.Present: hers, words on the screen, not a replay's or a match's) - in the same play of the same
+        // launch and character; gone with anything after the stop: the user's input on the play, its end or change, a pace of
+        // anyone's (Muse's 0 too), Muse's finish / insertion / pull. A package's coming alone does not put it back
+        int resumePace = -1, resumeSerial;
+        string resumeChar = "";
+        public int ResumePace { get { return resumePace; } }
+
+        void UserInput()
+        {
+            LastInput = Time.realtimeSinceStartup;
+            resumePace = -1;
+        }
+
+        public bool ResumeAfterIdle()
+        {
+            if (resumePace <= 0) return false;
+            if (!Active || Serial != resumeSerial || resumeChar != MuseStudioPlugin.Instance.CharacterId() || Pace != 0) { resumePace = -1; return false; }
+            if (Climax.Running) return false;              // (a flow on: the next block)
+            int p = resumePace;
+            resumePace = -1;
+            LastInput = Time.realtimeSinceStartup;
+            if (Group == "sonyu" && !Inserted) return false;     // (out: only Muse puts it in)
+            PaceTo(p, "resume");
+            return true;
         }
 
         // A block's play (MUSE_GUIDE.md 5.2): pace / speed / insert / pull / finish. Returns the refused fields with why.
@@ -1299,6 +1329,7 @@ namespace MuseStudio
             var refused = new List<KeyValuePair<string, string>>();
             if (!Active || play == null) return refused;
             LastInput = LastMuse = Time.realtimeSinceStartup;
+            foreach (var k in new[] { "pace", "finish", "pull", "insert" }) if (Json.Has(play, k)) resumePace = -1;      // (Muse's own say on the motion)
             if (Json.Has(play, "speed")) SpeedFactor = Mathf.Clamp((float)Json.Num(play, "speed", 1), 0.5f, 2f);
             int pace = Json.Has(play, "pace") ? Mathf.Clamp((int)Json.Num(play, "pace"), 0, 3) : -1;
             object v;
@@ -1354,6 +1385,8 @@ namespace MuseStudio
             queuedPace = pace;
             if (!Climax.RunFlow("insert")) { SetInserted(true, "muse"); SequenceDone("insert"); }
         }
+
+        public void UserPull() { UserInput(); Pull(); }
 
         public void Pull()
         {
@@ -1598,8 +1631,7 @@ namespace MuseStudio
 
         // ---- the user's body: its clothes, its eyes ----
 
-        bool nudeNow;                  // this play strips both (shower together)
-        Dictionary<int, bool> accBefore;   // her accessories taken off for it
+        bool nudeNow;                  // this play is in the bath: both nude
         int PartnerClothes { get { return nudeNow ? 2 : Mathf.Clamp(MuseStudioPlugin.Instance.YourClothes.Value, 0, 2); } }
 
         // 脱ぐ (the default) / 着たまま / 半脱ぎ: every garment of the user's body; the penis shows through only when nude
@@ -1667,6 +1699,7 @@ namespace MuseStudio
 
         public void SetPartnerClothes(int n)
         {
+            if (nudeNow) return;          // (the bath: nude until it ends)
             MuseStudioPlugin.Instance.YourClothes.Value = Mathf.Clamp(n, 0, 2);
             ApplyPartnerClothes();
             if (Active && stage.Partner != null)
@@ -1832,7 +1865,13 @@ namespace MuseStudio
             if (Pace <= 0 || Climax.Running) return;
             // (not in her own play: she is alone)
             var ks = MuseStudioPlugin.Instance.Kensei;
-            if (MuseStudioPlugin.Instance.Mood.MoodPlay.Length == 0 && (ks == null || !ks.Active) && Time.realtimeSinceStartup - LastInput > idlePause) { SetPace(0, "idle"); return; }     // (献精室: not in a run - a turn waits for Muse)
+            if (MuseStudioPlugin.Instance.Mood.MoodPlay.Length == 0 && (ks == null || !ks.Active) && Time.realtimeSinceStartup - LastInput > idlePause)
+            {
+                // (#70 adopted: B) what it was, for her next block to put back (not in a match: the two sides' packages drive it)
+                if (!MuseStudioPlugin.Instance.Match.Active) { resumePace = Pace; resumeSerial = Serial; resumeChar = MuseStudioPlugin.Instance.CharacterId(); }
+                SetPace(0, "idle");
+                return;
+            }     // (献精室: not in a run - a turn waits for Muse)
             if (stage.Moving) return;
             float rate = (float)Json.Num(data, "rate", 0.008) * PaceFactor(Pace) * RateOf("character");
             if (rate > 0f && !MuseStudioPlugin.Instance.Match.Active)      // (a match: no gauge - the climaxes are each Muse's declaration)
@@ -1860,7 +1899,8 @@ namespace MuseStudio
                 { "player_clothes", stage.Partner != null ? ClothesKeys[PartnerClothes] : null },
                 { "rates", new Dictionary<string, object> { { "character", RateOf("character") }, { "player", RateOf("player") } } },
                 { "partner", stage.Partner != null }, { "location", stage.Location }, { "spot", SpotInfo(CurrentSpot, Current) },
-                { "started", Started }, { "seconds", Math.Round(Time.realtimeSinceStartup - StartedAt, 1) } };
+                { "started", Started }, { "seconds", Math.Round(Time.realtimeSinceStartup - StartedAt, 1) },
+                { "resume_pace", resumePace > 0 ? (object)resumePace : null } };
         }
 
         Dictionary<string, object> RolesInfo()

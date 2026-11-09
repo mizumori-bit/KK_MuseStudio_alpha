@@ -43,7 +43,7 @@ namespace MuseStudio
         internal ConfigEntry<int> YourClothes;
         internal ConfigEntry<bool> ShowGaugePercent;     // (#70 adopted: the gauge's % on the screen - off by default, the setting kept)
         // (#70 adopted, 5) the contract's version this app speaks (MUSE_GUIDE.md's: the bridge's tests hold them together)
-        public const string Contract = "1.42";
+        public const string Contract = "1.43";
         internal ConfigEntry<KeyboardShortcut> HitShapesKey;
         internal ConfigEntry<KeyboardShortcut> HideUiKey;
         ConfigEntry<string> resetCameraEntry, resetPlacesEntry, scanRoomsEntry;
@@ -96,6 +96,7 @@ namespace MuseStudio
         internal Match Match;
         internal Replay Replay;
         internal Kensei Kensei;           // (献精室, #113-#115: the content's run)
+        internal Bath Bath;               // (the bath: shower together, #70 adopted)
         internal static int SpaceSeen;            // (checks) Space presses Unity saw
         internal Talk Talk;
         internal Relationship Relationship;
@@ -350,6 +351,7 @@ namespace MuseStudio
             Match = new Match(this);
             Replay = new Replay(this);
             Kensei = new Kensei(this);
+            Bath = new Bath(this);
             Talk = new Talk(this);
             Relationship = new Relationship(this);
             string check;
@@ -792,10 +794,11 @@ namespace MuseStudio
             Notices.Raise("room_load_failed", "部屋「" + (name.Length > 0 ? name : key) + "」を読み込めませんでした（場所はそのままです）", 8f);
         }
 
-        IEnumerator MoveRoutine(string key, string source)
+        internal IEnumerator MoveRoutine(string key, string source)
         {
             key = Places != null ? (Places.KeyOf(key) ?? key) : key;      // (named by its id: its key - PR #46 §4.1)
             if (key == Stage.Location || !Stage.Reachable(key)) yield break;
+            if (Bath != null && Bath.Busy && source != "bath") yield break;      // (the bath: the place is its own - #70 adopted)
             // the room in first: one that does not load changes nothing - the play, where she is, his place (GPT's post-review
             // of #62)
             yield return Stage.EnsureRoom(key);
@@ -859,7 +862,7 @@ namespace MuseStudio
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },
                 { "clothes", Clothes.Info(Stage.Cha) }, { "replay", Replay != null ? Replay.Info() : null }, { "settings", SettingsInfo() },
                 { "items", Items != null ? Items.State() : null }, { "standby", Standby != null ? Standby.Info() : null },
-                { "kensei", Kensei != null ? Kensei.Info() : null } };
+                { "kensei", Kensei != null ? Kensei.Info() : null }, { "bath", Bath != null ? Bath.Info() : null } };
         }
 
         internal string CharacterId()
@@ -935,6 +938,14 @@ namespace MuseStudio
         // her clothes on / half / off (the panel's 服, a block's clothes): clothes_changed
         internal List<object> ChangeClothes(Dictionary<string, object> want, string by)
         {
+            if (Bath != null && Bath.Busy)
+            {
+                // (the bath: the two nude until it ends - the panel's 服 greyed, Muse's refused; nothing of the outfit rewritten)
+                if (by == "muse")
+                    Bridge.Event("block_refused", new Dictionary<string, object> { { "field", "clothes" }, { "value", string.Join(",", new List<string>(want.Keys).ToArray()) },
+                        { "reason", "in_bath" }, { "available", new List<object>() } });
+                return new List<object>();
+            }
             var unknown = new List<string>();
             var noHalf = new List<string>();
             var accepted = new List<int>();
