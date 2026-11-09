@@ -175,18 +175,13 @@ namespace MuseStudio
         // a whole new file first (.part); the old one moved aside (.bak) and the new one moved in; the old one removed last. A
         // stop at any point leaves a whole file: the old one in place, or as .bak (taken back by the next read). Never written
         // into in place (GPT's re-review of #42: the fallback copied over it)
+        // (WholeFile: done once the new text is in place - a .bak not cleared no longer makes a written record a failed one,
+        // which put the items back while the file held them: the same as 献精室's, GPT's re-review of #119, 2)
         void WriteWhole(string text)
         {
             if (FailWritesForCheck) throw new IOException("check: the write fails");
-            Directory.CreateDirectory(Path.GetDirectoryName(savePath));
-            string part = savePath + ".part", bak = savePath + ".bak";
-            File.WriteAllText(part, text);
-            if (!File.Exists(savePath)) { File.Move(part, savePath); return; }
-            if (File.Exists(bak)) File.Delete(bak);
-            File.Move(savePath, bak);
-            try { File.Move(part, savePath); }
-            catch (Exception) { File.Move(bak, savePath); throw; }
-            File.Delete(bak);
+            string err;
+            if (!WholeFile.Write(savePath, text, out err)) throw new IOException(err);
         }
 
         // The character's moods as saved. While the app was closed she lived her day (PR #25, the owner's decision of

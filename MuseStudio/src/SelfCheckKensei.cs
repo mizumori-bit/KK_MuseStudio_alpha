@@ -132,9 +132,25 @@ namespace MuseStudio
                 foreach (var id in kv.Value) { bool o; if (k.FinishTried(id, out o)) { if (o) outside++; else none++; } }
             bool onlyVerified = true;
             foreach (var kv in k.Candidates("houshi")) foreach (var id in kv.Value) { bool o; if (!k.FinishTried(id, out o) || !o) onlyVerified = false; }
-            Check("献精室: the service plays here tried once for their finish outside (quietly: no play events) - none left untried, the candidates only those that play it",
-                  untried0 > 0 && k.Untried("houshi").Count == 0 && outside > 0 && onlyVerified && !k.Scanning && !pc.Active,
-                  untried0 + " tried in " + (Time.realtimeSinceStartup - scanT).ToString("F0") + " s: outside " + outside + ", none " + none);
+            yield return Wait(0.6f);
+            string idleScene = Json.Str(h.Stage.Cfg, "idle_scene", "idle"), idleCam = Json.Str(Data.Load("cameras.json"), "default", "medium");
+            bool idle1 = h.Stage.SceneKey == idleScene && h.Stage.CameraKey == idleCam;
+            Check("献精室: the service plays here tried once for their finish outside (quietly: no play events) - none left untried, the candidates only those that play it; then back to the idle (her stance, the default camera)",
+                  untried0 > 0 && k.Untried("houshi").Count == 0 && outside > 0 && onlyVerified && !k.Scanning && !pc.Active && idle1,
+                  untried0 + " tried in " + (Time.realtimeSinceStartup - scanT).ToString("F0") + " s: outside " + outside + ", none " + none + "; scene " + h.Stage.SceneKey + " camera " + h.Stage.CameraKey);
+            {
+                // stopped midway (the panel's 止める): back to the idle all the same, the rest left untried
+                int left0 = k.Untried("both").Count;
+                MuseStudioPlugin.Instance.StartCoroutine(k.Scan("both"));
+                yield return Until(() => k.Scanning && k.ScanLeft <= left0 - 2, 20f);
+                k.StopScan();
+                yield return Until(() => !k.Scanning, 15f);
+                yield return Wait(0.6f);
+                int left1 = k.Untried("both").Count;
+                Check("献精室: a trial stopped midway (止める) - back to the idle too, the rest left untried",
+                      left0 > 2 && left1 > 0 && left1 < left0 && !pc.Active && h.Stage.SceneKey == idleScene && h.Stage.CameraKey == idleCam,
+                      left0 + " -> " + left1 + " scene " + h.Stage.SceneKey + " camera " + h.Stage.CameraKey);
+            }
             // ---- the candidates here and the settings' own check ----
             var all = k.Candidates("both", null, false);
             var hou = k.Candidates("houshi", null, false);
@@ -236,12 +252,23 @@ namespace MuseStudio
                   tv3 != null && Json.Num(tv3, "turn") == 3 && True(tv3, "came") && Json.Num(tv3, "amount") == 130 && Json.Num(tv3, "total") == 130
                   && last != null && last.FinishPlace.StartsWith("outside") && EventCount("play_finish") > pf0 && kShown.Exists(x => x.Contains("いっぱい出たね")) && k.Run.Gauge == 0,
                   Json.Write(tv3) + " finish " + (last != null ? last.FinishPlace : "") + " shown " + string.Join(" / ", kShown.ToArray()));
-            // the answers Muse writes down: with the next move, alone, once
+            // the answers Muse writes down: with the next move, alone, once. (Turn 4 with the record read-only: written all the
+            // same - the old one aside, the new one in, the leftover cleared - GPT's re-review of #119, 2; the scores' file not
+            // writable at the end: kept for later, 1)
+            k.FailScoresForCheck = true;
+            string recPath = k.FilePath(k.RunId);
             for (int turn = 4; turn <= 6 && k.Active; turn++)
             {
                 var ex = new Dictionary<string, object>(tags);
                 if (turn == 4) ex["kensei_answers"] = new List<object> { D("run", k.RunId, "turn", 3, "tap", "弱点級", "text", "すごく効いた") };
+                if (turn == 4) File.SetAttributes(recPath, FileAttributes.ReadOnly);
                 yield return KTurn(ex, KMove("続けるね。", turn, "c" + turn, KPlay(big)), Line("どう？"));
+                if (turn == 4)
+                {
+                    int rt = (Json.Arr(Kensei.ReadRecord(recPath), "turns") ?? new List<object>()).Count;
+                    Check("献精室: a read-only record (GPT's re-review of #119, 2) - the move written and taken all the same: the turn on, the record with it, no leftover",
+                          k.Run.Turn == 5 && rt == 4 && !File.Exists(recPath + ".bak") && !File.Exists(recPath + ".part"), "turn " + k.Run.Turn + " record " + rt);
+                }
             }
             var tvEnd = LastEvent("kensei_ended");
             var reveal = Json.Obj(tvEnd, "reveal");
@@ -253,8 +280,9 @@ namespace MuseStudio
                   && Json.Arr(reveal, "turns") != null && Json.Arr(reveal, "turns").Count == 6 && Json.Arr(reveal, "phases") != null && h.Gauge.Held.Length == 0,
                   k.Run.Result + " " + k.Run.Total + " ended " + endedN + " score " + Json.Num(tvEnd, "score"));
             var sc = k.Scores();
-            Check("献精室: the score kept once a run (kensei_scores.json), the record written (kensei-<run>.json)", Json.Obj(sc, runId) != null && Json.Num(Json.Obj(sc, runId), "score") == k.Score
-                  && File.Exists(k.FilePath(runId)), Json.Write(Json.Obj(sc, runId)));
+            int scoreA = k.Score;
+            Check("献精室: the scores' file not writable at the end - the score kept for later (its own run's), the record written (kensei-<run>.json)",
+                  Json.Obj(sc, runId) == null && k.ScoresDueForCheck == 1 && scoreA > 0 && File.Exists(k.FilePath(runId)), Json.Write(Json.Obj(sc, runId)) + " due " + k.ScoresDueForCheck);
             SendPkg(D("kensei_answers", new List<object> { D("run", runId, "turn", 6, "tap", "かなり", "text", null) }));
             yield return Wait(1.0f);
             int ar0 = Refusals("kensei_answers", "already_recorded");
@@ -283,6 +311,25 @@ namespace MuseStudio
                 k.Start();
                 yield return Wait(0.4f);
                 if (!k.Active) { Check("献精室 (" + mode + "): the run starts", false, k.Error); continue; }
+                if (mode == "levels")
+                {
+                    // the score of the run before, tried again while this one goes: its own id and values, nothing of this one
+                    // (GPT's re-review of #119, 1); a wrong entry put right from its record
+                    k.FailScoresForCheck = false;
+                    yield return Until(() => k.ScoresDueForCheck == 0, 8f);
+                    var scB = k.Scores();
+                    var ea = Json.Obj(scB, runId);
+                    Check("献精室: the score of the run before kept when the file can be written again - its own run's (success, its score), the run going on now not in it",
+                          k.ScoresDueForCheck == 0 && ea != null && Json.Str(ea, "result") == "success" && Json.Num(ea, "score") == scoreA && Json.Obj(scB, k.RunId) == null,
+                          Json.Write(ea) + " now " + k.RunId + " " + Json.Write(Json.Obj(scB, k.RunId)));
+                    var sdoc = Json.Parse(File.ReadAllText(Path.Combine(Replay.Dir, "kensei_scores.json"), System.Text.Encoding.UTF8)) as Dictionary<string, object>;
+                    Json.Obj(sdoc, "runs")[runId] = D("result", "", "total", 0, "coefficient", 1, "score", 0, "title", "", "ended", "x");
+                    File.WriteAllText(Path.Combine(Replay.Dir, "kensei_scores.json"), Json.Write(sdoc), new System.Text.UTF8Encoding(false));
+                    k.ReconcileScores();
+                    var ea2 = Json.Obj(k.Scores(), runId);
+                    Check("献精室: a score kept wrong (an unfinished 0) put right from the run's record", Json.Str(ea2, "result") == "success" && Json.Num(ea2, "score") == scoreA,
+                          Json.Write(ea2));
+                }
                 string b2 = KCombo(2);
                 var states = new List<object>();
                 for (int turn = 1; turn <= 3; turn++)
