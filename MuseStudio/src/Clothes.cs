@@ -60,8 +60,10 @@ namespace MuseStudio
             if (k == 7 && cha.fileStatus.clothesState.Length > 8) cha.SetClothesState(8, To(v), false);     // (the outdoor shoes with the indoor)
         }
 
-        // a change: {slot or "all": on / half / off}; returns what changed ("" keys unknown are left)
-        public static List<object> Apply(ChaControl cha, Dictionary<string, object> want, List<string> unknown, AccHold acc = null, List<string> noHalf = null)
+        // a change: {slot or "all": on / half / off}; returns what changed ("" keys unknown are left); accepted: the slots the
+        // change was taken for - changed or already so (not a garment she does not wear, a value not known, a half refused)
+        public static List<object> Apply(ChaControl cha, Dictionary<string, object> want, List<string> unknown, AccHold acc = null, List<string> noHalf = null,
+                                         List<int> accepted = null)
         {
             acc = acc ?? herAcc;
             var changed = new List<object>();
@@ -78,6 +80,7 @@ namespace MuseStudio
                         // (all half: only the garments that have a half state - the others keep theirs: shoes taken off stay
                         // off, never put on again; GPT's post-review of #11)
                         if (v == "half" && !HasHalf(cha, k)) continue;
+                        if (accepted != null) accepted.Add(k);
                         if (State(cha, k) != v) { Put(cha, k, v); changed.Add(Keys[k]); }
                     }
                     // all off: her accessories too but the hair's (as in the bath); all on: they come back
@@ -88,6 +91,7 @@ namespace MuseStudio
                 int i = System.Array.IndexOf(Keys, kv.Key);
                 if (i < 0 || !worn.Contains(i)) { unknown.Add(kv.Key); continue; }
                 if (v == "half" && !HasHalf(cha, i)) { if (noHalf != null) noHalf.Add(kv.Key); continue; }     // (refused: no_half)
+                if (accepted != null) accepted.Add(i);
                 if (State(cha, i) != v) { Put(cha, i, v); changed.Add(kv.Key); }
             }
             return changed;

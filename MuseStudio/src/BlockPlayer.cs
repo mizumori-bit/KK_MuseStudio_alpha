@@ -191,11 +191,17 @@ namespace MuseStudio
             }
             // (Muse answering him cuts in on her monologue's line; her monologue while she is out on her own goes on its own
             // time, heard only while he is in her room - Muse's request 3 of 2026-11-04: its pace never tells that he peeps)
-            // (a reaction let go at her climax - Standby, #102: in place of a last line already out, play or not; one whose time
-            // ran out while it waited goes unshown)
-            if (pending.Count > 0 && Standby.Of(pending.Peek()) && Now > (float)Json.Num(pending.Peek(), Standby.UntilKey, 0))
-                h.Standby.Dropped(pending.Dequeue(), "expired");
-            if (pending.Count > 0 && (!Busy || (PresentedLast && (h.Play.Active || Standby.Of(pending.Peek()))) || (Monologue && !IsMonologue(pending.Peek()))))
+            // (a reaction let go at her climax - Standby, #102: in place of a last line already out, play or not; never cutting
+            // a line short - a monologue's neither; checked again right before it shows - one that no longer fits, its time
+            // run out, the play it was for changed, a match, goes unshown, and the next one is checked: GPT's post-review of #105)
+            while (pending.Count > 0 && Standby.Of(pending.Peek()))
+            {
+                string stale = h.Standby.Stale(pending.Peek());
+                if (stale.Length == 0) break;
+                h.Standby.Dropped(pending.Dequeue(), stale);
+            }
+            if (pending.Count > 0 && (!Busy || (PresentedLast && (h.Play.Active || Standby.Of(pending.Peek())))
+                                      || (Monologue && !IsMonologue(pending.Peek()) && !Standby.Of(pending.Peek()))))
             {
                 var next = pending.Dequeue();
                 if (h.Launch.Accept(next))
@@ -290,8 +296,10 @@ namespace MuseStudio
         {
             var rest = pending.ToArray();
             pending.Clear();
+            int i = 0;
+            while (i < rest.Length && Standby.Of(rest[i])) pending.Enqueue(rest[i++]);      // (one let go before it: first still)
             pending.Enqueue(pkg);
-            foreach (var p in rest) pending.Enqueue(p);
+            for (; i < rest.Length; i++) pending.Enqueue(rest[i]);
         }
 
         // (#70 adopted, 5) the fields this app knows (MUSE_GUIDE 5.1, 5.2, 8): another one in a package or a block is told -

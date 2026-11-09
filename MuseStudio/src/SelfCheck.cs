@@ -1431,6 +1431,52 @@ namespace MuseStudio
                       sbNotCut && sbAfter && bp.Text == "後のパッケージ。", "not cut " + sbNotCut + " after " + sbAfter + " now [" + bp.Text + "]");
                 bp.Advance(true);
                 yield return Until(() => !bp.Busy, 5f);
+                // (GPT's post-review of #105) let go and waiting, then the play it was for changes (its serial: a play's start or
+                // end) - checked again right before it shows: dropped (play_changed), the package after it shown instead
+                sbG.Phase = "rising";
+                sbG.Value = 0.3f;
+                Http("POST", "/api/packages", sbPkg("sb-h", sbG.Climaxes + 1, 60.0, Line("前の場面の反応。")));
+                yield return Wait(0.6f);
+                Send(Line("場面のセリフ一。"), Line("場面のセリフ二。"));
+                Send(Line("次の場面。"));
+                yield return Until(() => bp.Busy && bp.Text == "場面のセリフ一。", 10f);
+                sbG.Value = 0.999f;
+                sbG.Add(0.05f, D("source", "check"));
+                yield return Wait(0.3f);
+                bool sbLetGo = Json.Str(LastEvent("climax"), "standby") == "sb-h";
+                int sbDrop1 = EventCount("package_dropped");
+                pc.Serial++;                                  // (as a play's start or end does)
+                bp.Advance(true);                             // (its last block: out, then the reaction's turn - checked again)
+                yield return Until(() => EventCount("package_dropped") > sbDrop1, 5f);
+                var sbStale = LastEvent("package_dropped");
+                bool sbNotShown = bp.Text == "場面のセリフ二。";
+                bp.Advance(true);
+                yield return Until(() => bp.Busy && bp.Text == "次の場面。", 5f);
+                Check("standby (GPT's post-review of #105): let go and waiting, then the play it was for changes - checked again before it shows: dropped (play_changed), never shown; the next package instead",
+                      sbLetGo && sbNotShown && bp.Text == "次の場面。" && Json.Str(sbStale, "reason") == "play_changed" && Json.Str(sbStale, "standby") == "sb-h",
+                      "let go " + sbLetGo + " not shown " + sbNotShown + " now [" + bp.Text + "] " + Json.Write(sbStale));
+                bp.Advance(true);
+                yield return Until(() => !bp.Busy, 5f);
+                // (GPT's post-review of #105) a monologue showing at the climax is not cut either: the reaction once its last
+                // block is out
+                sbG.Phase = "rising";
+                sbG.Value = 0.3f;
+                Http("POST", "/api/packages", sbPkg("sb-i", sbG.Climaxes + 1, 60.0, Line("……あっ、いま……。")));
+                yield return Wait(0.6f);
+                turn++;
+                Http("POST", "/api/packages", D("session", "check", "turn", turn, "monologue", true,
+                    "blocks", new List<object> { Line("ひとりごと、ひとつめ。"), Line("ひとりごと、ふたつめ。") }));
+                yield return Until(() => bp.Busy && bp.Monologue && bp.Text == "ひとりごと、ひとつめ。", 10f);
+                sbG.Value = 0.999f;
+                sbG.Add(0.05f, D("source", "check"));
+                yield return Wait(1.0f);
+                bool sbMonoOn = bp.Monologue && bp.Text == "ひとりごと、ひとつめ。" && Json.Str(LastEvent("climax"), "standby") == "sb-i";
+                bp.Advance(true);                             // (its last block)
+                yield return Until(() => bp.Busy && bp.Text == "……あっ、いま……。", 5f);
+                Check("standby (GPT's post-review of #105): a monologue showing at the climax is not cut - the reaction once its last block is out",
+                      sbMonoOn && bp.Text == "……あっ、いま……。", "monologue on " + sbMonoOn + " now [" + bp.Text + "]");
+                bp.Advance(true);
+                yield return Until(() => !bp.Busy, 5f);
                 sbG.Phase = "rising";
                 sbG.Value = 0.2f;
             }
@@ -2339,6 +2385,23 @@ namespace MuseStudio
                       string.IsNullOrEmpty(ek) && string.IsNullOrEmpty(ek2) && offInNext && keptOff && rest,
                       "garment " + kc + " begin [" + ek + "] / [" + ek2 + "] off in the next " + offInNext + " kept " + keptOff + " rest " + rest);
                 if (kc >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[kc], "on" } }, "user");
+                yield return Wait(0.3f);
+                // (GPT's post-review of #104) a garment the position's undressing already took off (or shifted), asked for as it
+                // is now (Muse's clothes): her base too - left so after the play, not put back on
+                var base1 = (byte[])st.Cha.fileStatus.clothesState.Clone();
+                string ek3 = pc.Begin("sonyu_00", "check", bed != null ? bed.Id : null);
+                yield return Wait(1.0f);
+                int ku = -1;
+                foreach (int k in Clothes.Worn(st.Cha)) if (ku < 0 && k != 7 && base1[k] == 0 && st.Cha.fileStatus.clothesState[k] != 0) ku = k;
+                byte undressed = ku >= 0 ? st.Cha.fileStatus.clothesState[ku] : (byte)0;
+                if (ku >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[ku], Clothes.State(st.Cha, ku) } }, "muse");
+                yield return Wait(0.3f);
+                pc.End("check");
+                yield return Wait(0.5f);
+                bool keptAsIs = ku >= 0 && st.Cha.fileStatus.clothesState[ku] == undressed;
+                Check("clothes kept (#101 item 2, GPT's post-review of #104): a garment the position undressed, asked for as it is (nothing changes then), is her base - left so after the play",
+                      string.IsNullOrEmpty(ek3) && keptAsIs, "garment " + ku + " state " + undressed + " after " + (ku >= 0 ? st.Cha.fileStatus.clothesState[ku].ToString() : "-") + " begin [" + ek3 + "]");
+                h.ChangeClothes(new Dictionary<string, object> { { "all", "on" } }, "user");
                 yield return Wait(0.3f);
             }
             var fbEnd = st.Cha.animBody.GetComponent<RootMotion.FinalIK.FullBodyBipedIK>();

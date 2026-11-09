@@ -930,13 +930,18 @@ namespace MuseStudio
         {
             var unknown = new List<string>();
             var noHalf = new List<string>();
-            var before = Stage.Cha != null ? (byte[])Stage.Cha.fileStatus.clothesState.Clone() : null;
-            var changed = Clothes.Apply(Stage.Cha, want, unknown, null, noHalf);
-            if (before != null && Play.Active)
+            var accepted = new List<int>();
+            var changed = Clothes.Apply(Stage.Cha, want, unknown, null, noHalf, accepted);
+            if (Stage.Cha != null && Play.Active)
             {
-                // (in a play: her base clothes from now on - what its end puts back; #101 item 2)
+                // (in a play: her base clothes from now on - what its end puts back; #101 item 2) - every garment the change was
+                // taken for, one the position's undressing had already made so too (GPT's post-review of #104)
                 var now = Stage.Cha.fileStatus.clothesState;
-                for (int k = 0; k < Math.Min(before.Length, now.Length); k++) if (now[k] != before[k]) Play.Rebase(k, now[k]);
+                foreach (int k in accepted)
+                {
+                    if (k < now.Length) Play.Rebase(k, now[k]);
+                    if (k == 7 && now.Length > 8) Play.Rebase(8, now[8]);      // (the outdoor shoes with the indoor)
+                }
             }
             if (changed.Count > 0)
                 Bridge.Event("clothes_changed", new Dictionary<string, object> { { "clothes", Clothes.Info(Stage.Cha) }, { "changed", changed }, { "by", by } });
