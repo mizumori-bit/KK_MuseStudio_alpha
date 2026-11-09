@@ -16,14 +16,16 @@
 #                 張り直しの間に届いた未処理イベントから再開できる（下記）。
 #                 値としての 0 も再開位置として扱う（0 より新しいものを全部拾う）。
 #                 未指定のときだけ、初回用に現在分を基準線にする
-# 起動待ちへの流用：この骨子はセッション中の起床が主形だが、起動待ち
-# （アプリの起動を検知して、キャラが選ばれるまで待つ）にも同じ骨子が
-# 使える。その場合は、セッションの旗の代わりに起動の報告済み印（起動
-# 検知の側が持つ、報告した起動 ID の記録）を使い、「まだ報告していない
-# 起動が character_selected の段階に達したら、その内容を出力して終了
-# する」待ち方に読み替える（claude-setup §3 の「起動待ちにも同じ形が
-# 使えます」の項）。読み替えのときも、張るのは常に1つだけ・未処理を
-# 読み飛ばさない・確認済み（ack）にはしない、の原則はそのまま保つ。
+# 起動待ちモード：WAITER_MODE=launchwait で起動すると、セッション中の
+# 起床ではなく「起動待ち」になる（下の launchwait 関数）。認証済みの
+# /health を LAUNCH_POLL_SECONDS 間隔で読み、まだ報告していない起動が
+# character_selected の段階に達したら、その内容を出力して終了する。
+# 起動前・準備中は正常なので、アプリ不在・ブリッジ到達不能・旗が無い
+# ことは終了条件にしない。報告済みかどうかは REPORTED_FILE（報告した
+# 起動 ID の記録、1行に1つ）で判定する——ウェイターは読むだけで、
+# 報告を受けたメインの Muse が引き継ぎのときに追記する。張るのは
+# 常に1つだけ・ウェイター自身は確認済み（ack）にしない・挨拶や送信は
+# しない（検知までが仕事）、の原則はどちらのモードでも同じ。
 set -uo pipefail
 
 BRIDGE_URL="${BRIDGE_URL:?ブリッジのURLを環境変数で渡してください}"
@@ -33,6 +35,10 @@ POLL_SECONDS=1
 MAX_RUN=1800        # 寿命の上限（秒）。達したら再装填の合図を出して終わる
 UNREACH_LIMIT=900   # ブリッジに届かない状態がこの秒数続いたらセッション終了とみなす
 APP_GONE_LIMIT=3    # アプリ不在がこの回数続いたら終了
+WAITER_MODE="${WAITER_MODE:-session}"   # session＝セッション中の起床 / launchwait＝起動待ち
+REPORTED_FILE="${REPORTED_FILE:-$HOME/muselaunch-reported}"   # 起動の報告済み印（launchwait 用、1行に1つの起動 ID）
+LAUNCH_POLL_SECONDS="${LAUNCH_POLL_SECONDS:-5}"   # 起動待ちの読み間隔（秒）
+LAUNCH_MAX_RUN="${LAUNCH_MAX_RUN:-0}"   # 起動待ちの寿命の上限（秒）。0＝上限なし（検知するか、外から止められるまで）
 
 # 節目として扱うイベント種別（ノイズになる種別は入れない）
 NOTEWORTHY='["play_started","play_ended","play_finish","climax","urge","outing_started","outing_ended","clothes_changed","user_found","creation_completed","block_refused"]'
@@ -83,6 +89,47 @@ scan_max_noteworthy() {
   done
   echo "$best"
 }
+
+# ---- 起動待ちモード ----
+# 認証済みの /health の launch を見張る。段階は bridge_started（id は null）
+# → app_starting → stage_ready → character_selected の順で進み、
+# character_selected はアプリの中でキャラが替わってもそのまま保たれる。
+# 未報告の起動がそこへ達したときだけ合図する。起動前・準備中の状態
+# （アプリ不在、ブリッジ到達不能、段階が character_selected 未満）は
+# 「まだ来ていない」であって、終了条件にはしない。
+launchwait() {
+  local start now health lid phase char
+  start="$(date +%s)"
+  while :; do
+    if [ "$LAUNCH_MAX_RUN" -gt 0 ]; then
+      now="$(date +%s)"
+      if [ $((now - start)) -ge "$LAUNCH_MAX_RUN" ]; then
+        echo '{"waiter":"launchwait_timeout"}'; exit 0
+      fi
+    fi
+    health="$(fetch /health || true)"
+    if [ -n "$health" ]; then
+      lid="$(printf '%s' "$health" | jq -r '.launch.id // empty' 2>/dev/null || true)"
+      phase="$(printf '%s' "$health" | jq -r '.launch.phase // empty' 2>/dev/null || true)"
+      if [ -n "$lid" ] && [ "$phase" = "character_selected" ]; then
+        # 報告済みの起動（古い起動 ID の残存を含む）は合図にしない
+        if [ -f "$REPORTED_FILE" ] && grep -qxF "$lid" "$REPORTED_FILE" 2>/dev/null; then
+          :
+        else
+          char="$(printf '%s' "$health" | jq -c '.launch.character // null' 2>/dev/null || echo null)"
+          jq -nc --arg launch "$lid" --argjson character "$char" \
+            '{waiter:"launch_ready", launch:$launch, character:$character}'
+          exit 0
+        fi
+      fi
+    fi
+    sleep "$LAUNCH_POLL_SECONDS"
+  done
+}
+
+if [ "$WAITER_MODE" = "launchwait" ]; then
+  launchwait
+fi
 
 [ -f "$FLAG_FILE" ] || { echo '{"waiter":"no_session"}'; exit 0; }
 FLAG_LAUNCH="$(jq -r '.launch // empty' "$FLAG_FILE" 2>/dev/null || true)"
