@@ -10,10 +10,11 @@ namespace MuseStudio
     // a new one replaces the one held) and lets it go at the moment her gauge's climax comes (Gauge.Climaxed) if it still
     // fits - the launch and character (tagged), the play (its serial, as it was sent), the climax's count, its time - else
     // drops it (package_dropped: replaced / expired / play_changed / other_character / in_match). Nothing waits for it: the
-    // climax, the gauge, her face and motion go as ever. A package being shown then is not cut (plan C is not adopted): the
-    // reaction goes first in the queue, right after it (in a play, or once its last block is out: in place of that last
-    // line), while its time lasts (the owner's decision of 2026-11-09). The climax event names the request let go (standby),
-    // so Muse need not write it again. Its blocks are dialogue only - words, an emotion, a voice; anything else refuses the
+    // climax, the gauge, her face and motion go as ever. A package being shown then is not cut (plan C is not adopted - a
+    // monologue neither): the reaction goes first in the queue, right after it (in a play, or once its last block is out: in
+    // place of that last line), while it still fits - checked again right before it shows (Stale: its time, the play it was
+    // for, a match; the owner's decision of 2026-11-09, GPT's post-review of #105). The climax event names the request let go
+    // (standby): gone into the queue - shown or not is told by package_shown / package_dropped. Its blocks are dialogue only - words, an emotion, a voice; anything else refuses the
     // whole package (block_refused field standby, not_allowed), and so does a package field other than its own few. Not in a
     // match or a replay.
     public class Standby
@@ -28,6 +29,7 @@ namespace MuseStudio
 
         public const string Key = "standby";
         public const string UntilKey = "_standby_until";        // (let go: its time, for the queue)
+        public const string SerialKey = "_standby_serial";      // (let go: the play it was for)
 
         static readonly HashSet<string> PackageFields = new HashSet<string> { "session", "turn", "situation", "blocks", "id", "launch",
             "character", "contract", Key };
@@ -104,6 +106,7 @@ namespace MuseStudio
             string request = heldRequest;
             held = null;
             pkg[UntilKey] = (double)heldUntil;
+            pkg[SerialKey] = (double)heldSerial;
             FiredForCheck++;
             h.Blocks.First(pkg);
             return request;
@@ -116,6 +119,17 @@ namespace MuseStudio
             if (passed && h.Gauge.Climaxes >= heldCount) return "passed";
             if (h.Play.Serial != heldSerial) return "play_changed";
             if (h.CharacterId() != heldCharacter) return "other_character";
+            if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
+            return "";
+        }
+
+        // a reaction let go and waiting in the queue, right before it shows: why it goes unshown now (empty: it still fits) -
+        // its time, the play it was for, a match or a replay (its launch and character: Launch.Accept, as for every package).
+        // Never passed: its climax came, which is what let it go (GPT's post-review of #105)
+        public string Stale(Dictionary<string, object> pkg)
+        {
+            if (Now > (float)Json.Num(pkg, UntilKey, 0)) return "expired";
+            if ((int)Json.Num(pkg, SerialKey, -1) != h.Play.Serial) return "play_changed";
             if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
             return "";
         }
