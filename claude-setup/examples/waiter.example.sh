@@ -97,8 +97,11 @@ scan_max_noteworthy() {
 # 未報告の起動がそこへ達したときだけ合図する。起動前・準備中の状態
 # （アプリ不在、ブリッジ到達不能、段階が character_selected 未満）は
 # 「まだ来ていない」であって、終了条件にはしない。
+# ただし、鍵が無い・違うときの /health は中身の無い
+# {"ok": true, "auth": "required"} だけを返す。これは「まだ来ていない」
+# ではなく認証の問題なので、黙って待ち続けず auth_required で終わる。
 launchwait() {
-  local start now health lid phase char app
+  local start now health lid phase char app authreq
   start="$(date +%s)"
   while :; do
     if [ "$LAUNCH_MAX_RUN" -gt 0 ]; then
@@ -109,6 +112,10 @@ launchwait() {
     fi
     health="$(fetch /health || true)"
     if [ -n "$health" ]; then
+      authreq="$(printf '%s' "$health" | jq -r '.auth // empty' 2>/dev/null || true)"
+      if [ "$authreq" = "required" ]; then
+        echo '{"waiter":"auth_required"}'; exit 0
+      fi
       lid="$(printf '%s' "$health" | jq -r '.launch.id // empty' 2>/dev/null || true)"
       phase="$(printf '%s' "$health" | jq -r '.launch.phase // empty' 2>/dev/null || true)"
       app="$(printf '%s' "$health" | jq -r 'if has("app") then (.app | tostring) else "" end' 2>/dev/null || true)"
