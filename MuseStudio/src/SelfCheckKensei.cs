@@ -51,6 +51,19 @@ namespace MuseStudio
             yield return Wait(0.3f);
         }
 
+        // the package being shown walked to its end (each block pressed on once it is presented)
+        IEnumerator KDrain(float seconds)
+        {
+            var bp = h.Blocks;
+            float t0 = Time.realtimeSinceStartup;
+            int lastIdx = -1;
+            while (bp.Busy && Time.realtimeSinceStartup - t0 < seconds)
+            {
+                if (!bp.Moving && bp.Index >= 0 && bp.Index != lastIdx && !bp.Revealing && bp.Text.Length > 0) { lastIdx = bp.Index; bp.Advance(true); }
+                yield return null;
+            }
+        }
+
         // the play of a combo for the checks: an original one first (quick to start)
         string KPlay(string key)
         {
@@ -110,9 +123,21 @@ namespace MuseStudio
                       same && n == Scripted.GetLength(0) && run.Result == "failure", "limit " + run.Limit + " turns " + n + " " + run.Result);
             }
 
+            // ---- the plays' finish outside tried once (GPT's post-review of #118, 5): only those that play it are candidates ----
+            int untried0 = k.Untried("houshi").Count;
+            float scanT = Time.realtimeSinceStartup;
+            yield return k.Scan("houshi");
+            int outside = 0, none = 0;
+            foreach (var kv in k.Candidates("houshi", null, false))
+                foreach (var id in kv.Value) { bool o; if (k.FinishTried(id, out o)) { if (o) outside++; else none++; } }
+            bool onlyVerified = true;
+            foreach (var kv in k.Candidates("houshi")) foreach (var id in kv.Value) { bool o; if (!k.FinishTried(id, out o) || !o) onlyVerified = false; }
+            Check("献精室: the service plays here tried once for their finish outside (quietly: no play events) - none left untried, the candidates only those that play it",
+                  untried0 > 0 && k.Untried("houshi").Count == 0 && outside > 0 && onlyVerified && !k.Scanning && !pc.Active,
+                  untried0 + " tried in " + (Time.realtimeSinceStartup - scanT).ToString("F0") + " s: outside " + outside + ", none " + none);
             // ---- the candidates here and the settings' own check ----
-            var all = k.Candidates("both");
-            var hou = k.Candidates("houshi");
+            var all = k.Candidates("both", null, false);
+            var hou = k.Candidates("houshi", null, false);
             var a1 = k.ComboOf(pc.Row("houshi_01"));
             var a2 = k.ComboOf(pc.Row("sonyu_04"));
             var a3 = k.ComboOf(pc.Row("sonyu_09"));
@@ -189,9 +214,21 @@ namespace MuseStudio
             Check("献精室: her climax is off in a run - anim climax, play.finish, a location, standby on her climax refused in_kensei; her gauge still 0, no climax of hers",
                   ik1 - ik0 == 4 && h.Gauge.Value == 0f && h.Gauge.Climaxes == herClimaxes && k.Run.Turn == 2 && h.Stage.Location == locWas,
                   (ik1 - ik0) + " gauge " + h.Gauge.Value + " climaxes " + h.Gauge.Climaxes + "/" + herClimaxes + " turn " + k.Run.Turn + " at " + h.Stage.Location + " (was " + locWas + ")");
+            // a move whose record cannot be written: taken back - not counted, nothing told; the same request again goes
+            // (GPT's post-review of #118, 1)
+            int sf0 = Refusals("move", "save_failed"), tes = k.TurnEventsForCheck;
+            int recTurns = (Json.Arr(Kensei.ReadRecord(k.FilePath(k.RunId)), "turns") ?? new List<object>()).Count;
+            k.FailWritesForCheck = true;
+            yield return KTurn(new Dictionary<string, object>(tags), KMove("ここはどう？", 2, "c2", KPlay(big)), Line("どう？"));
+            k.FailWritesForCheck = false;
+            int recTurns2 = (Json.Arr(Kensei.ReadRecord(k.FilePath(k.RunId)), "turns") ?? new List<object>()).Count;
+            Check("献精室: a move whose record cannot be written is taken back - refused save_failed, the turn, the gauge and the record as they were, no kensei_turn",
+                  Refusals("move", "save_failed") - sf0 == 1 && k.Run.Turn == 2 && k.Run.Gauge == 20 && k.TurnEventsForCheck == tes && recTurns == 1 && recTurns2 == 1,
+                  "turn " + k.Run.Turn + " gauge " + k.Run.Gauge + " record " + recTurns + "/" + recTurns2);
             // turns 2, 3: big moves - he comes at 3 (20 + 45 + 45 = 110: 120 + 10), outside; the came line shown
             int pf0 = EventCount("play_finish");
             yield return KTurn(new Dictionary<string, object>(tags), KMove("ここはどう？", 2, "c2", KPlay(big)), Line("どう？"));
+            Check("献精室: the same request again after save_failed is taken (turn 2)", k.Run.Turn == 3 && k.Run.Gauge == 65, "turn " + k.Run.Turn + " gauge " + k.Run.Gauge);
             yield return KTurn(new Dictionary<string, object>(tags), KMove("もっと。", 3, "c3", KPlay(big)), With(Line("いっぱい出たね。"), "came", true), Line("まだいける？"));
             var tv3 = LastEvent("kensei_turn");
             var last = k.Last;
@@ -279,9 +316,16 @@ namespace MuseStudio
                     var turnsWas = k.Run.Turns.ConvertAll(t => t.Turn + ":" + t.Grade + ":" + t.Amount + ":" + t.Total);
                     string rz = found ? k2.Resume() : "not found";
                     var turnsNow = k2.Run != null ? k2.Run.Turns.ConvertAll(t => t.Turn + ":" + t.Grade + ":" + t.Amount + ":" + t.Total) : new List<string>();
-                    Check("献精室: an unfinished run read back from its record (a restart) - the same seed and moves give the same turns, not counted again, the next turn the same",
-                          found && rz == "" && string.Join(",", turnsWas.ToArray()) == string.Join(",", turnsNow.ToArray()) && k2.Run.Turn == k.Run.Turn && k2.Run.Gauge == k.Run.Gauge,
-                          rz + " " + string.Join(",", turnsNow.ToArray()));
+                    int pkgs = 0, lines = 0;
+                    foreach (var o in Json.Arr(Kensei.ReadRecord(k.FilePath(k.RunId)), "turns") ?? new List<object>())
+                    {
+                        var pk = Json.Obj(o, "package");
+                        if (pk != null) pkgs++;
+                        foreach (var b in Json.Arr(pk, "blocks") ?? new List<object>()) if (Json.Str(b, "text", "") == "……") lines++;
+                    }
+                    Check("献精室: an unfinished run read back from its record (a restart) - the same seed and moves give the same turns, not counted again, the next turn the same; its packages and lines kept in the record (GPT's post-review of #118, 2)",
+                          found && rz == "" && string.Join(",", turnsWas.ToArray()) == string.Join(",", turnsNow.ToArray()) && k2.Run.Turn == k.Run.Turn && k2.Run.Gauge == k.Run.Gauge
+                          && pkgs == 3 && lines == 3, rz + " " + string.Join(",", turnsNow.ToArray()) + " packages " + pkgs + " lines " + lines);
                 }
                 int endAt = AllEvents().Count;
                 k.Abandon();
@@ -291,10 +335,79 @@ namespace MuseStudio
                       Json.Str(ab, "result") == "abandoned" && Json.Num(ab, "score") == 0 && Json.Arr(Json.Obj(ab, "reveal"), "turns") != null && Json.Arr(Json.Obj(ab, "reveal"), "turns").Count == 3,
                       Json.Str(ab, "result"));
             }
+            // ---- a move waiting when its run is stopped and another begins: it lapses, the new run untouched (GPT's post-review of #118, 4) ----
+            k.Disclose = "numbers";
+            k.SeedForCheck = 99u;
+            k.Start();
+            var runA = k.Run;
+            if (runA != null && k.Active)
+            {
+                yield return KTurn(new Dictionary<string, object>(tags), KMove("はじめるね。", 1, "a1", KPlay(KCombo(1))), Line("どう？"));
+                k.HoldMovesForCheck = true;
+                int rc0 = Refusals("move", "run_changed"), teA = k.TurnEventsForCheck;
+                SendPkg(new Dictionary<string, object>(tags), KMove("次はこれ。", 2, "a2", KPlay(KCombo(2))), Line("どう？"));
+                yield return Until(() => bp.Moving, 10f);
+                bool waited = bp.Moving;
+                k.Abandon();
+                k.SeedForCheck = 100u;
+                k.Start();
+                var runB = k.Run;
+                k.HoldMovesForCheck = false;
+                yield return KDrain(20f);
+                Check("献精室: a move waiting when its run was stopped and another began lapses (run_changed) - the new run still at turn 1, nothing of the old move in it",
+                      waited && Refusals("move", "run_changed") - rc0 == 1 && runB != null && !ReferenceEquals(runA, runB) && runB.Turn == 1 && runB.Turns.Count == 0
+                      && runA.Turns.Count == 1 && k.TurnEventsForCheck == teA, "waited " + waited + " B turn " + (runB != null ? runB.Turn : -1));
+                // a play found without its finish outside at a move: not taken, no candidate from then on (GPT's post-review of #118, 5)
+                if (runB != null && k.Active)
+                {
+                    string np = KPlay(KCombo(1));
+                    k.NoOutsideForCheck = new HashSet<string> { np };
+                    int no0 = Refusals("move", "no_outside");
+                    yield return KTurn(new Dictionary<string, object>(tags), KMove("これは？", 1, "b1", np), Line("どう？"));
+                    k.NoOutsideForCheck = null;
+                    bool gone = true;
+                    foreach (var kv in k.PlaysOf) if (kv.Value.Contains(np)) gone = false;
+                    foreach (var kv in k.Candidates("houshi")) if (kv.Value.Contains(np)) gone = false;
+                    bool tried;
+                    k.FinishTried(np, out tried);
+                    Check("献精室: a play without its finish outside at a move - refused no_outside (no turn used), out of the run's plays and the candidates, remembered so",
+                          Refusals("move", "no_outside") - no0 == 1 && runB.Turn == 1 && gone && !tried, np);
+                    k.Abandon();
+                }
+            }
+            else Check("献精室: a third run starts (for the run changed while a move waits)", false, k.Error);
+            // ---- another character's unfinished run: not resumed, its record not taken over; ended, Muse not told (GPT's post-review of #118, 3) ----
+            {
+                var src = Kensei.ReadRecord(k.FilePath(runId));
+                if (src != null)
+                {
+                    src["run"] = "k-otherchar";
+                    src["result"] = "";
+                    src["character"] = "card:someone_else.png";
+                    src["room"] = h.Stage.Location;
+                    string f = k.FilePath("k-otherchar");
+                    File.WriteAllText(f, Json.Write(src), new System.Text.UTF8Encoding(false));
+                    var k3 = new Kensei(h);
+                    k3.FindPending();
+                    bool pend = k3.Pending != null && Json.Str(k3.Pending, "run") == "k-otherchar";
+                    int ks0 = EventCount("kensei_started"), ke0 = EventCount("kensei_ended");
+                    string rz3 = pend ? k3.Resume() : "not found";
+                    string charAfter = Json.Str(Kensei.ReadRecord(f), "character", "");
+                    k3.EndPending("interrupted");
+                    yield return Wait(0.8f);
+                    var after = Kensei.ReadRecord(f);
+                    Check("献精室: another character's unfinished run is not resumed (other_character, its record still its own); ended there, it is closed interrupted and Muse is not told",
+                          pend && rz3 == "other_character" && charAfter == "card:someone_else.png" && Json.Str(after, "result") == "interrupted"
+                          && EventCount("kensei_started") == ks0 && EventCount("kensei_ended") == ke0 && k3.Pending == null,
+                          rz3 + " " + charAfter + " " + Json.Str(after, "result"));
+                }
+                else Check("献精室: another character's unfinished run (no record to copy)", false);
+            }
             if (k.Active) k.Abandon();
             if (pc.Active) pc.End("check");
             yield return Until(() => !pc.Climax.Running, 15f);
             yield return Wait(0.5f);
         }
+
     }
 }

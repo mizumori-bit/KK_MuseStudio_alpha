@@ -133,9 +133,12 @@ namespace MuseStudio
             Post("/api/packages/ack", body);
         }
 
+        public Func<string, bool> Quiet;          // (献精室's trial of the plays' finishes: their play events not sent meanwhile)
+
         public void Event(string type, Dictionary<string, object> fields)
         {
             if (Mute) return;
+            if (Quiet != null && Quiet(type)) return;
             var e = fields ?? new Dictionary<string, object>();
             e["type"] = type;
             Post("/api/events", e, instance + "-" + Interlocked.Increment(ref eventSeq));

@@ -340,6 +340,32 @@ namespace MuseStudio
             return t;
         }
 
+        // the run as it is (a move's step taken back when its record cannot be written - GPT's post-review of #118, 1)
+        public class Snap
+        {
+            public int Gauge, Total, Turn, Phases, Turns;
+            public string Result;
+            public uint Rng;
+            public List<KenseiCombo> Weak;
+            public Dictionary<string, int> Used;
+        }
+
+        public Snap Snapshot()
+        {
+            return new Snap { Gauge = Gauge, Total = Total, Turn = Turn, Phases = Phases.Count, Turns = Turns.Count, Result = Result, Rng = Rng.S,
+                Weak = new List<KenseiCombo>(WeakNow), Used = new Dictionary<string, int>(used) };
+        }
+
+        public void Restore(Snap s)
+        {
+            Gauge = s.Gauge; Total = s.Total; Turn = s.Turn; Result = s.Result; Rng.S = s.Rng;
+            WeakNow = new List<KenseiCombo>(s.Weak);
+            used.Clear();
+            foreach (var kv in s.Used) used[kv.Key] = kv.Value;
+            if (Phases.Count > s.Phases) Phases.RemoveRange(s.Phases, Phases.Count - s.Phases);
+            if (Turns.Count > s.Turns) Turns.RemoveRange(s.Turns, Turns.Count - s.Turns);
+        }
+
         // a run read back from its record (Kensei's resume): the same seed and the same moves give the same run - checked
         // against the record's own numbers (a different outcome: the rules changed under it - null)
         public static KenseiRun Replayed(KenseiRules rules, List<KenseiCombo> combos, uint seed, int weak, bool vary, bool decay, int tol, int need,
@@ -353,6 +379,7 @@ namespace MuseStudio
                 t.Told = r.Told;
                 t.Answer = r.Answer;
                 t.FinishPlace = r.FinishPlace;
+                t.Package = r.Package;          // (the move's package and its lines kept - GPT's post-review of #118, 2)
             }
             return run;
         }

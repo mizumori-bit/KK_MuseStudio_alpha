@@ -8,13 +8,18 @@ namespace MuseStudio
 {
     // 献精室 (#113-#115; the design of #115, the plan of its comment; MUSE_GUIDE 3.15): the content's run in the app. The user
     // sets it up on the panel (コンテンツ… → 献精…) and starts it; the app draws the weak combos from the candidates (the plays
-    // of the range this room can start, by their attributes - KenseiAttributes), keeps the gauge, the amounts and the truth to
-    // itself and tells Muse only what the run's disclosure lets out (one place: TurnView / Info). A turn is Muse's move (a block's
-    // move {run, turn, request, play, pace?}): taken when that block's operations are done, before the block is told shown - the
-    // play started or kept, one step of the gauge (KenseiRun.Step), him coming (the finish outside: the app's), the record
-    // written, kensei_turn. Her climax is off meanwhile (her gauge held; Muse's anim climax, standby climax, play.finish, plays
-    // and moves other than a move refused in_kensei). The record: one file a run beside the matches' (Replay.Dir), written at each
-    // move, the score once at the end (kensei_scores.json); an unfinished one found at start is resumed or ended interrupted.
+    // of the range this room can start whose finish outside is known to play - each play tried once and remembered: Scan - by
+    // their attributes: KenseiAttributes), keeps the gauge, the amounts and the truth to itself and tells Muse only what the
+    // run's disclosure lets out (one place: TurnView / Info). A turn is Muse's move (a block's move {run, turn, request, play,
+    // pace?}): taken when that block's operations are done, before the block is told shown - the play started or kept, its
+    // finish outside there, one step of the gauge (KenseiRun.Step), the record written first (it cannot be: the step taken back,
+    // the move refused save_failed), then him coming outside, kensei_turn. A move waiting for the play is bound to its run and
+    // turn: another run meanwhile, it lapses (run_changed). Her climax is off meanwhile (her gauge held; Muse's anim climax,
+    // standby climax, play.finish, plays and moves other than a move refused in_kensei). The record: one file a run beside the
+    // matches' (Replay.Dir), written whole (a part file, then swapped in) at each change; the end told once it is written, the
+    // score once a run (kensei_scores.json, made good again at start from the records); an unfinished one found at start is
+    // resumed - with the character it began with only - or ended interrupted (Muse told only when it is that character's)
+    // (GPT's post-review of #118: 1 the record before the turn, 2 the lines kept at a resume, 3 the character, 4 the run, 5 outside).
     public class Kensei
     {
         readonly MuseStudioPlugin h;
@@ -28,8 +33,6 @@ namespace MuseStudio
         public bool RangeRandom, Vary, DecayOn;
         public int WeakN, Need, Tol;
         public string Disclose = "numbers", Tighten = "standard";
-        public uint SeedForCheck;                  // (checks) the next run's seed
-        public List<string> PartsForCheck;         // (checks) the next run's range narrowed to these parts
         public double Coef = 1.0;
         public int Points, Score;
         public string Title = "", Room = "", Started = "", Error = "";
@@ -42,8 +45,23 @@ namespace MuseStudio
         string runRange = "", runDisclose = "numbers", runTighten = "standard";
         bool runVary, runDecay, runRandom;
         int runWeak, runNeed, runTol;
-        bool scanned;
+        string recLaunch = "", recCharacter = "";  // (the record's own: the launch and the character it began with)
+        readonly List<string> resumedIn = new List<string>();
+        bool scanned, endDirty, scoreDirty;
+        float retryAt;
         public float EndedAt = -100f;
+        // the plays' finish outside, tried once (true: it plays) - kept in this PC's file (UserData/MuseStudio/kensei_finishes.json)
+        readonly Dictionary<string, bool> finishes = new Dictionary<string, bool>();
+        readonly string finishesPath;
+        public bool Scanning;
+        public int ScanLeft;
+        bool scanStop;
+        // (checks)
+        public uint SeedForCheck;                  // the next run's seed
+        public List<string> PartsForCheck;         // the next run's range narrowed to these parts
+        public bool FailWritesForCheck;            // the record's writes fail
+        public bool HoldMovesForCheck;             // a move waits (as for the play) till this is cleared
+        public HashSet<string> NoOutsideForCheck;  // plays taken for having no finish outside at a move
         public int TurnEventsForCheck, RefusedForCheck;
 
         public Kensei(MuseStudioPlugin host)
@@ -56,18 +74,55 @@ namespace MuseStudio
             WeakN = Rules.WeakDefault;
             Need = Rules.NeedDefault;
             Tol = Rules.TolDefault;
+            string check;
+            finishesPath = MuseStudioPlugin.Args.TryGetValue("check", out check) ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(check)), "kensei_finishes.json")
+                : Path.Combine(BepInEx.Paths.GameRootPath, Path.Combine("UserData", Path.Combine("MuseStudio", "kensei_finishes.json")));
+            try
+            {
+                var doc = File.Exists(finishesPath) ? Json.Parse(File.ReadAllText(finishesPath, System.Text.Encoding.UTF8)) as Dictionary<string, object> : null;
+                foreach (var kv in Json.Obj(doc, "plays") ?? new Dictionary<string, object>()) if (kv.Value is bool) finishes[kv.Key] = (bool)kv.Value;
+            }
+            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei finishes: " + e.Message); }
         }
 
         static float Now { get { return Time.realtimeSinceStartup; } }
 
         public bool Active { get { return Run != null && Run.Result.Length == 0; } }
 
+        // a run going on, or the plays being tried: the panel's room and plays wait
+        public bool Busy { get { return Active || Scanning; } }
+
         public string FilePath(string id) { return Path.Combine(Replay.Dir, "kensei-" + id + ".json"); }
         static string ScoresPath { get { return Path.Combine(Replay.Dir, "kensei_scores.json"); } }
 
         public void Tick()
         {
-            if (!scanned && h.Stage != null && h.Stage.Ready) { scanned = true; FindPending(); }
+            if (!scanned && h.Stage != null && h.Stage.Ready) { scanned = true; FindPending(); ReconcileScores(); }
+            if ((endDirty || scoreDirty) && Now >= retryAt) FinishEnd();
+        }
+
+        // a file written whole: into a part file, then swapped in (the old one kept till the new one is there - Mood's way)
+        bool WriteWhole(string path, string text)
+        {
+            try
+            {
+                if (FailWritesForCheck) throw new IOException("check: the write fails");
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                string part = path + ".part", bak = path + ".bak";
+                File.WriteAllText(part, text, new System.Text.UTF8Encoding(false));
+                if (!File.Exists(path)) { File.Move(part, path); return true; }
+                if (File.Exists(bak)) File.Delete(bak);
+                File.Move(path, bak);
+                try { File.Move(part, path); }
+                catch (Exception) { File.Move(bak, path); throw; }
+                File.Delete(bak);
+                return true;
+            }
+            catch (Exception e)
+            {
+                MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei: " + Path.GetFileName(path) + " not written: " + e.Message);
+                return false;
+            }
         }
 
         // ---- the candidates ----
@@ -80,23 +135,110 @@ namespace MuseStudio
             return KenseiAttributes.Of(row, h.Play.Category(row), herGives, attrs, cats);
         }
 
-        // the plays of a range this room can start (not reversed), by combo (sorted: the draws' order - tools/kensei_sim.py's)
-        public SortedDictionary<string, List<string>> Candidates(string range, List<string> parts = null)
+        IEnumerable<Dictionary<string, object>> RangeRows(string range)
+        {
+            foreach (var g in range == "houshi" ? new[] { "houshi" } : new[] { "houshi", "sonyu" })
+                foreach (var row in h.Play.List(g)) yield return row;
+        }
+
+        // the plays of a range this room can start (not reversed), by combo (sorted: the draws' order - tools/kensei_sim.py's);
+        // verified: only those whose finish outside is known to play (#115: outside only - GPT's post-review of #118, 5)
+        public SortedDictionary<string, List<string>> Candidates(string range, List<string> parts = null, bool verified = true)
         {
             var o = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
-            foreach (var g in range == "houshi" ? new[] { "houshi" } : new[] { "houshi", "sonyu" })
-                foreach (var row in h.Play.List(g))
-                {
-                    var c = ComboOf(row);
-                    if (!c.HasValue || (parts != null && !parts.Contains(c.Value.Part))) continue;
-                    var av = h.Play.Availability(row);
-                    if (!(bool)av["ok"]) continue;
-                    List<string> l;
-                    if (!o.TryGetValue(c.Value.Key, out l)) o[c.Value.Key] = l = new List<string>();
-                    l.Add(Json.Str(row, "id"));
-                }
+            foreach (var row in RangeRows(range))
+            {
+                var c = ComboOf(row);
+                if (!c.HasValue || (parts != null && !parts.Contains(c.Value.Part))) continue;
+                string id = Json.Str(row, "id");
+                bool fin;
+                if (verified && !(finishes.TryGetValue(id, out fin) && fin)) continue;
+                if (!(bool)h.Play.Availability(row)["ok"]) continue;
+                List<string> l;
+                if (!o.TryGetValue(c.Value.Key, out l)) o[c.Value.Key] = l = new List<string>();
+                l.Add(id);
+            }
             return o;
         }
+
+        // the plays of a range this room can start whose finish is not tried yet
+        public List<string> Untried(string range)
+        {
+            var o = new List<string>();
+            foreach (var row in RangeRows(range))
+            {
+                if (!ComboOf(row).HasValue) continue;
+                string id = Json.Str(row, "id");
+                if (finishes.ContainsKey(id) || !(bool)h.Play.Availability(row)["ok"]) continue;
+                o.Add(id);
+            }
+            return o;
+        }
+
+        public bool FinishTried(string id, out bool outside) { return finishes.TryGetValue(id, out outside); }
+
+        void SaveFinishes()
+        {
+            var d = new Dictionary<string, object>();
+            foreach (var kv in finishes) d[kv.Key] = kv.Value;
+            bool fail = FailWritesForCheck;
+            FailWritesForCheck = false;          // (this PC's knowledge of the plays: not the run's record)
+            WriteWhole(finishesPath, Json.Write(new Dictionary<string, object> { { "kind", "musestudio_kensei_finishes" }, { "version", 1 }, { "plays", d } }));
+            FailWritesForCheck = fail;
+        }
+
+        string CannotScan()
+        {
+            if (Busy) return Active ? "running" : "scanning";
+            if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
+            if (h.Outing.Out) return "she_is_out";
+            if (h.Presence.Apart) return "apart";
+            if (h.Chars.Creating) return "creation";
+            return "";
+        }
+
+        // each play of the range not tried yet: started at once, its finish outside looked for (Climax.Places: the play's own
+        // motion's states), ended - quietly (no play events to Muse, Muse's packages wait meanwhile); remembered on this PC
+        public IEnumerator Scan(string range)
+        {
+            if (CannotScan().Length > 0) yield break;
+            var todo = Untried(range);
+            if (todo.Count == 0) yield break;
+            Scanning = true;
+            scanStop = false;
+            ScanLeft = todo.Count;
+            var pc = h.Play;
+            h.Bridge.Quiet = t => t.StartsWith("play_") || t == "climax";
+            try
+            {
+                if (pc.Active) pc.End("kensei_scan", false, false);
+                foreach (var id in todo)
+                {
+                    if (scanStop || h.Outing.Out || h.Presence.Apart || h.Match.Active) break;
+                    if (pc.Begin(id, "kensei_scan", null).Length == 0)
+                    {
+                        float t0 = Now;
+                        while (pc.Active && string.IsNullOrEmpty(pc.LastState) && Now - t0 < 5f) yield return null;
+                        yield return null;
+                        yield return null;
+                        if (pc.Active && !string.IsNullOrEmpty(pc.LastState)) finishes[id] = pc.Climax.Places().Contains("outside");
+                        if (pc.Active) pc.End("kensei_scan", false, false);
+                    }
+                    ScanLeft--;
+                    yield return null;
+                }
+            }
+            finally
+            {
+                if (pc.Active) pc.End("kensei_scan", true, false);
+                h.Bridge.Quiet = null;
+                Scanning = false;
+                ScanLeft = 0;
+                SaveFinishes();
+            }
+        }
+
+        public void StopScan() { scanStop = true; }
 
         static List<KenseiCombo> CombosOf(IEnumerable<string> keys)
         {
@@ -109,7 +251,9 @@ namespace MuseStudio
         // why a run cannot start now (""; the panel greys its button out with it)
         public string CannotStart(int n)
         {
+            if (Scanning) return "scanning";
             if (Active) return "running";
+            if (endDirty) return "ending";
             if (Pending != null) return "pending";
             if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
             if (h.Outing.Out) return "she_is_out";
@@ -124,15 +268,18 @@ namespace MuseStudio
             switch (code)
             {
                 case "running": return "献精が続いています";
+                case "scanning": return "プレイの射精の流れを確かめています";
+                case "ending": return "前の献精の記録を書いています（書けしだい、結果を確定します）";
                 case "pending": return "終わっていない献精の記録があります（続けるか、終えるかを選んでください）";
                 case "in_match": return "対戦・リプレイの間は始められません";
                 case "she_is_out": return "彼女がお出かけ中です";
                 case "apart": return "彼女と同じ部屋にいるときだけ始められます";
                 case "creation": return "キャラメイクの間は始められません";
                 case "needs_male_body": return "あなたの体が男性の体のときだけ遊べます（設定「あなたの体」）";
-                case "no_candidates": return "この部屋で始められる候補がありません";
+                case "no_candidates": return "この部屋で始められる候補がありません（射精の流れを確かめたプレイだけが候補です）";
                 case "weak_out_of_range": return "弱点の数は、候補の数まで（かつ設定の上限まで）にしてください";
                 case "vary_needs_2k_le_n": return "弱点変動には、候補が弱点の数の 2 倍以上要ります";
+                case "save_failed": return "献精の記録を書けませんでした";
                 default: return code;
             }
         }
@@ -149,25 +296,39 @@ namespace MuseStudio
             if (why.Length > 0) { Error = Why(why); return why; }
             uint seed = SeedForCheck != 0 ? SeedForCheck : ((uint)DateTime.Now.Ticks ^ (uint)Environment.TickCount ^ 0x9E3779B9u) | 1u;
             SeedForCheck = 0;
+            var run = new KenseiRun(Rules, CombosOf(cands.Keys), seed, WeakN, Vary, DecayOn, Tol, Need, Tighten);
+            var was = new Dictionary<string, List<string>>(PlaysOf);
+            Run = run;
             RunId = "k" + DateTime.Now.ToString("yyyyMMddHHmmss") + "-" + (seed & 0xFFFF).ToString("x4");
             PlaysOf.Clear();
             foreach (var kv in cands) PlaysOf[kv.Key] = kv.Value;
             runRange = Range; runRandom = RangeRandom; runWeak = WeakN; runVary = Vary; runDecay = DecayOn; runDisclose = Disclose;
             runNeed = Need; runTighten = Tighten; runTol = Tol;
             RangeParts = new List<string>();
-            foreach (var c in CombosOf(cands.Keys)) if (!RangeParts.Contains(c.Part)) RangeParts.Add(c.Part);
-            Run = new KenseiRun(Rules, CombosOf(cands.Keys), seed, runWeak, runVary, runDecay, runTol, runNeed, runTighten);
+            foreach (var c in run.Combos) if (!RangeParts.Contains(c.Part)) RangeParts.Add(c.Part);
             Coef = Rules.Coefficient(cands.Count, runWeak, runVary, runTighten, runNeed, runTol, runDisclose, runDecay, runRandom, out Points);
             Score = 0;
             Title = "";
             Room = h.Stage.Location;
             Started = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+            recLaunch = Launch.Id;
+            recCharacter = h.CharacterId();
+            resumedIn.Clear();
             requests.Clear();
             moveIn = cameIn = null;
             Last = null;
+            if (!Save())
+            {
+                // (not begun: nothing of it is kept - GPT's post-review of #118, 1)
+                Run = null;
+                RunId = "";
+                PlaysOf.Clear();
+                foreach (var kv in was) PlaysOf[kv.Key] = kv.Value;
+                Error = Why("save_failed") + "（始めませんでした）";
+                return "save_failed";
+            }
             Hold();
             if (h.Play.Active) h.Play.End("kensei");
-            Save();
             h.Bridge.Event("kensei_started", Info());
             return "";
         }
@@ -246,21 +407,44 @@ namespace MuseStudio
             string req = Json.Str(mv, "request", "");
             string why = MoveRefusal(mv, pkg, out combo, out detail);
             if (why.Length > 0) { Refuse("move", req, why, detail); yield break; }
-            requests.Add(req);              // (refused from here on or not: a late copy of it never runs)
+            // (bound to its run and its turn: a wait that comes back to another run, or a turn already gone, lapses - GPT's
+            // post-review of #118, 4; until it is taken, its request is free again)
+            var run = Run;
+            int turn = run.Turn;
+            Func<bool> still = () => ReferenceEquals(Run, run) && run.Result.Length == 0 && run.Turn == turn;
+            Action<string, string> lapse = (reason, d) =>
+            {
+                requests.Remove(req);
+                if (ReferenceEquals(moveIn, pkg)) moveIn = null;
+                Refuse("move", req, reason, d);
+            };
+            requests.Add(req);
             moveIn = pkg;
             string play = Json.Str(mv, "play", "");
             int pace = Json.Has(mv, "pace") ? (int)Json.Num(mv, "pace") : 2;
             var pc = h.Play;
             float t0 = Now;
-            while (pc.Climax.Running && Now - t0 < 30f) yield return null;      // (the finish before it plays out first)
+            while ((pc.Climax.Running || HoldMovesForCheck) && Now - t0 < 30f) yield return null;      // (the finish before it plays out first)
+            if (!still()) { lapse("run_changed", RunId); yield break; }
             if (!(pc.Active && Json.Str(pc.Current, "id") == play && !pc.Reversed))
             {
                 string err = pc.Begin(play, "kensei", null, false, false, req);
-                if (err.Length > 0) { Refuse("move", req, "not_started", err); yield break; }      // (no turn used)
+                if (err.Length > 0) { lapse("not_started", err); yield break; }
                 t0 = Now;
                 while (pc.Active && string.IsNullOrEmpty(pc.LastState) && Now - t0 < 5f) yield return null;
+                if (!still()) { lapse("run_changed", RunId); yield break; }
             }
-            if (!pc.Active) { Refuse("move", req, "not_started", "play ended"); yield break; }
+            if (!pc.Active) { lapse("not_started", "play ended"); yield break; }
+            // (outside only - #115; GPT's post-review of #118, 5: a play whose finish outside does not play here is no candidate
+            // from now on, and the move is not taken)
+            if (!pc.Climax.Places().Contains("outside") || (NoOutsideForCheck != null && NoOutsideForCheck.Contains(play)))
+            {
+                finishes[play] = false;
+                SaveFinishes();
+                foreach (var kv in PlaysOf) kv.Value.Remove(play);
+                lapse("no_outside", play);
+                yield break;
+            }
             if (pc.Group == "sonyu")
             {
                 if (pc.Condom == null) pc.SetCondom(false, "kensei");
@@ -269,31 +453,37 @@ namespace MuseStudio
                     pc.Insert(pace);
                     t0 = Now;
                     while (pc.Active && (!pc.Inserted || pc.Climax.Running) && Now - t0 < 15f) yield return null;
+                    if (!still()) { lapse("run_changed", RunId); yield break; }
+                    if (!pc.Active || !pc.Inserted) { lapse("not_started", "not inserted"); yield break; }
                 }
                 else pc.SetPace(pace, "kensei");
             }
             else pc.SetPace(pace, "kensei");
             pc.Progress();
-            if (!Active) yield break;       // (ended meanwhile: the user's やめる)
-            var t = Run.Step(combo, play, req);
-            if (t.Came)
-            {
-                var places = pc.Climax.Places();
-                t.FinishPlace = places.Contains("outside") ? "outside" : places.Count > 0 ? places[0] : "";
-                if (t.FinishPlace.Length > 0)
-                {
-                    string fw = pc.Climax.MuseFinish(t.FinishPlace);
-                    if (fw.Length > 0) t.FinishPlace += " (" + fw + ")";
-                }
-                cameIn = pkg;
-            }
+            if (!still()) { lapse("run_changed", RunId); yield break; }
+            // the turn, written before anything of it is told or shown (it cannot be: taken back, refused - GPT's post-review of
+            // #118, 1; the same request may come again)
+            var snap = run.Snapshot();
+            var t = run.Step(combo, play, req);
+            if (t.Came) t.FinishPlace = "outside";
             t.Package = PackageCopy(pkg);
             t.Told = TurnView(t);
+            if (!Save())
+            {
+                run.Restore(snap);
+                lapse("save_failed", "");
+                yield break;
+            }
             Last = t;
-            Save();
+            if (t.Came)
+            {
+                string fw = pc.Climax.MuseFinish("outside");
+                if (fw.Length > 0) MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei: the finish outside did not start: " + fw);
+                cameIn = pkg;
+            }
             TurnEventsForCheck++;
             h.Bridge.Event("kensei_turn", t.Told);
-            if (Run.Result.Length > 0) Ended();
+            if (run.Result.Length > 0) Ended();
         }
 
         // a came block (MUSE_GUIDE 3.15): shown only after a move of its package that made him come
@@ -340,13 +530,13 @@ namespace MuseStudio
                 cl.Add(new Dictionary<string, object> { { "combo", c.Key }, { "part", c.Part }, { "who", c.Who },
                     { "plays", new List<object>((pl ?? new List<string>()).ToArray()) } });
             }
-            var d = new Dictionary<string, object> { { "run", RunId }, { "phase", Active ? "running" : "ended" }, { "turn", Run.Turn },
+            var d = new Dictionary<string, object> { { "run", RunId }, { "phase", Active ? "running" : endDirty ? "ending" : "ended" }, { "turn", Run.Turn },
                 { "turns_max", Run.Limit }, { "turns_left", Math.Max(0, Run.Limit - Run.Turn + 1) }, { "settings", Settings() },
                 { "coefficient", Coef }, { "candidates", cl }, { "last", Last != null ? (object)Last.Told : null },
                 { "rules_version", Rules.Version } };
             if (runDisclose == "numbers") d["total"] = Run.Total;
             else if (runDisclose == "levels") d["progress"] = Rules.Progress(Run.Total, runNeed);
-            if (!Active)
+            if (!Active && !endDirty)
             {
                 d["result"] = Run.Result;
                 d["total"] = Run.Total;
@@ -379,35 +569,68 @@ namespace MuseStudio
             Ended();
         }
 
+        // the run over: her gauge free at once; the end told once its record is written, the score kept once (tried again
+        // till they are - GPT's post-review of #118, 1)
         void Ended()
         {
             Score = Run.Result == "success" ? KenseiRules.HalfUp(Run.Total * Coef) : 0;
             Title = Run.Result == "success" ? Rules.Title(Score) : "";
             Release();
             EndedAt = Now;
-            Save();
-            AddScore();
-            var d = Info();
-            d["turns_used"] = Run.Turns.Count;
-            d["reveal"] = Reveal();
-            h.Bridge.Event("kensei_ended", d);
+            endDirty = true;
+            FinishEnd();
         }
 
-        void AddScore()
+        void FinishEnd()
         {
-            try
+            if (endDirty)
             {
-                var doc = File.Exists(ScoresPath) ? Json.Parse(File.ReadAllText(ScoresPath, System.Text.Encoding.UTF8)) as Dictionary<string, object> : null;
-                doc = doc ?? new Dictionary<string, object> { { "kind", "musestudio_kensei_scores" }, { "version", 1 } };
-                var runs = Json.Obj(doc, "runs") ?? new Dictionary<string, object>();
-                if (runs.ContainsKey(RunId)) return;          // (once a run)
-                runs[RunId] = new Dictionary<string, object> { { "result", Run.Result }, { "total", Run.Total }, { "coefficient", Coef }, { "score", Score },
-                    { "title", Title }, { "ended", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss") } };
-                doc["runs"] = runs;
-                Directory.CreateDirectory(Replay.Dir);
-                File.WriteAllText(ScoresPath, Json.Write(doc), new System.Text.UTF8Encoding(false));
+                if (!Save()) { Error = Why("ending"); retryAt = Now + 5f; return; }
+                endDirty = false;
+                scoreDirty = Run.Result == "success";
+                Error = "";
+                var d = Info();
+                d["turns_used"] = Run.Turns.Count;
+                d["reveal"] = Reveal();
+                h.Bridge.Event("kensei_ended", d);
             }
-            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei scores: " + e.Message); }
+            if (scoreDirty)
+            {
+                if (AddScore(RunId, Run.Result, Run.Total, Coef, Score, Title)) scoreDirty = false;
+                else retryAt = Now + 5f;
+            }
+        }
+
+        // the score of a run kept (once a run: its id)
+        bool AddScore(string id, string result, double total, double coef, double score, string title)
+        {
+            Dictionary<string, object> doc;
+            try { doc = File.Exists(ScoresPath) ? Json.Parse(File.ReadAllText(ScoresPath, System.Text.Encoding.UTF8)) as Dictionary<string, object> : null; }
+            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei scores: " + e.Message); return false; }
+            doc = doc ?? new Dictionary<string, object> { { "kind", "musestudio_kensei_scores" }, { "version", 1 } };
+            var runs = Json.Obj(doc, "runs") ?? new Dictionary<string, object>();
+            if (runs.ContainsKey(id)) return true;
+            runs[id] = new Dictionary<string, object> { { "result", result }, { "total", total }, { "coefficient", coef }, { "score", score },
+                { "title", title }, { "ended", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss") } };
+            doc["runs"] = runs;
+            return WriteWhole(ScoresPath, Json.Write(doc));
+        }
+
+        // a run's record whose score did not reach the scores' file (the app closed, the file was not writable): put in now
+        void ReconcileScores()
+        {
+            var sc = Scores();
+            foreach (var f in RecordFiles())
+            {
+                var doc = ReadRecord(f);
+                if (doc == null || Json.Str(doc, "result", "") != "success" || Json.Num(doc, "score", 0) <= 0) continue;
+                string id = Json.Str(doc, "run", "");
+                if (id.Length == 0 || (sc != null && sc.ContainsKey(id))) continue;
+                double total = 0;
+                var turns = Json.Arr(doc, "turns");
+                if (turns != null && turns.Count > 0) total = Json.Num(turns[turns.Count - 1], "total", 0);
+                AddScore(id, "success", total, Json.Num(doc, "coefficient", 1.0), Json.Num(doc, "score", 0), Json.Str(doc, "title", ""));
+            }
         }
 
         public Dictionary<string, object> Scores()
@@ -436,7 +659,7 @@ namespace MuseStudio
         {
             var list = Json.Arr(pkg, "kensei_answers");
             if (list == null) return;
-            bool any = false;
+            var taken = new List<KenseiTurn>();
             foreach (var o in list)
             {
                 var a = o as Dictionary<string, object>;
@@ -453,22 +676,21 @@ namespace MuseStudio
                 }
                 ans["at"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
                 t.Answer = ans;
-                any = true;
+                taken.Add(t);
             }
-            if (any) Save();
+            if (taken.Count > 0 && !Save())
+            {
+                // (not written: not taken - the same may come again)
+                foreach (var t in taken) { t.Answer = null; Refuse("kensei_answers", t.Turn, "save_failed"); }
+            }
         }
 
         // ---- the record ----
 
-        public void Save()
+        public bool Save()
         {
-            if (Run == null || RunId.Length == 0) return;
-            try
-            {
-                Directory.CreateDirectory(Replay.Dir);
-                File.WriteAllText(FilePath(RunId), Json.Write(Record()), new System.Text.UTF8Encoding(false));
-            }
-            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei record: " + e.Message); }
+            if (Run == null || RunId.Length == 0) return false;
+            return WriteWhole(FilePath(RunId), Json.Write(Record()));
         }
 
         Dictionary<string, object> Record()
@@ -491,9 +713,9 @@ namespace MuseStudio
             }
             return new Dictionary<string, object> { { "kind", "musestudio_kensei_run" }, { "version", 1 }, { "run", RunId }, { "rules_version", Rules.Version },
                 { "rules", Rules.Doc }, { "attributes_version", Json.Num(attrs, "version", 0) }, { "started", Started }, { "room", Room },
-                { "launch", Launch.Id }, { "character", h.CharacterId() }, { "settings", Settings() }, { "seed", (double)Run.Seed },
-                { "candidates", cands }, { "limit", Run.Limit }, { "coefficient", Coef }, { "points", Points }, { "phases", new List<object>(Run.Phases.ToArray()) },
-                { "turns", turns }, { "result", Run.Result }, { "score", Score }, { "title", Title },
+                { "launch", recLaunch }, { "character", recCharacter }, { "resumed_in", new List<object>(resumedIn.ToArray()) }, { "settings", Settings() },
+                { "seed", (double)Run.Seed }, { "candidates", cands }, { "limit", Run.Limit }, { "coefficient", Coef }, { "points", Points },
+                { "phases", new List<object>(Run.Phases.ToArray()) }, { "turns", turns }, { "result", Run.Result }, { "score", Score }, { "title", Title },
                 { "ended", Run.Result.Length > 0 ? (object)DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss") : null } };
         }
 
@@ -529,40 +751,56 @@ namespace MuseStudio
         }
 
         // the unfinished run again: the same seed and moves give the same run (its rules as it began; another outcome - the
-        // rules changed under it - it cannot go on: ended interrupted). Only in its own room.
+        // rules changed under it - it cannot go on: ended interrupted). Only in its own room, with its own character (GPT's
+        // post-review of #118, 3); its record kept whole - its packages and lines too (2) - and its character its own.
         public string Resume()
         {
             Error = "";
             if (Pending == null) return "none";
-            if (Json.Str(Pending, "room", "") != h.Stage.Location) { Error = "この献精は「" + Json.Str(h.Stage.LocationInfo(Json.Str(Pending, "room", "")), "name", Json.Str(Pending, "room", "")) + "」で始めたものです。その部屋に移ってから続けてください"; return "other_room"; }
-            string why = CannotStartResume();
+            string recChar = Json.Str(Pending, "character", "");
+            if (recChar.Length > 0 && recChar != h.CharacterId())
+            {
+                Error = "この献精は別のキャラ（" + recChar.Replace("card:", "") + "）で始めたものです。そのキャラに替えてから続けてください";
+                return "other_character";
+            }
+            if (Json.Str(Pending, "room", "") != h.Stage.Location)
+            {
+                Error = "この献精は「" + Json.Str(h.Stage.LocationInfo(Json.Str(Pending, "room", "")), "name", Json.Str(Pending, "room", "")) + "」で始めたものです。その部屋に移ってから続けてください";
+                return "other_room";
+            }
+            string why = CannotResume();
             if (why.Length > 0) { Error = Why(why); return why; }
             var rules = new KenseiRules(Json.Obj(Pending, "rules"));
             var keys = new List<string>();
-            PlaysOf.Clear();
+            var plays = new Dictionary<string, List<string>>();
             foreach (var o in Json.Arr(Pending, "candidates") ?? new List<object>())
             {
                 keys.Add(Json.Str(o, "combo"));
                 var pl = new List<string>();
                 foreach (var p in Json.Arr(o, "plays") ?? new List<object>()) pl.Add((string)p);
-                PlaysOf[Json.Str(o, "combo")] = pl;
+                plays[Json.Str(o, "combo")] = pl;
             }
             var st = Json.Obj(Pending, "settings");
             var recorded = new List<KenseiTurn>();
             foreach (var o in Json.Arr(Pending, "turns") ?? new List<object>())
-            {
-                var t = new KenseiTurn { Turn = (int)Json.Num(o, "turn"), Combo = Json.Str(o, "combo", ""), Play = Json.Str(o, "play", ""), Request = Json.Str(o, "request", ""),
+                recorded.Add(new KenseiTurn { Turn = (int)Json.Num(o, "turn"), Combo = Json.Str(o, "combo", ""), Play = Json.Str(o, "play", ""), Request = Json.Str(o, "request", ""),
                     Grade = Array.IndexOf(KenseiRules.Grades, Json.Str(o, "grade", "")), Amount = (int)Json.Num(o, "amount", 0), Total = (int)Json.Num(o, "total", 0),
-                    Came = True(o, "came"),
-                    Told = Json.Obj(o, "told"), Answer = Json.Obj(o, "answer"), FinishPlace = Json.Str(o, "finish", ""), Package = Json.Obj(o, "package") };
-                recorded.Add(t);
-            }
+                    Came = True(o, "came"), Told = Json.Obj(o, "told"), Answer = Json.Obj(o, "answer"), FinishPlace = Json.Str(o, "finish", ""), Package = Json.Obj(o, "package") });
             var run = KenseiRun.Replayed(rules, CombosOf(keys), (uint)Json.Num(Pending, "seed"), (int)Json.Num(st, "weak", 1), True(st, "vary"), True(st, "decay"),
                                          (int)Json.Num(st, "tolerance", 0), (int)Json.Num(st, "need", 360), Json.Str(st, "tighten", "standard"), recorded);
-            if (run == null || run.Result.Length > 0) { EndPending("interrupted"); Error = "記録をそのまま続けられませんでした（中断として終えました）"; return "not_replayed"; }
+            if (run == null || run.Result.Length > 0)
+            {
+                EndPending("interrupted");
+                if (Pending == null) Error = "記録をそのまま続けられませんでした（中断として終えました）";
+                return "not_replayed";
+            }
+            // (all of the run as it was, the record's own launch and character; then written once - not written: not resumed)
+            var keep = new Keep(this);
             Rules = rules;
             Run = run;
             RunId = Json.Str(Pending, "run", "");
+            PlaysOf.Clear();
+            foreach (var kv in plays) PlaysOf[kv.Key] = kv.Value;
             runRange = Json.Str(st, "range", "both"); runRandom = True(st, "range_random"); runWeak = run.Weak; runVary = run.Vary; runDecay = run.Decay;
             runDisclose = Json.Str(st, "disclose", "numbers"); runNeed = run.Need; runTighten = run.Tightening; runTol = run.Tol;
             RangeParts = new List<string>();
@@ -571,8 +809,14 @@ namespace MuseStudio
             Points = (int)Json.Num(Pending, "points", 0);
             Room = Json.Str(Pending, "room", "");
             Started = Json.Str(Pending, "started", "");
+            recLaunch = Json.Str(Pending, "launch", "");
+            recCharacter = recChar.Length > 0 ? recChar : h.CharacterId();
+            resumedIn.Clear();
+            foreach (var o in Json.Arr(Pending, "resumed_in") ?? new List<object>()) resumedIn.Add((string)o);
+            resumedIn.Add(Launch.Id);
             Score = 0;
             Title = "";
+            if (!Save()) { keep.Back(); Error = Why("save_failed") + "（続けませんでした）"; return "save_failed"; }
             requests.Clear();
             foreach (var t in run.Turns) requests.Add(t.Request);
             moveIn = cameIn = null;
@@ -580,16 +824,49 @@ namespace MuseStudio
             Pending = null;
             PendingFile = "";
             Hold();
-            Save();
             var d = Info();
             d["resumed"] = true;
             h.Bridge.Event("kensei_started", d);
             return "";
         }
 
-        string CannotStartResume()
+        // what a resume changes, put back when its record cannot be written
+        class Keep
         {
+            readonly Kensei k;
+            readonly KenseiRules rules;
+            readonly KenseiRun run;
+            readonly string id, launch, character, room, started;
+            readonly Dictionary<string, List<string>> plays;
+            readonly List<string> resumed, parts;
+            readonly double coef;
+
+            public Keep(Kensei k)
+            {
+                this.k = k;
+                rules = k.Rules; run = k.Run; id = k.RunId; launch = k.recLaunch; character = k.recCharacter; room = k.Room; started = k.Started;
+                plays = new Dictionary<string, List<string>>(k.PlaysOf);
+                resumed = new List<string>(k.resumedIn);
+                parts = new List<string>(k.RangeParts);
+                coef = k.Coef;
+            }
+
+            public void Back()
+            {
+                k.Rules = rules; k.Run = run; k.RunId = id; k.recLaunch = launch; k.recCharacter = character; k.Room = room; k.Started = started; k.Coef = coef;
+                k.PlaysOf.Clear();
+                foreach (var kv in plays) k.PlaysOf[kv.Key] = kv.Value;
+                k.resumedIn.Clear();
+                k.resumedIn.AddRange(resumed);
+                k.RangeParts = parts;
+            }
+        }
+
+        string CannotResume()
+        {
+            if (Scanning) return "scanning";
             if (Active) return "running";
+            if (endDirty) return "ending";
             if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
             if (h.Outing.Out) return "she_is_out";
             if (h.Presence.Apart) return "apart";
@@ -605,17 +882,26 @@ namespace MuseStudio
             return d != null && d.TryGetValue(key, out b) && b is bool && (bool)b;
         }
 
-        // the unfinished run ended as it was (interrupted: no score) - Muse told of it and its truth
+        // the unfinished run ended as it was (interrupted: no score); its truth told to Muse only when it is this character's run
+        // (another character's Muse is not this one - GPT's post-review of #118, 3); not written: left unfinished
         public void EndPending(string result)
         {
             if (Pending == null) return;
-            Pending["result"] = result;
-            Pending["ended"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
-            try { File.WriteAllText(PendingFile, Json.Write(Pending), new System.Text.UTF8Encoding(false)); }
-            catch (Exception e) { MuseStudioPlugin.Log.LogWarning("MuseStudio: kensei record: " + e.Message); }
+            var doc = Json.Parse(Json.Write(Pending)) as Dictionary<string, object>;
+            doc["result"] = result;
+            doc["ended"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+            if (!WriteWhole(PendingFile, Json.Write(doc))) { Error = Why("save_failed") + "（終えられませんでした）"; return; }
+            string recChar = Json.Str(Pending, "character", "");
+            Pending = null;
+            PendingFile = "";
+            if (recChar.Length > 0 && recChar != h.CharacterId())
+            {
+                Error = "別のキャラのランだったので、Muse には知らせずに終えました";
+                return;
+            }
             var turns = new List<object>();
             double total = 0;
-            foreach (var o in Json.Arr(Pending, "turns") ?? new List<object>())
+            foreach (var o in Json.Arr(doc, "turns") ?? new List<object>())
             {
                 var d = Json.Parse(Json.Write(o)) as Dictionary<string, object>;
                 if (d == null) continue;
@@ -623,12 +909,10 @@ namespace MuseStudio
                 total = Json.Num(d, "total", total);
                 turns.Add(d);
             }
-            h.Bridge.Event("kensei_ended", new Dictionary<string, object> { { "run", Json.Str(Pending, "run", "") }, { "phase", "ended" }, { "result", result },
+            h.Bridge.Event("kensei_ended", new Dictionary<string, object> { { "run", Json.Str(doc, "run", "") }, { "phase", "ended" }, { "result", result },
                 { "turns_used", turns.Count }, { "total", total }, { "score", 0 }, { "title", "" },
-                { "coefficient", Json.Num(Pending, "coefficient", 1.0) },
-                { "reveal", new Dictionary<string, object> { { "seed", Json.Num(Pending, "seed") }, { "phases", Json.Arr(Pending, "phases") }, { "turns", turns } } } });
-            Pending = null;
-            PendingFile = "";
+                { "coefficient", Json.Num(doc, "coefficient", 1.0) },
+                { "reveal", new Dictionary<string, object> { { "seed", Json.Num(doc, "seed") }, { "phases", Json.Arr(doc, "phases") }, { "turns", turns } } } });
         }
     }
 }
