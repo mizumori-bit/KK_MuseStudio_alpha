@@ -98,7 +98,7 @@ scan_max_noteworthy() {
 # （アプリ不在、ブリッジ到達不能、段階が character_selected 未満）は
 # 「まだ来ていない」であって、終了条件にはしない。
 launchwait() {
-  local start now health lid phase char
+  local start now health lid phase char app
   start="$(date +%s)"
   while :; do
     if [ "$LAUNCH_MAX_RUN" -gt 0 ]; then
@@ -111,7 +111,12 @@ launchwait() {
     if [ -n "$health" ]; then
       lid="$(printf '%s' "$health" | jq -r '.launch.id // empty' 2>/dev/null || true)"
       phase="$(printf '%s' "$health" | jq -r '.launch.phase // empty' 2>/dev/null || true)"
-      if [ -n "$lid" ] && [ "$phase" = "character_selected" ]; then
+      app="$(printf '%s' "$health" | jq -r 'if has("app") then (.app | tostring) else "" end' 2>/dev/null || true)"
+      # 合図の前提は「アプリが接続中」も含む。/health の launch は最後の
+      # 起動情報のコピーで、アプリが終わった後も phase は character_selected
+      # のまま残る。app が false の間は、未報告の古い起動が残っていても
+      # 合図にしない（生きた新しい起動は、接続が戻ってから検知する）。
+      if [ "$app" = "true" ] && [ -n "$lid" ] && [ "$phase" = "character_selected" ]; then
         # 報告済みの起動（古い起動 ID の残存を含む）は合図にしない
         if [ -f "$REPORTED_FILE" ] && grep -qxF "$lid" "$REPORTED_FILE" 2>/dev/null; then
           :
