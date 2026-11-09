@@ -261,3 +261,21 @@
 | `al_sonyu_2013` | 腰を掴む正常位 | 彼女は仰向け。ユーザーは膝立ちで彼女の腰を両手で掴んで持ち上げ、引き寄せながら突く。 |
 | `al_sonyu_2014` | 机の上でバック | 彼女は机の上で四つん這いになり、お尻を机の端へ向ける。ユーザーは机の端に立って突く。 |
 | `al_sonyu_2015` | 正常位２ | 彼女は仰向けで脚を曲げて上げる。ユーザーは間に膝をつき、体を寄せて突く。 |
+
+## 献精室の属性（契約 第 3.15 節）
+
+献精室で弱点になる組（部位 × 主導）と、その組のプレイです。`MuseStudio/data/kensei_attributes.json` から作った表で、カタログのプレイの `kensei` と同じです（ここに無いプレイは候補になりません）。実際の候補は、ランを始めた部屋で始められるものだけです。
+
+| 組 | 部位 | 主導 | プレイ |
+|---|---|---|---|
+| `側位/him` | 側位 | ユーザー | `sonyu_06`、`sonyu_16`、`al_sonyu_37`、`al_sonyu_2006` |
+| `口/her` | 口 | 彼女 | `houshi_05`、`houshi_07`、`houshi_08`、`houshi_21`、`houshi_22`、`houshi_24`、`houshi_39`、`houshi_40`、`houshi_42`、`houshi_50`、`houshi_51`、`al_houshi_8`、`al_houshi_19`、`al_houshi_28`、`al_houshi_71`、`al_houshi_90`、`al_houshi_1020` |
+| `口/him` | 口 | ユーザー | `al_houshi_9`、`al_houshi_20`、`al_houshi_70`、`al_houshi_72`、`al_houshi_73`、`al_houshi_1010` |
+| `後背位/him` | 後背位 | ユーザー | `sonyu_02`、`sonyu_03`、`sonyu_11`、`sonyu_12`、`sonyu_14`、`sonyu_15`、`sonyu_18`、`sonyu_19`、`sonyu_20`、`sonyu_21`、`sonyu_25`、`sonyu_26`、`sonyu_28`、`al_sonyu_33`、`al_sonyu_38`、`al_sonyu_49`、`al_sonyu_51`、`al_sonyu_56`、`al_sonyu_62`、`al_sonyu_65`、`al_sonyu_66`、`al_sonyu_83`、`al_sonyu_84`、`al_sonyu_94`、`al_sonyu_2005`、`al_sonyu_2014` |
+| `手/her` | 手 | 彼女 | `houshi_00`、`houshi_01`、`houshi_02`、`houshi_16`、`houshi_17`、`houshi_32`、`houshi_33`、`houshi_36`、`houshi_49`、`houshi_52`、`al_houshi_23`、`al_houshi_24`、`al_houshi_25`、`al_houshi_29`、`al_houshi_89`、`al_houshi_91`、`al_houshi_92` |
+| `正常位/him` | 正常位 | ユーザー | `sonyu_00`、`sonyu_01`、`sonyu_13`、`sonyu_23`、`sonyu_24`、`al_sonyu_36`、`al_sonyu_40`、`al_sonyu_47`、`al_sonyu_50`、`al_sonyu_57`、`al_sonyu_59`、`al_sonyu_60`、`al_sonyu_67`、`al_sonyu_80`、`al_sonyu_82`、`al_sonyu_93`、`al_sonyu_96`、`al_sonyu_2001`、`al_sonyu_2003`、`al_sonyu_2004`、`al_sonyu_2007`、`al_sonyu_2008`、`al_sonyu_2013`、`al_sonyu_2015` |
+| `立位/him` | 立位 | ユーザー | `sonyu_07`、`sonyu_08`、`sonyu_17`、`sonyu_22`、`al_sonyu_31`、`al_sonyu_35`、`al_sonyu_41`、`al_sonyu_61`、`al_sonyu_2010` |
+| `素股・尻/her` | 素股・尻 | 彼女 | `al_houshi_6`、`al_houshi_7`、`al_houshi_11`、`al_houshi_12`、`al_houshi_13`、`al_houshi_14`、`al_houshi_15`、`al_houshi_26`、`al_houshi_27`、`al_houshi_1026`、`al_houshi_1028` |
+| `胸/her` | 胸 | 彼女 | `houshi_11`、`houshi_12`、`houshi_13`、`houshi_27`、`houshi_28`、`houshi_43`、`houshi_44`、`houshi_48`、`al_houshi_10`、`al_houshi_30`、`al_houshi_74`、`al_houshi_1021` |
+| `足/her` | 足 | 彼女 | `al_houshi_1`、`al_houshi_2`、`al_houshi_3`、`al_houshi_16`、`al_houshi_17`、`al_houshi_18`、`al_houshi_21`、`al_houshi_22`、`al_houshi_88`、`al_houshi_1022`、`al_houshi_1025`、`al_houshi_1027`、`al_houshi_1029`、`al_houshi_1030` |
+| `騎乗位/her` | 騎乗位 | 彼女 | `sonyu_04`、`sonyu_27`、`al_sonyu_32`、`al_sonyu_43`、`al_sonyu_44`、`al_sonyu_45`、`al_sonyu_46`、`al_sonyu_48`、`al_sonyu_53`、`al_sonyu_58`、`al_sonyu_64`、`al_sonyu_79`、`al_sonyu_97`、`al_sonyu_98`、`al_sonyu_2000`、`al_sonyu_2012` |

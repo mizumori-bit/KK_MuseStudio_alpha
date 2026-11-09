@@ -1821,7 +1821,8 @@ namespace MuseStudio
             }
             if (Pace <= 0 || Climax.Running) return;
             // (not in her own play: she is alone)
-            if (MuseStudioPlugin.Instance.Mood.MoodPlay.Length == 0 && Time.realtimeSinceStartup - LastInput > idlePause) { SetPace(0, "idle"); return; }
+            var ks = MuseStudioPlugin.Instance.Kensei;
+            if (MuseStudioPlugin.Instance.Mood.MoodPlay.Length == 0 && (ks == null || !ks.Active) && Time.realtimeSinceStartup - LastInput > idlePause) { SetPace(0, "idle"); return; }     // (献精室: not in a run - a turn waits for Muse)
             if (stage.Moving) return;
             float rate = (float)Json.Num(data, "rate", 0.008) * PaceFactor(Pace) * RateOf("character");
             if (rate > 0f && !MuseStudioPlugin.Instance.Match.Active)      // (a match: no gauge - the climaxes are each Muse's declaration)

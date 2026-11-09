@@ -43,7 +43,7 @@ namespace MuseStudio
         internal ConfigEntry<int> YourClothes;
         internal ConfigEntry<bool> ShowGaugePercent;     // (#70 adopted: the gauge's % on the screen - off by default, the setting kept)
         // (#70 adopted, 5) the contract's version this app speaks (MUSE_GUIDE.md's: the bridge's tests hold them together)
-        public const string Contract = "1.40";
+        public const string Contract = "1.41";
         internal ConfigEntry<KeyboardShortcut> HitShapesKey;
         internal ConfigEntry<KeyboardShortcut> HideUiKey;
         ConfigEntry<string> resetCameraEntry, resetPlacesEntry, scanRoomsEntry;
@@ -95,6 +95,7 @@ namespace MuseStudio
         internal Look Look;
         internal Match Match;
         internal Replay Replay;
+        internal Kensei Kensei;           // (献精室, #113-#115: the content's run)
         internal static int SpaceSeen;            // (checks) Space presses Unity saw
         internal Talk Talk;
         internal Relationship Relationship;
@@ -348,6 +349,7 @@ namespace MuseStudio
             Look = new Look(this);
             Match = new Match(this);
             Replay = new Replay(this);
+            Kensei = new Kensei(this);
             Talk = new Talk(this);
             Relationship = new Relationship(this);
             string check;
@@ -474,6 +476,7 @@ namespace MuseStudio
             while (!Replay.Playing && (pkg = Bridge.NextPackage()) != null)     // (a replay: Muse's wait)
             {
                 if (Standby.Of(pkg)) Standby.Take(pkg);          // (a reaction made ready: held apart from the queue - #102)
+                else if (Kensei.AnswersOnly(pkg)) Kensei.TakeAnswersPackage(pkg);      // (献精室: the user's answers written down, nothing shown)
                 else Blocks.Enqueue(pkg);
             }
             Chars.Tick();
@@ -497,6 +500,7 @@ namespace MuseStudio
             Outing.Tick();
             Presence.Tick();
             Standby.Tick();
+            Kensei.Tick();
             Look.Tick();
             Match.Tick();
             if (Notices != null) Notices.Tick();
@@ -854,7 +858,8 @@ namespace MuseStudio
                 { "presence", Presence.Info() }, { "belief", Presence.BeliefInfo() }, { "urges", Urges.Info() }, { "outing", Outing.Info() },
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },
                 { "clothes", Clothes.Info(Stage.Cha) }, { "replay", Replay != null ? Replay.Info() : null }, { "settings", SettingsInfo() },
-                { "items", Items != null ? Items.State() : null }, { "standby", Standby != null ? Standby.Info() : null } };
+                { "items", Items != null ? Items.State() : null }, { "standby", Standby != null ? Standby.Info() : null },
+                { "kensei", Kensei != null ? Kensei.Info() : null } };
         }
 
         internal string CharacterId()
@@ -876,6 +881,8 @@ namespace MuseStudio
                 if (p.ContainsKey("name_en")) pe["name_en"] = p["name_en"];
                 foreach (var k in new[] { "lead", "mutual" }) if (p.ContainsKey(k)) pe[k] = p[k];
                 pe["category"] = Play.Category(p);
+                var kc = Kensei != null ? Kensei.ComboOf(p) : null;          // (献精室: its attributes, public - MUSE_GUIDE 3.15)
+                pe["kensei"] = kc.HasValue ? (object)new Dictionary<string, object> { { "part", kc.Value.Part }, { "who", kc.Value.Who } } : null;
                 plays.Add(pe);
                 var av = Play.Availability(p);
                 if ((bool)av["ok"] || (bool)av["reversed_ok"])

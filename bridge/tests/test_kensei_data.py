@@ -105,6 +105,18 @@ class Attributes(unittest.TestCase):
         self.assertIn(("正常位", "him"), both)
 
 
+class Mirrors(unittest.TestCase):
+    def test_the_play_summaries_show_the_attributes(self):
+        text = (ROOT / "MUSE_GUIDE_plays.md").read_text(encoding="utf-8")
+        at = text.find("## 献精室の属性")
+        self.assertGreaterEqual(at, 0, "MUSE_GUIDE_plays.md has no section of the attributes")
+        rest = text[at:]
+        nxt = rest.find("\n## ", 3)
+        section = rest if nxt < 0 else rest[:nxt + 1]
+        self.assertEqual(section, ks.summary_section(), "the section drifted from kensei_attributes.json: "
+                         "write ks.summary_section() into it again")
+
+
 class ScriptedRun(unittest.TestCase):
     def test_the_reference(self):
         rules, run, recs = sim_run()
