@@ -9,7 +9,7 @@ namespace MuseStudio
     // small panel at the top right (bridge status, location and play menus, the play's pace). Click the box / Enter / Space:
     // next block. At the start, the character chooser (the cards with their faces and registered personas; it waits until
     // one is chosen); the registered personas' editor (numbered slots) from there or the character menu.
-    public class Ui
+    public partial class Ui
     {
         readonly MuseStudioPlugin host;
         GUIStyle text, sound, nameTag, box, small, button, waitLine, marker, title, field, warn, warnButton, accentButton, wrapSmall, hintBox, openButton;
@@ -199,6 +199,7 @@ namespace MuseStudio
             MismatchShown = "";
             if (host.Match.Active && host.MatchBroadcast.Value) DrawBroadcast(s);
             DrawDialogue(s);
+            DrawKenseiHud(s);                 // (献精室: his gauge - his own screen only; shown with the UI hidden too)
             if (!UiHidden)
             {
                 DrawPanel(s);
@@ -815,6 +816,7 @@ namespace MuseStudio
                 y += lh;
             }
             if (host.Match.Active) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（対戦中）", small);
+            else if (host.Kensei.Active) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（献精中）", small);
             else if (GUI.Button(new Rect(x, y, w, lh), menu == "chara" ? "閉じる" : "キャラ：" + host.Stage.Name, menu == "chara" ? openButton : button)) menu = menu == "chara" ? "" : "chara";
             y += lh + 4f * s;
             bool auto = GUI.Toggle(new Rect(x, y, w / 2f - 4f, lh), host.Blocks.Auto, host.Blocks.Auto ? "自動送り：入" : "自動送り：切", button);
@@ -913,6 +915,7 @@ namespace MuseStudio
             Buttons["場所"] = new Rect(x, y, w3, lh);
             Buttons["プレイ"] = new Rect(x + w3 + 4f, y, w3, lh);
             Buttons["服"] = new Rect(x + 2f * (w3 + 4f), y, w3, lh);
+            GUI.enabled = !host.Kensei.Active;        // (献精室: the room and the plays are the run's)
             if (GUI.Button(new Rect(x, y, w3, lh), menu == "location" ? "閉じる" : "場所", menu == "location" ? openButton : button)) menu = menu == "location" ? "" : "location";
             if (GUI.Button(new Rect(x + w3 + 4f, y, w3, lh), menu == "play" ? "閉じる" : "プレイ", menu == "play" ? openButton : button)) menu = menu == "play" ? "" : "play";
             GUI.enabled = !host.Outing.Out;
@@ -1012,9 +1015,9 @@ namespace MuseStudio
                 // the match first, more later): コンテンツ opens their list, the match's own menu from it (the way into a match:
                 // the trial run of 2026-11-04 - the user asks Muse, the invitation goes between the two Muses' chats). 閉じる and
                 // 戻る only close or go back in the menu: a match goes on (its own way out stays in its menu, as a play's)
-                bool contentOpen = menu == "content" || menu == "match";
+                bool contentOpen = menu == "content" || menu == "match" || menu == "kensei" || menu == "kensei_records";
                 Buttons["コンテンツ"] = new Rect(x, y, w, lh);
-                if (GUI.Button(new Rect(x, y, w, lh), contentOpen ? "閉じる" : "コンテンツ…" + (host.Match.Active ? "（対戦中）" : ""), contentOpen ? openButton : accentButton))
+                if (GUI.Button(new Rect(x, y, w, lh), contentOpen ? "閉じる" : "コンテンツ…" + (host.Match.Active ? "（対戦中）" : host.Kensei.Active ? "（献精中）" : ""), contentOpen ? openButton : accentButton))
                     menu = contentOpen ? "" : "content";
                 y += lh + 6f * s;
             }
@@ -1031,6 +1034,8 @@ namespace MuseStudio
             else if (menu == "replay") DrawReplays(x, y, w, s);
             else if (menu == "content") DrawContentMenu(x, y, w, s);
             else if (menu == "match") DrawMatchMenu(x, y, w, s);
+            else if (menu == "kensei") DrawKenseiMenu(x, y, w, s);
+            else if (menu == "kensei_records") DrawKenseiRecords(MenuRect = new Rect(x, y, w, Mathf.Min(Screen.height * 0.7f, left)), s);
             else if (menu == "items") DrawItems(MenuRect = new Rect(x, y, w, Mathf.Min(Screen.height * 0.6f, left)), s);
         }
 
@@ -1044,11 +1049,15 @@ namespace MuseStudio
         void DrawContentMenu(float x, float y, float w, float s)
         {
             float lh = 26f * s, top = y;
-            GUI.Box(new Rect(x - 8f * s, y - 2f * s, w + 16f * s, lh * 2f + 14f * s), GUIContent.none, box);
+            GUI.Box(new Rect(x - 8f * s, y - 2f * s, w + 16f * s, lh * 3f + 18f * s), GUIContent.none, box);
             GUI.Label(new Rect(x + 6f, y, w - 12f, lh), "コンテンツ", small);
             y += lh;
             Buttons["通信対戦"] = new Rect(x, y, w, lh);
             if (GUI.Button(new Rect(x, y, w, lh), "通信対戦（Muse 同士）…" + (host.Match.Active ? "（対戦中）" : ""), accentButton)) menu = "match";
+            y += lh + 4f * s;
+            // (献精室, #113-#115: the second content)
+            Buttons["献精"] = new Rect(x, y, w, lh);
+            if (GUI.Button(new Rect(x, y, w, lh), "献精…" + (host.Kensei.Active ? "（献精中）" : host.Kensei.Pending != null ? "（続きがあります）" : ""), accentButton)) menu = "kensei";
             y += lh + 6f * s;
             drawing.Add(new Rect(x, top, w, y - top));
         }

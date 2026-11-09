@@ -13,7 +13,7 @@ namespace MuseStudio
     // --muse-check=PATH: checks on the running stage against the test bridge the runner started (tools/run_checks.py:
     // a temporary bridge on a spare port, never the one Muse watches). Packages go in through the bridge like Muse's.
     // Writes CHECK PASS / CHECK FAIL / NOTE lines and CHECK SUMMARY to PATH (screenshots next to it), then quits.
-    public class SelfCheck
+    public partial class SelfCheck
     {
         readonly MuseStudioPlugin h;
         readonly string path;
@@ -5117,6 +5117,9 @@ namespace MuseStudio
             h.Match.Leave("check");
             yield return Until(() => !h.Match.Active && !st.Moving, 20f);
             yield return Wait(0.8f);
+
+            // ---- 献精室 (#113-#115; MUSE_GUIDE 3.15) ----
+            yield return KenseiChecks();
 
             // her breasts both sway (the original's dynamic bones on) wherever she stands between the plays (the user's note of
             // 2026-11-05: in her room her right breast did not sway)

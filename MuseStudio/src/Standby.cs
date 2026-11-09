@@ -56,6 +56,7 @@ namespace MuseStudio
             else if (requests.Contains(request)) why = "duplicate_request";
             else if (Json.Str(pkg, "launch", null) == null || Json.Str(pkg, "character", null) == null) why = "untargeted";
             else if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) why = "in_match";
+            else if (h.Kensei != null && h.Kensei.Active) why = "in_kensei";          // (献精室: her climax is off - #115 §8)
             else if (!Json.Has(sb, "play_serial")) why = "no_basis";
             else if ((int)Json.Num(sb, "play_serial") != h.Play.Serial) { why = "stale_basis"; detail = h.Play.Serial.ToString(); }
             else if (!Json.Has(sb, "count") || (int)Json.Num(sb, "count") <= h.Gauge.Climaxes) { why = "stale_count"; detail = h.Gauge.Climaxes.ToString(); }
@@ -133,6 +134,9 @@ namespace MuseStudio
             if (h.Match.Active || h.Match.Loading || h.Match.Replaying || h.Replay.Playing) return "in_match";
             return "";
         }
+
+        // the one held let go unshown (献精室's start: her climax is off - #115 §8)
+        public void DropHeld(string reason) { if (held != null) Drop(reason); }
 
         public void Tick()
         {

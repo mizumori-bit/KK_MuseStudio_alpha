@@ -222,6 +222,7 @@ namespace MuseStudio
         public string Combo = "", Play = "", Request = "", Result = "";
         public Dictionary<string, object> Told;        // (Kensei) what Muse was told of it
         public Dictionary<string, object> Answer;      // (Kensei) the user's answer as Muse wrote it down (null: not yet)
+        public Dictionary<string, object> Package;     // (Kensei) the package that carried the move, as Muse sent it
         public string FinishPlace = "";                // (Kensei) where he came (outside; another when the play has none)
 
         public Dictionary<string, object> Truth()

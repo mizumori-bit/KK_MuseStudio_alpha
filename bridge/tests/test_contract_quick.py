@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 GUIDE = ROOT / "MUSE_GUIDE.md"
 QUICK = ROOT / "MUSE_GUIDE_quick"
-SCENES = ("talk", "play", "outing", "match")
+SCENES = ("talk", "play", "outing", "match", "kensei")
 
 
 def guide_version(text: str) -> str:

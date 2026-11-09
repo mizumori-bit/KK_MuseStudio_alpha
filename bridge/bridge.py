@@ -131,10 +131,10 @@ RATE_LIMITS = {"muse": [20, 100], "app": [100, 400], "all": [120, 500], "anon": 
 APP_SEEN_SECONDS = 5.0         # the app polls /api/packages/next every second: "connected" if it did within this
 STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "emotion", "face", "camera", "package", "gauge", "play", "mood",
                 "beat", "presence", "belief", "urges", "outing", "her_location", "relationship", "clothes", "app_name", "match",
-                "settings", "play_serial", "items", "contract", "standby")      # (the contract's 7.4: test_state_fields.py holds them to it)
+                "settings", "play_serial", "items", "contract", "standby", "kensei")      # (the contract's 7.4: test_state_fields.py holds them to it)
 # (#70 adopted, 5) the contract's version this bridge speaks (MUSE_GUIDE.md's: test_contract_quick.py holds them together);
 # the app's own is in its state (contract)
-CONTRACT = "1.40"
+CONTRACT = "1.41"
 SPEAKERS = ("self", "opponent")        # package.speaker (the match: the opponent's package, forwarded by the local Muse)
 MATCH_PHASES = ("intro", "negotiation", "sex", "end")
 MATCH_SIDES = ("host", "guest")
@@ -372,8 +372,32 @@ def validate_package(pkg) -> list[str]:
             ex = sb.get("expires_seconds")
             if ex is not None and (isinstance(ex, bool) or not isinstance(ex, (int, float))):
                 errors.append("standby.expires_seconds must be a number or null")
+    ka = pkg.get("kensei_answers")
+    if ka is not None:
+        # (献精室, MUSE_GUIDE 3.15: the user's answers Muse wrote down - the app keeps the first of each turn)
+        if not isinstance(ka, list) or not ka or len(ka) > 200:
+            errors.append("kensei_answers must be a non-empty array of at most 200")
+            ka = []
+        for i, a in enumerate(ka):
+            n = f"kensei_answers[{i}]"
+            if not isinstance(a, dict):
+                errors.append(f"{n} must be an object")
+                continue
+            if not isinstance(a.get("run"), str) or not a["run"] or len(a["run"]) > 100:
+                errors.append(f"{n}.run must be a string of 1-100 characters")
+            tn = a.get("turn")
+            if isinstance(tn, bool) or not isinstance(tn, int) or tn < 1:
+                errors.append(f"{n}.turn must be an integer of 1 or more")
+            for k, most in (("tap", 50), ("text", 2000)):
+                v = a.get(k)
+                if v is not None and (not isinstance(v, str) or len(v) > most):
+                    errors.append(f"{n}.{k} must be a string of at most {most} characters or null")
+            if a.get("tap") is None and a.get("text") is None:
+                errors.append(f"{n} needs a tap or a text")
     blocks = pkg.get("blocks")
-    if not isinstance(blocks, list) or not blocks:
+    if isinstance(ka, list) and ka and (blocks is None or blocks == []):
+        blocks = []                     # (the answers alone: nothing shown - the app writes them down)
+    elif not isinstance(blocks, list) or not blocks:
         errors.append("blocks must be a non-empty array")
         blocks = []
     for i, b in enumerate(blocks):
@@ -414,6 +438,21 @@ def validate_package(pkg) -> list[str]:
             errors.append(f"{n}.se must be a string or null")
         if "location" in b and b["location"] is not None and not isinstance(b["location"], str):
             errors.append(f"{n}.location must be a string or null")
+        mv = _opt_dict(b.get("move"), n + ".move", errors)
+        if mv is not None:
+            # (献精室, MUSE_GUIDE 3.15: one turn's move - the app judges the run, the turn and the play)
+            for k, most in (("run", 100), ("request", 200), ("play", 200)):
+                v = mv.get(k)
+                if not isinstance(v, str) or not v or len(v) > most:
+                    errors.append(f"{n}.move.{k} must be a string of 1-{most} characters")
+            tn = mv.get("turn")
+            if isinstance(tn, bool) or not isinstance(tn, int) or tn < 1:
+                errors.append(f"{n}.move.turn must be an integer of 1 or more")
+            pc = mv.get("pace")
+            if pc is not None and (isinstance(pc, bool) or not isinstance(pc, int) or not 1 <= pc <= 3):
+                errors.append(f"{n}.move.pace must be an integer 1-3 or null")
+        if "came" in b and b["came"] is not None and not isinstance(b["came"], bool):
+            errors.append(f"{n}.came must be true / false or null")
         pl = _opt_dict(b.get("play"), n + ".play", errors)
         if pl is not None:
             pc = pl.get("pace")

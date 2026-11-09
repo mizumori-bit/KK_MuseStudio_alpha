@@ -91,6 +91,19 @@ def candidates(group_range=("houshi", "sonyu")) -> dict:
     return out
 
 
+def summary_section() -> str:
+    """MUSE_GUIDE_plays.md's section of the attributes (bridge/tests/test_kensei_data.py holds the file to it)"""
+    cands = candidates(("houshi", "sonyu"))
+    who = {"her": "彼女", "him": "ユーザー"}
+    lines = ["## 献精室の属性（契約 第 3.15 節）", "",
+             "献精室で弱点になる組（部位 × 主導）と、その組のプレイです。`MuseStudio/data/kensei_attributes.json` から作った表で、"
+             "カタログのプレイの `kensei` と同じです（ここに無いプレイは候補になりません）。実際の候補は、ランを始めた部屋で始められるものだけです。",
+             "", "| 組 | 部位 | 主導 | プレイ |", "|---|---|---|---|"]
+    for (part, w), ids in sorted(cands.items()):
+        lines.append(f"| `{part}/{w}` | {part} | {who[w]} | " + "、".join(f"`{i}`" for i in ids) + " |")
+    return "\n".join(lines) + "\n"
+
+
 # ---- the draws ----
 
 class Rng:

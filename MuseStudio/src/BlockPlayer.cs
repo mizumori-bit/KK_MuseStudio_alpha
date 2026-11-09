@@ -306,9 +306,9 @@ namespace MuseStudio
         // block_refused, reason unknown_field - not dropped unsaid; the known ones are done as ever (a package of a newer
         // contract too). The bridge's own (_...) are not Muse's; a replay's and the opponent's packages are not Muse's to hear of
         static readonly HashSet<string> PackageFields = new HashSet<string> { "session", "turn", "situation", "blocks", "choices", "beat", "id",
-            "launch", "character", "settings", "relationship", "monologue", "match", "speaker", "clothes_now", "contract", "standby" };
+            "launch", "character", "settings", "relationship", "monologue", "match", "speaker", "clothes_now", "contract", "standby", "kensei_answers" };
         static readonly HashSet<string> BlockFields = new HashSet<string> { "type", "text", "emotion", "scene", "camera", "voice", "se", "location",
-            "play", "mood", "action", "anim", "belief", "coordinate", "item", "clothes", "pose", "declare", "match_phase" };
+            "play", "mood", "action", "anim", "belief", "coordinate", "item", "clothes", "pose", "declare", "match_phase", "move", "came" };
         public int UnknownFieldsForCheck;
 
         void TellUnknown(Dictionary<string, object> d, HashSet<string> known, string where, int block)
@@ -352,6 +352,7 @@ namespace MuseStudio
             if (Speaker == "opponent") h.Match.OpponentClothes(Json.Obj(pkg, "clothes_now"), true);     // (its look as it sent this)
             Pkg = pkg;
             TellUnknown(pkg, PackageFields, "package", -1);
+            if (Json.Arr(pkg, "kensei_answers") != null && Speaker != "opponent" && !h.Match.Replaying) h.Kensei.TakeAnswers(pkg);     // (献精室: the user's answers Muse wrote down)
             Blocks = Json.Arr(pkg, "blocks") ?? new List<object>();
             Index = -1;
             ownSerial = 0;
@@ -374,6 +375,9 @@ namespace MuseStudio
         {
             if (b == null) yield break;
             TellUnknown(b, BlockFields, "block", Index);
+            // (献精室, MUSE_GUIDE 3.15) a came block shows only after a move of its own package that made him come - else it is
+            // passed by, as it was not there
+            if (IsTrue(b, "came") && !h.Kensei.CameIn(Pkg)) { Advance(true); yield break; }
             string loc = Json.Str(b, "location", null);
             if (!string.IsNullOrEmpty(loc) && h.Places != null) loc = h.Places.KeyOf(loc) ?? loc;      // (named by its id: its key - PR #46 §4.1)
             bool opp = Speaker == "opponent";
@@ -385,6 +389,7 @@ namespace MuseStudio
                 && loc != h.Stage.Location && h.Play.Active && !h.Presence.Apart;
             if (startWithMove) { Refuse("location", loc, "with_start"); loc = null; }
             if (!string.IsNullOrEmpty(loc) && (h.Match.Active || opp)) { Refuse("location", loc, "in_match"); loc = null; }       // (the match's room stays)
+            if (!string.IsNullOrEmpty(loc) && h.Kensei.Active) { Refuse("location", loc, "in_kensei"); loc = null; }            // (献精室: the room is the run's)
             if (!string.IsNullOrEmpty(loc) && loc != h.Stage.Location && !h.Stage.Reachable(loc))
             {
                 // no such room (MUSE_GUIDE.md 3.4: every registered room is a place - the catalog's rooms; PR #46 §4.1): refused,
@@ -465,6 +470,7 @@ namespace MuseStudio
             {
                 var ownFace = Json.Obj(b, "emotion");
                 if (anim != "climax") Refuse("anim", anim, "unknown_value", new List<object> { "climax" });
+                else if (h.Kensei.Active) Refuse("anim", anim, "in_kensei");       // (献精室: her climax is off)
                 else if (h.Match.Active) Refuse("anim", anim, "in_match");         // (there: declare)
                 else if (play.Active) Refuse("anim", anim, "in_play");             // (there: her gauge, play.finish, play.climax)
                 else if (h.Outing.Out) Refuse("anim", anim, "she_is_out");
@@ -503,7 +509,8 @@ namespace MuseStudio
             Pose(Json.Str(b, "pose", null), stage.Cha);        // (a match's talk: her motion)
             var act = Json.Obj(b, "action");
             string actKind = Json.Str(b, "action") ?? Json.Str(act, "kind");
-            if (actKind != null) Own(() => h.Urges.Act(actKind, act));          // (in a match: refused, in_match)
+            if (actKind != null && h.Kensei.Active) Refuse("action", actKind, "in_kensei");       // (献精室: no outing in a run)
+            else if (actKind != null) Own(() => h.Urges.Act(actKind, act));          // (in a match: refused, in_match)
             var emo = Json.Obj(b, "emotion");
             if (emo != null && Json.Has(emo, "label"))
             {
@@ -522,6 +529,20 @@ namespace MuseStudio
             string cam = Json.Str(b, "camera", null);
             if (!string.IsNullOrEmpty(cam) && !play.Active) stage.ApplyCamera(cam, false);      // (an unknown camera: it stays)
             var pl = Json.Obj(b, "play");
+            // (献精室) in a run the plays are the moves': a start, an end, a finish, an insertion, a pull, the condom refused
+            // (in_kensei); the pace and the speed still go
+            if (pl != null && h.Kensei.Active)
+            {
+                var keep = new Dictionary<string, object>(pl);
+                foreach (var k in new[] { "start", "end", "finish", "pull", "insert", "condom", "climax" })
+                {
+                    object v;
+                    if (keep.TryGetValue(k, out v) && v != null && !(v is bool && !(bool)v)) Refuse("play." + k, FieldValue(v), "in_kensei");
+                    keep.Remove(k);
+                }
+                foreach (var k in new[] { "request", "basis", "location", "spot", "reverse", "anal" }) keep.Remove(k);
+                pl = keep;
+            }
             // Muse's start or change of a normal play (outside a match): refused, none of this block's play fields take effect
             // Muse's end of a normal play (outside a match; PR #12 adopted): checked as the start is; refused, none of the block's
             // play fields take effect (the play goes on)
@@ -555,6 +576,14 @@ namespace MuseStudio
                     pl.TryGetValue(f.Key.Substring(5), out v);
                     Refuse(f.Key, FieldValue(v), f.Value, f.Key == "play.finish" ? new List<object>(play.Climax.Places().ToArray()) : null);
                 }
+            }
+            // (献精室, MUSE_GUIDE 3.15) a move: taken now - its operations done, before the block is told shown (the record first)
+            var mv = Json.Obj(b, "move");
+            if (mv != null && !h.Match.Replaying && !h.Replay.Playing)
+            {
+                Moving = true;
+                yield return h.Kensei.Move(mv, Pkg);
+                Moving = false;
             }
             Present(b);
         }

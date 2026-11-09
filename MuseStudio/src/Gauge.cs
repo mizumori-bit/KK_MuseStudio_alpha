@@ -22,6 +22,7 @@ namespace MuseStudio
         public Func<bool> SceneGate;        // may the playing scene raise the gauge now
         public Func<string> SceneKey;
         public Func<int> SceneIntensity;
+        public string Held = "";            // (献精室, #115 §8: "kensei") not raised, no climax, not falling - her climax is off meanwhile
 
         public Gauge()
         {
@@ -67,7 +68,7 @@ namespace MuseStudio
 
         public void Add(float amount, Dictionary<string, object> cause)
         {
-            if (amount <= 0f || Phase == "afterglow") return;
+            if (amount <= 0f || Phase == "afterglow" || Held.Length > 0) return;
             idle = 0f;
             Value = Mathf.Min(1f, Value + amount * RateFactor());
             var marks = Json.Obj(doc, "milestones");
@@ -100,6 +101,7 @@ namespace MuseStudio
 
         public void Tick(float dt)
         {
+            if (Held.Length > 0) return;
             if (Phase == "afterglow")
             {
                 afterglowLeft -= dt;
@@ -130,6 +132,7 @@ namespace MuseStudio
         // a second without a gain (the play counts its own gains: PlayCtl calls Add, and Idle when its pace is 0)
         public void Idle(float dt)
         {
+            if (Held.Length > 0) return;
             idle += dt;
             if (idle > Json.Num(doc, "decay_after", 8.0) && Value > 0f)
             {
@@ -152,7 +155,7 @@ namespace MuseStudio
         public Dictionary<string, object> Info()
         {
             return new Dictionary<string, object> { { "value", Math.Round(Value, 3) }, { "phase", Phase }, { "climaxes", Climaxes },
-                { "afterglow_left", Phase == "afterglow" ? Math.Round(Mathf.Max(afterglowLeft, 0f), 1) : 0.0 } };
+                { "afterglow_left", Phase == "afterglow" ? Math.Round(Mathf.Max(afterglowLeft, 0f), 1) : 0.0 }, { "held", Held.Length > 0 ? (object)Held : null } };
         }
     }
 }
