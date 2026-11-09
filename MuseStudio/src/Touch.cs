@@ -419,7 +419,7 @@ namespace MuseStudio
             var gr = Json.Obj(h.Stage.Cfg, "grope");
             var areas = Json.Arr(gr, "areas");
             string play = Json.Str(gr, "play", "aibu_00");
-            if (areas == null || !areas.Contains(area) || h.Outing.Out || h.Chars.Creating || h.Stage.Moving || (h.Kensei != null && h.Kensei.Active)) return false;     // (献精室: the plays are the moves')
+            if (areas == null || !areas.Contains(area) || h.Outing.Out || h.Chars.Creating || h.Stage.Moving || (h.Kensei != null && h.Kensei.Busy)) return false;     // (献精室: the plays are the moves')
             var row = h.Play.Row(play);
             if (row == null || !(bool)h.Play.Availability(row)["ok"]) return false;
             if (h.Play.Begin(play, "touch", "here").Length > 0) return false;

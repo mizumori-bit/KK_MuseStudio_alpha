@@ -177,7 +177,7 @@ namespace MuseStudio
 
         public void Update(float dt)
         {
-            if (!h.Stage.Ready || h.Chars.Creating)                 // the creation is open: Muse's packages wait
+            if (!h.Stage.Ready || h.Chars.Creating || (h.Kensei != null && h.Kensei.Scanning))     // the creation is open (or 献精室 tries the plays' finishes): Muse's packages wait
             {
                 if (Mouth.Instance != null && Mouth.Instance.Active) Mouth.Instance.Stop();
                 return;

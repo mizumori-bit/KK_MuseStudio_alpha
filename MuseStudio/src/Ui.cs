@@ -816,7 +816,7 @@ namespace MuseStudio
                 y += lh;
             }
             if (host.Match.Active) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（対戦中）", small);
-            else if (host.Kensei.Active) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（献精中）", small);
+            else if (host.Kensei.Busy) GUI.Label(new Rect(x, y, w, lh), "キャラ：" + host.Stage.Name + "（献精中）", small);
             else if (GUI.Button(new Rect(x, y, w, lh), menu == "chara" ? "閉じる" : "キャラ：" + host.Stage.Name, menu == "chara" ? openButton : button)) menu = menu == "chara" ? "" : "chara";
             y += lh + 4f * s;
             bool auto = GUI.Toggle(new Rect(x, y, w / 2f - 4f, lh), host.Blocks.Auto, host.Blocks.Auto ? "自動送り：入" : "自動送り：切", button);
@@ -915,7 +915,7 @@ namespace MuseStudio
             Buttons["場所"] = new Rect(x, y, w3, lh);
             Buttons["プレイ"] = new Rect(x + w3 + 4f, y, w3, lh);
             Buttons["服"] = new Rect(x + 2f * (w3 + 4f), y, w3, lh);
-            GUI.enabled = !host.Kensei.Active;        // (献精室: the room and the plays are the run's)
+            GUI.enabled = !host.Kensei.Busy;          // (献精室: the room and the plays are the run's - or being tried)
             if (GUI.Button(new Rect(x, y, w3, lh), menu == "location" ? "閉じる" : "場所", menu == "location" ? openButton : button)) menu = menu == "location" ? "" : "location";
             if (GUI.Button(new Rect(x + w3 + 4f, y, w3, lh), menu == "play" ? "閉じる" : "プレイ", menu == "play" ? openButton : button)) menu = menu == "play" ? "" : "play";
             GUI.enabled = !host.Outing.Out;

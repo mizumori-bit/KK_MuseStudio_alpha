@@ -670,24 +670,31 @@
     - 部位：奉仕は 手・口・胸・足・素股・尻、挿入は 騎乗位・後背位・側位・立位・正常位。
     - 主導：`her`（彼女が動かす）／`him`（ユーザーが動かす）。
   - プレイの組は、カタログのプレイの `kensei`（`{part, who}`。候補にならないプレイは null。第 7.5 節）と、状態の `kensei.candidates` にあります。
-  - 候補は、ランを始めた部屋で始められるプレイの組だけです。弱点は候補の中から引かれます。部屋はランの間変わりません。
+  - 候補は、ランを始めた部屋で始められて、**射精（外）の流れがあると確かめたプレイ**の組だけです。
+    - 外の流れがあるかは、プレイを始めてみるまで分かりません。アプリがその部屋のプレイを一度ずつ試して、その PC に覚えます。ユーザーが設定の画面で「確かめる」を押します。
+    - 確かめている間は、あなたのパッケージは待ち、プレイの出来事も届きません。
+  - 弱点は候補の中から引かれます。部屋はランの間変わりません。
   - **両軸は対等です**：その手の組が、弱点の組のどれかと両方そろえば大弱点、片方だけなら近傍、どちらも外れなら非弱点です（弱点が複数なら、弱点ごとに見ます）。
 - **始まり**：イベント `kensei_started`（中身は状態の `kensei` と同じ。第 7.4 節）。ここから状態の `kensei` で、ランの番号（`run`）、次に送る手の番号（`turn`）、制限（`turns_max`・`turns_left`）、設定、係数、候補が分かります。
 - **1 手**：ブロックに `move` `{"run", "turn", "request", "play", "pace"?}` を付けます（第 5.2 節）。
   - `turn` は状態の `kensei.turn`（送る前に見た番号）、`request` はランの間に一度だけ使える名前、`play` は候補のプレイ、`pace` は 1〜3（省略は 2）。
   - パッケージに `launch`・`character` を付けてください。1 つのパッケージに `move` は 1 つです。
   - **確定は、そのブロックの操作が済んで出し始めた時**です（配送の `started` の `block` と同じ時点）。そこでアプリが、次のことを順に行います。
-    1. プレイを始めます。同じプレイなら続けます。挿入は入れます（ゴムが未定なら無し）。
-    2. ゲージを 1 拍だけ進めます。
-    3. 満ちていれば射精します。場所はいつも外で、外の流れが無いプレイでは、そのプレイの最初の場所です。いつもの `play_finish` と `climax`（`who: "player"`）も出ます（量は載りません）。
-    4. 記録を書いて、`kensei_turn` を出します。
-  - 送信の回数・秒数・プレイの開始では数えません。断った手（下）では、ターンは減りません。
+    1. 前の射精の流れが終わるのを待ってから、プレイを始めます。同じプレイなら続けます。挿入は入れます（ゴムが未定なら無し）。
+    2. そのプレイに外の流れがあることを確かめます。無ければ、その手は断ります（`no_outside`）。そのプレイは、それから候補に入りません。
+    3. ゲージを 1 拍だけ進めます。
+    4. **記録を書きます**。書けなければ、その手は無かったものとして断ります（`save_failed`。ゲージも番号も元のままで、同じ `request` で送り直せます）。
+    5. 満ちていれば射精します。場所はいつも外です。いつもの `play_finish` と `climax`（`who: "player"`）も出ます（量は載りません）。
+    6. `kensei_turn` を出します。
+  - 手は、受け付けたランと番号に結び付いています。待っている間に、そのランが終わったり、新しいランが始まったりしたら、その手は断ります（`run_changed`）。
+  - 送信の回数・秒数・プレイの開始では数えません。断った手（下）では、ターンは減りません。確定の前に断った手の `request` は、また使えます。
   - 断り：`block_refused`（`field: "move"`、`value` に `request`）で、`reason` は次のどれかです。
     - `no_run`（ランが無い）、`run_over`（そのランは終わった）、`other_run`（`detail` に今のラン）。
     - `untargeted`（`launch`・`character` が無い）、`old_launch`、`other_character`。
     - `no_turn`、`stale_turn`（`detail` に今の番号）。
     - `no_request`、`duplicate_request`、`second_move`（同じパッケージの 2 つ目）。
     - `not_candidate`（候補のプレイでない）、`bad_pace`、`not_started`（プレイを始められなかった。`detail` に理由）。
+    - `no_outside`（そのプレイに外の流れが無かった）、`run_changed`（待っている間にランが替わった）、`save_failed`（記録を書けなかった）。
 - **1 つのパッケージの順**：手の前の台詞 → `move` のブロック → `came: true` のブロック → 反応伺い。
   - `came: true` のブロック（第 5.2 節）は、**その手で射精したときだけ**出ます。しなければ、無かったものとして飛ばします。
   - 選択肢（`choices`）は今までどおり画面に出ません。答えの段階（例：あまり／ふつう／かなり／弱点級）はチャットに示し、ユーザーはチャットで答えます。
@@ -701,9 +708,10 @@
   - `tap` は段階の答え（50 文字まで）、`text` は自由文（2000 文字まで）。どちらかが要ります。
   - ふつうは次の手のパッケージに付けます。**この欄だけのパッケージ**（`blocks` 無し）も送れます。何も出さずに記録します。
   - 終わった後も、そのランの分は、次のランが始まるまで受け付けます。
-  - `(run, turn)` ごとに**最初の書き留めだけ**が残ります。同じ中身を送り直しても何も起きません。違う中身は `block_refused`（`field: "kensei_answers"`、`value` に `turn`、`reason: "already_recorded"`）です。ほかの断りは `other_run`・`no_such_turn` です。
+  - `(run, turn)` ごとに**最初の書き留めだけ**が残ります。同じ中身を送り直しても何も起きません。違う中身は `block_refused`（`field: "kensei_answers"`、`value` に `turn`、`reason: "already_recorded"`）です。ほかの断りは `other_run`・`no_such_turn`・`save_failed`（記録を書けなかった。書き留めていないので、送り直せます）です。
   - 書き留めは、ゲージ・量・結果・スコアを変えません。書き留めの無い手は、記録に「未転記」と残ります。
-- **終わり**：`kensei_ended`（結果が決まったときに 1 回だけ。第 7.3 節）。
+- **終わり**：`kensei_ended`（結果が決まり、その記録が書けたときに 1 回だけ。第 7.3 節）。
+  - 記録を書けるまでは、状態の `kensei.phase` が `"ending"` で、`kensei_ended` はまだ出ません（アプリが書き直し続けます）。
   - `result` は次のどれかです。
     - `"success"`：必要量に届いた。
     - `"failure"`：制限の手で届かなかった。
@@ -718,8 +726,8 @@
   - 始まるときに預かっていた前もって用意した反応は捨てます（`package_dropped`、`reason: "kensei_started"`）。
   - ユーザーの画面の「場所」「プレイ」「キャラ」も、ランの間は止まります。
 - **アプリの再起動**：前の起動で終わっていないランは、ユーザーが続けるか終えるかを選びます。
-  - 続けると `kensei_started`（`resumed: true`）で、同じ番号から続きます。
-  - 終えると `kensei_ended`（`interrupted`）です。
+  - 続けられるのは、そのランを始めたのと同じキャラで、同じ部屋にいるときだけです。続けると `kensei_started`（`resumed: true`）で、同じ番号から続きます。記録は、それまでの手（台詞・答え・知らせたもの）を残したまま書き足します。
+  - 終えると `kensei_ended`（`interrupted`）です。ただし、別のキャラのランを終えたときは、あなたには知らせません（あなたの知らないランのため）。
 - **数値**：アプリのファイル（`data/kensei_rules.json`）にあります。状態の `kensei.rules_version` が、その版です。試作なので変わります。数値を前提にせず、ユーザーの答えから推してください。今の値は次のとおりです。
   - 1 手の伸び：大弱点 45、近傍 20、非弱点 8（ゲージは 100 で満ちます）。
   - 1 回の量：大弱点 120、近傍 60、非弱点 30 に、ゲージが 100 を超えた分を足します。
@@ -1251,7 +1259,7 @@ Authorization: Bearer <あなたのいつもの値（代理文字列）>
 | `items` | 品（版 1.33。第 3.13 節）：`shelf`（棚の品と数）、`hers`（彼女の持ち物）、`offers`（彼女の返事を待つ申し出 `[{"offer", "item", "from"}]`）、`suggestions`（ユーザーの勧め `[{"suggestion", "item", "from"}]`。10 分まで）、`giving`（彼女の申し出でユーザーの返事待ち）、`user_items`（ユーザーに品を使ってよいか）。予算 `budget` はユーザーの設定が入のときだけ |
 | `settings` | ユーザーが画面の設定で決めた値（版 1.14）：`gauge_speed`（快感度の上がる速さの倍率。1 が標準、0.25〜4）、`arousal_speed`（発情の上がる速さの倍率。同じ範囲）。ゲージや発情の今の値そのものは、今までどおりアプリが管理します |
 | `her_location` | 彼女のいる場所（`location` と同じ形）。一緒のときは `location` と同じ。離れている間は彼女の部屋、出かけている間はその部屋 |
-| `kensei` | 献精室のラン（版 1.41。第 3.15 節。無ければ null）：`run`、`phase`（`"running"`／`"ended"`）、`turn`（次に送る手の番号）、`turns_max`、`turns_left`、`settings`（`range`・`range_random`・`parts`・`weak`・`vary`・`decay`・`disclose`・`need`・`tighten`・`tolerance`）、`coefficient`、`candidates`（`[{"combo", "part", "who", "plays"}]`）、`last`（前の手の `kensei_turn` と同じもの）、`rules_version`。`disclose` が `"numbers"` なら `total`、`"levels"` なら `progress`。終わった後は `result`・`total`・`score`・`title` も |
+| `kensei` | 献精室のラン（版 1.41。第 3.15 節。無ければ null）：`run`、`phase`（`"running"`／`"ending"`＝記録を書けるのを待っている／`"ended"`）、`turn`（次に送る手の番号）、`turns_max`、`turns_left`、`settings`（`range`・`range_random`・`parts`・`weak`・`vary`・`decay`・`disclose`・`need`・`tighten`・`tolerance`）、`coefficient`、`candidates`（`[{"combo", "part", "who", "plays"}]`）、`last`（前の手の `kensei_turn` と同じもの）、`rules_version`。`disclose` が `"numbers"` なら `total`、`"levels"` なら `progress`。終わった後は `result`・`total`・`score`・`title` も |
 | `standby` | 預かっている前もって用意した反応（版 1.40。第 3.14 節）：`{"request", "on", "count", "play_serial", "expires_in"}`（`expires_in` は残りの秒）。無ければ null |
 | `relationship` | 最後に受け取った好感度・信頼度（第 3.11 節）：`{"person", "affection", "trust", "stage", "applied"}`。まだ受け取っていなければ null。`stage` は舞台のキャラの人物の値のときだけ（違えば null） |
 | `play` | 今のプレイ（第 7.3 節の「プレイ」の形）。プレイ中でなければ null |

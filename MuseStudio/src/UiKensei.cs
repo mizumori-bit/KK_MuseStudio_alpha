@@ -18,6 +18,7 @@ namespace MuseStudio
         Vector2 kenseiScroll;
         int kenseiPage;
         SortedDictionary<string, List<string>> kenseiCands;
+        int kenseiUntried;
         string kenseiCandKey = "";
         float kenseiCandAt = -100f;
         public string KenseiShown = "";       // (checks) what the gauge over the screen shows
@@ -44,6 +45,7 @@ namespace MuseStudio
             if (kenseiCands == null || key != kenseiCandKey || Time.realtimeSinceStartup - kenseiCandAt > 1f)
             {
                 kenseiCands = k.Candidates(k.Range);
+                kenseiUntried = k.Untried(k.Range).Count;
                 kenseiCandKey = key;
                 kenseiCandAt = Time.realtimeSinceStartup;
             }
@@ -146,8 +148,27 @@ namespace MuseStudio
                 if (GUI.Button(new Rect(x, y, w2, lh), "必要量 " + k.Need + " ml", button)) k.Need = Cycle(k.Rules.NeedChoices, k.Need);
                 if (GUI.Button(new Rect(x + w2 + 4f, y, w2, lh), "量の揺れ ±" + k.Tol + "%", button)) k.Tol = Cycle(k.Rules.TolChoices, k.Tol);
                 y += lh + 6f * s;
-                // what the settings make here: the candidates, the check of them, the limit and the coefficient
+                // what the settings make here: the candidates (the plays whose finish outside was tried and plays: #115, GPT's
+                // post-review of #118, 5), the check of them, the limit and the coefficient
                 var cands = KenseiCands();
+                if (k.Scanning)
+                {
+                    GUI.Label(new Rect(x + 6f, y, w - 12f, lh), "プレイの射精の流れを確かめています（残り " + k.ScanLeft + " 件）", small);
+                    y += lh;
+                    Buttons["献精：確かめるのを止める"] = new Rect(x, y, w, lh);
+                    if (GUI.Button(new Rect(x, y, w, lh), "止める", button)) k.StopScan();
+                    y += lh + 4f * s;
+                }
+                else if (kenseiUntried > 0)
+                {
+                    string un = "この部屋のプレイのうち " + kenseiUntried + " 件は、射精（外）の流れをまだ確かめていません。確かめたプレイだけが候補になります（1 件 1 秒ほど。プレイが順に動きます）。";
+                    float uh = wrapSmall.CalcHeight(new GUIContent(un), w - 12f);
+                    GUI.Label(new Rect(x + 6f, y, w - 12f, uh), un, wrapSmall);
+                    y += uh + 4f * s;
+                    Buttons["献精：確かめる"] = new Rect(x, y, w, lh);
+                    if (GUI.Button(new Rect(x, y, w, lh), "確かめる（" + kenseiUntried + " 件）", button)) { kenseiCandAt = -100f; MuseStudioPlugin.Instance.StartCoroutine(k.Scan(k.Range)); }
+                    y += lh + 4f * s;
+                }
                 var names = new List<string>();
                 var parts = new HashSet<string>();
                 var leads = new HashSet<string>();

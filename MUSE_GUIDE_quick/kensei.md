@@ -18,5 +18,5 @@
 ## 結果の確認先（出来事、第 7.3 節）
 
 - `kensei_started`（`resumed: true` は前の起動の続き）・`kensei_turn`（1 手ごと）・`kensei_ended`（1 回だけ。`reveal` に真実）
-- `block_refused`：`field: "move"`・`"kensei_answers"`、`reason: "in_kensei"`
+- `block_refused`：`field: "move"`・`"kensei_answers"`（`no_outside`・`run_changed`・`save_failed` などは第 3.15 節）、`reason: "in_kensei"`
 - 射精の流れ：`play_finish`・`climax`（`who: "player"`。量は載らない）
