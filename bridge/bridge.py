@@ -131,10 +131,10 @@ RATE_LIMITS = {"muse": [20, 100], "app": [100, 400], "all": [120, 500], "anon": 
 APP_SEEN_SECONDS = 5.0         # the app polls /api/packages/next every second: "connected" if it did within this
 STATE_FIELDS = ("replay", "character", "mode", "outfit", "location", "scene", "emotion", "face", "camera", "package", "gauge", "play", "mood",
                 "beat", "presence", "belief", "urges", "outing", "her_location", "relationship", "clothes", "app_name", "match",
-                "settings", "play_serial", "items", "contract")      # (the contract's 7.4: test_state_fields.py holds them to it)
+                "settings", "play_serial", "items", "contract", "standby")      # (the contract's 7.4: test_state_fields.py holds them to it)
 # (#70 adopted, 5) the contract's version this bridge speaks (MUSE_GUIDE.md's: test_contract_quick.py holds them together);
 # the app's own is in its state (contract)
-CONTRACT = "1.39"
+CONTRACT = "1.40"
 SPEAKERS = ("self", "opponent")        # package.speaker (the match: the opponent's package, forwarded by the local Muse)
 MATCH_PHASES = ("intro", "negotiation", "sex", "end")
 MATCH_SIDES = ("host", "guest")
@@ -354,6 +354,24 @@ def validate_package(pkg) -> list[str]:
                 v = rel.get(k)
                 if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= float(v) <= 100:
                     errors.append(f"relationship.{k} must be a number 0-100")
+    sb = pkg.get("standby")
+    if sb is not None:
+        # (#102 adopted, plan D: a reaction made ready for her climax - the app holds it and judges the rest)
+        if not isinstance(sb, dict):
+            errors.append("standby must be an object or null")
+        else:
+            if not isinstance(sb.get("on"), str):
+                errors.append("standby.on must be a string ('climax')")
+            r = sb.get("request")
+            if not isinstance(r, str) or not r or len(r) > 200:
+                errors.append("standby.request must be a string of 1-200 characters")
+            for k, low in (("play_serial", 0), ("count", 1)):
+                v = sb.get(k)
+                if isinstance(v, bool) or not isinstance(v, int) or v < low:
+                    errors.append(f"standby.{k} must be an integer of {low} or more")
+            ex = sb.get("expires_seconds")
+            if ex is not None and (isinstance(ex, bool) or not isinstance(ex, (int, float))):
+                errors.append("standby.expires_seconds must be a number or null")
     blocks = pkg.get("blocks")
     if not isinstance(blocks, list) or not blocks:
         errors.append("blocks must be a non-empty array")
@@ -1760,7 +1778,9 @@ def make_handler(state: State):
                             state.package_log[key] = {"id": key, "session": body["session"], "turn": body["turn"], "beat": body.get("beat"),
                                                       "launch": body.get("launch") if body.get("launch") is not None else body.get("_launch_at"),
                                                       "character": body.get("character") if body.get("character") is not None else body.get("_character_at"),
-                                                      "monologue": bool(body.get("monologue")), "stage": "queued", "queued": stamp, "queued_ts": received,
+                                                      "monologue": bool(body.get("monologue")),
+                                                      "standby": body["standby"].get("request") if isinstance(body.get("standby"), dict) else None,
+                                                      "stage": "queued", "queued": stamp, "queued_ts": received,
                                                       "updated_ts": received}
                             try:
                                 state._save_packages()

@@ -191,7 +191,11 @@ namespace MuseStudio
             }
             // (Muse answering him cuts in on her monologue's line; her monologue while she is out on her own goes on its own
             // time, heard only while he is in her room - Muse's request 3 of 2026-11-04: its pace never tells that he peeps)
-            if (pending.Count > 0 && (!Busy || (PresentedLast && h.Play.Active) || (Monologue && !IsMonologue(pending.Peek()))))
+            // (a reaction let go at her climax - Standby, #102: in place of a last line already out, play or not; one whose time
+            // ran out while it waited goes unshown)
+            if (pending.Count > 0 && Standby.Of(pending.Peek()) && Now > (float)Json.Num(pending.Peek(), Standby.UntilKey, 0))
+                h.Standby.Dropped(pending.Dequeue(), "expired");
+            if (pending.Count > 0 && (!Busy || (PresentedLast && (h.Play.Active || Standby.Of(pending.Peek()))) || (Monologue && !IsMonologue(pending.Peek()))))
             {
                 var next = pending.Dequeue();
                 if (h.Launch.Accept(next))
@@ -280,11 +284,21 @@ namespace MuseStudio
 
         public void EnqueueForCheck(Dictionary<string, object> pkg) { pending.Enqueue(pkg); }
 
+        // a reaction made ready, let go at her climax (Standby, #102): first in the queue - after the package showing now (not
+        // cut: plan C is not adopted), before the others
+        public void First(Dictionary<string, object> pkg)
+        {
+            var rest = pending.ToArray();
+            pending.Clear();
+            pending.Enqueue(pkg);
+            foreach (var p in rest) pending.Enqueue(p);
+        }
+
         // (#70 adopted, 5) the fields this app knows (MUSE_GUIDE 5.1, 5.2, 8): another one in a package or a block is told -
         // block_refused, reason unknown_field - not dropped unsaid; the known ones are done as ever (a package of a newer
         // contract too). The bridge's own (_...) are not Muse's; a replay's and the opponent's packages are not Muse's to hear of
         static readonly HashSet<string> PackageFields = new HashSet<string> { "session", "turn", "situation", "blocks", "choices", "beat", "id",
-            "launch", "character", "settings", "relationship", "monologue", "match", "speaker", "clothes_now", "contract" };
+            "launch", "character", "settings", "relationship", "monologue", "match", "speaker", "clothes_now", "contract", "standby" };
         static readonly HashSet<string> BlockFields = new HashSet<string> { "type", "text", "emotion", "scene", "camera", "voice", "se", "location",
             "play", "mood", "action", "anim", "belief", "coordinate", "item", "clothes", "pose", "declare", "match_phase" };
         public int UnknownFieldsForCheck;

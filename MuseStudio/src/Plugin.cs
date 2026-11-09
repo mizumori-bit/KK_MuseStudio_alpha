@@ -43,7 +43,7 @@ namespace MuseStudio
         internal ConfigEntry<int> YourClothes;
         internal ConfigEntry<bool> ShowGaugePercent;     // (#70 adopted: the gauge's % on the screen - off by default, the setting kept)
         // (#70 adopted, 5) the contract's version this app speaks (MUSE_GUIDE.md's: the bridge's tests hold them together)
-        public const string Contract = "1.39";
+        public const string Contract = "1.40";
         internal ConfigEntry<KeyboardShortcut> HitShapesKey;
         internal ConfigEntry<KeyboardShortcut> HideUiKey;
         ConfigEntry<string> resetCameraEntry, resetPlacesEntry, scanRoomsEntry;
@@ -89,6 +89,7 @@ namespace MuseStudio
         internal Launch Launch;
         internal Personas Personas;
         internal Presence Presence;
+        internal Standby Standby;         // (#102 adopted, plan D: a reaction made ready for her climax)
         internal Urges Urges;
         internal Outing Outing;
         internal Look Look;
@@ -341,6 +342,7 @@ namespace MuseStudio
             Touch = new Touch(this);
             Hands = new AibuHands(this, Touch.Doc);
             Presence = new Presence(this);
+            Standby = new Standby(this);
             Urges = new Urges(this);
             Outing = new Outing(this);
             Look = new Look(this);
@@ -369,10 +371,12 @@ namespace MuseStudio
             {
                 // whether it satisfied her moods is Muse's call (the event's mood says which it may still call so)
                 Mood.OnClimax();
+                // the reaction Muse made ready for it, let go now (#102 adopted, plan D): named in the event (null: none)
+                string fired = Standby.Fire(count);
                 Bridge.Event("climax", new Dictionary<string, object> { { "who", "female" }, { "count", count }, { "cause", cause }, { "gauge", Gauge.Info() },
                     { "location", Stage.Location },
                     { "scene", Play.Active ? Json.Str(Play.SceneInfo(), "key") : Stage.SceneKey }, { "play", Play.Info() },
-                    { "mood", Mood.Info() } });
+                    { "mood", Mood.Info() }, { "standby", fired } });
                 Beat.NearReset();
                 // the face: ecstasy, then the afterglow's until the gauge rises again
                 climaxFace = Touch.RestoreFace.Length > 0 ? Touch.RestoreFace : Stage.Face;
@@ -467,7 +471,11 @@ namespace MuseStudio
             OutfitWatch();
             if (Coords != null) Coords.Tick();
             Dictionary<string, object> pkg;
-            while (!Replay.Playing && (pkg = Bridge.NextPackage()) != null) Blocks.Enqueue(pkg);     // (a replay: Muse's wait)
+            while (!Replay.Playing && (pkg = Bridge.NextPackage()) != null)     // (a replay: Muse's wait)
+            {
+                if (Standby.Of(pkg)) Standby.Take(pkg);          // (a reaction made ready: held apart from the queue - #102)
+                else Blocks.Enqueue(pkg);
+            }
             Chars.Tick();
             SettingsTick();                // (before the blocks: the window closed this frame is settled - the user's changes, then
                                            //  the requests that waited - before a request of this frame is looked at; GPT's re-review of #41)
@@ -488,6 +496,7 @@ namespace MuseStudio
             Urges.Tick(Time.deltaTime);
             Outing.Tick();
             Presence.Tick();
+            Standby.Tick();
             Look.Tick();
             Match.Tick();
             if (Notices != null) Notices.Tick();
@@ -845,7 +854,7 @@ namespace MuseStudio
                 { "presence", Presence.Info() }, { "belief", Presence.BeliefInfo() }, { "urges", Urges.Info() }, { "outing", Outing.Info() },
                 { "her_location", Stage.LocationInfo(Presence.HerRoom) }, { "relationship", Relationship.Info() }, { "match", Match.Info() },
                 { "clothes", Clothes.Info(Stage.Cha) }, { "replay", Replay != null ? Replay.Info() : null }, { "settings", SettingsInfo() },
-                { "items", Items != null ? Items.State() : null } };
+                { "items", Items != null ? Items.State() : null }, { "standby", Standby != null ? Standby.Info() : null } };
         }
 
         internal string CharacterId()
