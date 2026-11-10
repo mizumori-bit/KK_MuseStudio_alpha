@@ -188,6 +188,108 @@ namespace MuseStudio
                 id, phase, frames, med, max, hitches, Uneven(headSteps), Uneven(neckSteps), Uneven(localSteps), stateChanges, backJumps, rowChanges, ptnChanges, targetChanges, flagChanges, string.Join(", ", fc.ToArray())));
         }
 
+        // (#70: which plays wait jerkily) --muse-probe=headscan:al|all|ID,ID: every play started at pace 0 (at any spot of the room -
+        // the clip does not care), its waiting motion's clip sampled straight at its keys (the animator off for it): the head in
+        // the body's space (its turn and its place), the neck and the chest - how evenly each moves key to key (the step's change
+        // from one key to the next: its mean, its 95th; the keys where it stops between moving ones). One line a play in
+        // headscan.csv - the original's plays are the measure the others are read against
+        IEnumerator HeadScan(string spec)
+        {
+            yield return new WaitForSeconds(1.5f);
+            var pc = h.Play;
+            pc.AnySpotForProbe = true;
+            var rowsAll = Json.Arr(Data.Load("plays.json"), "plays") ?? new List<object>();
+            var ids = new List<string>();
+            var only = new HashSet<string>(spec.Split(','));
+            foreach (var o in rowsAll)
+            {
+                string id = Json.Str(o, "id", ""), src = Json.Str(o, "source", "original");
+                if (spec == "all" || (spec == "al" && src == "al") || only.Contains(id)) ids.Add(id);
+            }
+            var csv = new StringBuilder("id,name,source,group,result,clip,weight,length,rate,keys,head_step,head_jerk,head_p95,head_stalls,pos_step,pos_jerk,neck_step,neck_jerk,chest_step,chest_jerk\n");
+            int done = 0;
+            foreach (var id in ids)
+            {
+                var row = pc.Row(id);
+                if (row == null) continue;
+                var spots = pc.Spots(row);
+                string err = spots.Count > 0 ? pc.Begin(id, "probe", spots[0].Id) : "no spot";
+                string head = string.Format("{0},\"{1}\",{2},{3}", id, Json.Str(row, "name", "").Replace("\"", "'"), Json.Str(row, "source", "original"), Json.Str(row, "group", ""));
+                if (err.Length > 0) { csv.AppendLine(head + ",\"" + err.Replace("\"", "'") + "\""); continue; }
+                yield return new WaitForSeconds(1.2f);
+                yield return new WaitForEndOfFrame();
+                csv.AppendLine(head + ",ok," + ClipStats());
+                pc.End("probe");
+                done++;
+                yield return null;
+            }
+            File.WriteAllText(System.IO.Path.Combine(outDir, "headscan.csv"), csv.ToString());
+            lines.AppendLine("HEADSCAN " + done + " of " + ids.Count + " measured");
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // the waiting clip's numbers (HeadScan): its keys sampled straight, the animator off meanwhile
+        string ClipStats()
+        {
+            var cha = h.Stage.Cha;
+            var an = cha.animBody;
+            if (an == null) return "no animator";
+            AnimationClip clip = null;
+            float wmax = -1f;
+            foreach (var ci in an.GetCurrentAnimatorClipInfo(0)) if (ci.clip != null && ci.weight > wmax) { wmax = ci.weight; clip = ci.clip; }
+            if (clip == null) return "no clip";
+            var neck = FindBone(cha.objBodyBone.transform, "cf_j_neck");
+            var head = FindBone(cha.objBodyBone.transform, "cf_j_head");
+            var chest = FindBone(cha.objBodyBone.transform, "cf_j_spine03");
+            if (neck == null || head == null || chest == null) return "no bones";
+            float rate = clip.frameRate > 0f ? clip.frameRate : 30f;
+            int n = Mathf.Clamp(Mathf.RoundToInt(clip.length * rate), 4, 2000);
+            var hq = new List<Quaternion>(); var hp = new List<Vector3>(); var nq = new List<Quaternion>(); var cq = new List<Quaternion>();
+            bool was = an.enabled;
+            an.enabled = false;
+            var root = an.transform;
+            for (int i = 0; i <= n; i++)
+            {
+                clip.SampleAnimation(an.gameObject, clip.length * i / n);
+                hq.Add(Quaternion.Inverse(root.rotation) * head.rotation);
+                hp.Add(root.InverseTransformPoint(head.position) * 1000f);
+                nq.Add(neck.localRotation);
+                cq.Add(chest.localRotation);
+            }
+            an.enabled = was;
+            var hs = new List<Vector3>(); var ps = new List<Vector3>(); var ns = new List<Vector3>(); var cs = new List<Vector3>();
+            for (int i = 1; i < hq.Count; i++) { hs.Add(Step(hq[i - 1], hq[i])); ps.Add(hp[i] - hp[i - 1]); ns.Add(Step(nq[i - 1], nq[i])); cs.Add(Step(cq[i - 1], cq[i])); }
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0},{1:F2},{2:F3},{3},{4},{5},{6},{7},{8}",
+                clip.name.Replace(",", " "), wmax, clip.length, rate, n, Even(hs, true), Even(ps, false), Even(ns, false), Even(cs, false));
+        }
+
+        // a series' mean step and how unevenly it goes (mean change of the step key to key; with all: its 95th and the keys
+        // where it stops between moving ones)
+        static string Even(List<Vector3> s, bool all)
+        {
+            float sum = 0f;
+            foreach (var v in s) sum += v.magnitude;
+            float mean = sum / Math.Max(1, s.Count);
+            var j = new List<float>();
+            int stalls = 0;
+            for (int i = 1; i < s.Count; i++)
+            {
+                j.Add((s[i] - s[i - 1]).magnitude);
+                if (i + 1 < s.Count && s[i].magnitude < 0.2f * mean && s[i - 1].magnitude > mean && s[i + 1].magnitude > mean) stalls++;
+            }
+            float jm = 0f;
+            foreach (var x in j) jm += x;
+            jm /= Math.Max(1, j.Count);
+            j.Sort();
+            float p95 = j.Count > 0 ? j[Math.Min(j.Count - 1, (int)(j.Count * 0.95f))] : 0f;
+            return all ? string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F4},{1:F4},{2:F4},{3}", mean, jm, p95, stalls)
+                       : string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F4},{1:F4}", mean, jm);
+        }
+
         // the motion's own clip, sampled straight (the animator off for it): its name, length, rate; every 1/240 s the neck's,
         // the head's and the chest's local rotations (headclip_*.csv) - how its keys lie, apart from the frames and the neck look
         IEnumerator ClipKeys(string id)

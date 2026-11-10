@@ -29,6 +29,7 @@ namespace MuseStudio
             if (room.StartsWith("speed:")) { yield return Speeds(room.Substring(6)); yield break; }
             if (room.StartsWith("eyeneck:")) { yield return EyeNecks(room.Substring(8)); yield break; }
             if (room.StartsWith("headjit:")) { yield return HeadJitter(room.Substring(8)); yield break; }
+            if (room.StartsWith("headscan:")) { yield return HeadScan(room.Substring(9)); yield break; }
             if (room == "icons") { yield return Icons(); yield break; }
             if (room == "poses") { yield return Poses(); yield break; }
             if (room == "aibufeet") { yield return AibuFeet(); yield break; }
