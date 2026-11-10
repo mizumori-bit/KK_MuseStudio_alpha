@@ -44,7 +44,7 @@ LAUNCH_POLL_SECONDS="${LAUNCH_POLL_SECONDS:-5}"   # 起動待ちの読み間隔�
 LAUNCH_MAX_RUN="${LAUNCH_MAX_RUN:-0}"   # 起動待ちの寿命の上限（秒）。0＝上限なし（検知するか、外から止められるまで）
 
 # 節目として扱うイベント種別（ノイズになる種別は入れない）
-NOTEWORTHY='["play_started","play_ended","play_finish","climax","urge","outing_started","outing_ended","clothes_changed","user_found","creation_completed","block_refused","kensei_started","kensei_turn","kensei_ended"]'
+NOTEWORTHY='["play_started","play_ended","play_finish","climax","urge","outing_started","outing_ended","clothes_changed","user_found","creation_completed","block_refused","kensei_started","kensei_turn","kensei_ended","bath_started","bath_ended"]'
 
 fetch() { # $1=path（鍵を付けて叩く。認証済みの応答には起動情報や app の状態が入る）
   curl --fail --silent --max-time 4 \
