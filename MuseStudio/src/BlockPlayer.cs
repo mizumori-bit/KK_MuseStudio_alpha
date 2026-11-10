@@ -742,6 +742,7 @@ namespace MuseStudio
             string loc = Json.Str(pl, "location", null);
             if (loc == null) return no("no_location", "", null);
             if (h.Outing.Out) return no("she_is_out", "", null);
+            if (h.Bath.Moving) return no("in_bath", "moving", null);           // (on the bath's way in / out; arrived: as ever)
             if (h.Presence.Apart) return no("apart", "", null);
             if (loc != h.Stage.Location) return no("other_location", h.Stage.Location, null);
             var row = play.Row(id);

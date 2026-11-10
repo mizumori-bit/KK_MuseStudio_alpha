@@ -918,6 +918,7 @@ namespace MuseStudio
             Buttons["服"] = new Rect(x + 2f * (w3 + 4f), y, w3, lh);
             // (献精室: the room and the plays are the run's - or being tried; the bath: its room and the two nude until it ends)
             if (host.Bath.Busy && (menu == "location" || menu == "clothes" || menu == "chara" || menu == "replay")) menu = "";
+            if (host.Bath.Moving && menu == "play") menu = "";          // (on its way in / out: no play - an open list too)
             GUI.enabled = !host.Kensei.Busy && !host.Bath.Busy;
             if (GUI.Button(new Rect(x, y, w3, lh), menu == "location" ? "閉じる" : "場所", menu == "location" ? openButton : button)) menu = menu == "location" ? "" : "location";
             GUI.enabled = !host.Kensei.Busy && !host.Bath.Going && !host.Bath.Leaving;

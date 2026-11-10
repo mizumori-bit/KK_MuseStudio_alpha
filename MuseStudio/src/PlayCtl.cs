@@ -285,6 +285,7 @@ namespace MuseStudio
             var row = Row(id);
             if (row == null) return "unknown play " + id;
             if (MuseStudioPlugin.Instance.Outing.Out) return "she is out (" + MuseStudioPlugin.Instance.Outing.Kind + ")";
+            if (MuseStudioPlugin.Instance.Bath.Moving) return "on the way to or from the bath";        // (arrived: as ever)
             if (MuseStudioPlugin.Instance.Presence.Apart) return "she is not here (in " + MuseStudioPlugin.Instance.Presence.HerRoom + ")";
             if (!MuseStudioPlugin.Instance.Match.InFormat(row)) return "not_in_format";
             var res = Resolved.Of(data, row, reverse, Who(), AnyRoles);

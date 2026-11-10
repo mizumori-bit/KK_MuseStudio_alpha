@@ -30,6 +30,11 @@ namespace MuseStudio
         // anything of the bath going on: what it holds still (the place, her clothes, the character...)
         public bool Busy { get { return Active || Going || Leaving; } }
 
+        // on its way in or out: no play begins (PlayCtl.Begin; GPT's post-review of #124)
+        public bool Moving { get { return Going || Leaving; } }
+
+        public bool HoldForCheck;             // (checks) the way in / out waits here, after the play's end, before the move
+
         // Muse's action shower_together (Urges.Act): "" taken - the rest is told when it is done (action_started and
         // bath_started at the arrival) or refused then (block_refused)
         public string Go(Dictionary<string, object> opts)
@@ -58,6 +63,7 @@ namespace MuseStudio
                 if (!h.Rooms.Has(room)) { Going = false; Refused("load_failed"); h.RoomNotLoaded(room); yield break; }
             }
             if (h.Play.Active) h.Play.End("action");
+            while (HoldForCheck) yield return null;
             if (room != h.Stage.Location)
             {
                 yield return h.MoveRoutine(room, "bath");
@@ -98,6 +104,7 @@ namespace MuseStudio
         IEnumerator FinishRoutine(string reason)
         {
             if (h.Play.Active) h.Play.End(reason);
+            while (HoldForCheck) yield return null;
             bool back = ReturnRoom == h.Stage.Location;
             if (!back && h.Stage.Reachable(ReturnRoom))
             {

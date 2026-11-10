@@ -156,7 +156,7 @@ namespace MuseStudio
             else if (h.Outing.Out) why = "she_is_out";
             else if (h.Match.Active || h.Match.Loading) why = "in_match";
             else if (h.Chars.Creating) why = "creation";
-            else if (h.Bath.Busy && kind != "masturbation") why = "in_bath";       // (the bath: no outing, no second bath - #70 adopted)
+            else if (h.Bath.Moving || (h.Bath.Busy && kind != "masturbation")) why = "in_bath";       // (the bath: no outing, no second bath - #70 adopted; on its way: no play either)
             else if (kind == "masturbation") why = h.Mood.StartMasturbation("arousal", "action");
             else if (kind == "toilet" || kind == "shower" || kind == "alone" || kind == "change") why = h.Outing.Go(kind, opts);
             else if (kind == "shower_together") why = h.Bath.Go(opts);
