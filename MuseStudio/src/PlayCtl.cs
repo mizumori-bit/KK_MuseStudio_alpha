@@ -42,6 +42,8 @@ namespace MuseStudio
         public Resolved Res;
         bool charSonBefore;
         HEyeNeck eyeF, eyeM;                  // where she / the partner looks (the original's eye / neck patterns)
+        internal bool EyeNeckOffForProbe, SwayOffForProbe;      // (development: Probe's headjit - one cause at a time left out)
+        internal HEyeNeck EyeFForProbe { get { return eyeF; } }
         public readonly HLiquid Liquid = new HLiquid();
         public readonly HIK IK = new HIK();     // the original's motion IK of the position
         float maleRatio = 1f;                   // the male part's body: its scale at 0.6 tall / now (1: no shift)
@@ -1570,7 +1572,7 @@ namespace MuseStudio
 
         void SwayTick(float dt)
         {
-            if (!Motion || (Mode != 1 && Mode != 2 && Mode != 3 && Mode != 5)) return;
+            if (SwayOffForProbe || !Motion || (Mode != 1 && Mode != 2 && Mode != 3 && Mode != 5)) return;
             motionWait -= dt;
             if (!motionMoving && motionWait <= 0f)
             {
@@ -1842,7 +1844,7 @@ namespace MuseStudio
                 Dan.Tick(PenisAim != Penetration.Off, FemaleCha);      // (no BetterPenetration: the original's aim throughout)
             }
             Climax.Tick(dt);
-            if (eyeF != null) { eyeF.Tick(); eyeM.Tick(); }
+            if (eyeF != null && !EyeNeckOffForProbe) { eyeF.Tick(); eyeM.Tick(); }
             // (inside: the finish was inside - the vagina, the mouth: the drip / spit shots; flags.isInsideFinish)
             if (FemaleCha != null) Liquid.Tick(FemaleCha.animBody, Condom == true, CameInside || Climax.LastPlace == "drink" || Climax.LastPlace == "vomit");
             if (View == "pov") PovCamera();

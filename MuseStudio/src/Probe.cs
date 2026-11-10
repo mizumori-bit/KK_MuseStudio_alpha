@@ -10,7 +10,7 @@ namespace MuseStudio
     // (development) --muse-check=PATH --muse-probe=ROOM: instead of the self checks (with their isolation: the check's own
     // bridge, moods, personas, no settings written), look at a kept room - its meshes by size (room coordinates), pictures
     // from above and from its corners - and her accessories (slot, parent, the original's hide setting, shown), then quit.
-    public class Probe
+    public partial class Probe
     {
         readonly MuseStudioPlugin h;
         readonly string outDir, room;
@@ -28,6 +28,7 @@ namespace MuseStudio
             if (room.StartsWith("al:")) { yield return AlSizes(room.Substring(3)); yield break; }
             if (room.StartsWith("speed:")) { yield return Speeds(room.Substring(6)); yield break; }
             if (room.StartsWith("eyeneck:")) { yield return EyeNecks(room.Substring(8)); yield break; }
+            if (room.StartsWith("headjit:")) { yield return HeadJitter(room.Substring(8)); yield break; }
             if (room == "icons") { yield return Icons(); yield break; }
             if (room == "poses") { yield return Poses(); yield break; }
             if (room == "aibufeet") { yield return AibuFeet(); yield break; }

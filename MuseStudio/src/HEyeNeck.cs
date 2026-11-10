@@ -94,23 +94,24 @@ namespace MuseStudio
             if (!On || chara.animBody == null || Camera.main == null) return;
             var ai = Blend.Now(chara.animBody);
             Row now = null;
-            foreach (var kv in rows) if (ai.IsName(kv.Key)) { now = kv.Value; break; }
+            foreach (var kv in rows) if (ai.IsName(kv.Key)) { now = kv.Value; NowKey = kv.Key; NowBy = "state"; break; }
             // (an AnimationLoader play: its states are named otherwise - WLoop1, SLoop1 - and none matched the borrowed list; the
             // play's own state name finds the row: the user's note of 2026-11-04, 133 AL plays at the camera)
             if (now == null)
             {
                 Row byName;
                 string key = MuseStudioPlugin.Instance.Play.StateKey;
-                if (!string.IsNullOrEmpty(key) && rows.TryGetValue(key, out byName)) now = byName;
+                if (!string.IsNullOrEmpty(key) && rows.TryGetValue(key, out byName)) { now = byName; NowKey = key; NowBy = "name"; }
             }
             // (a state the list has not - a climax's step, a finish's: the last row held, so nothing else - a face's eyes, Studio's
             // pattern change back to the camera - takes the gaze; the user's note of 2026-11-04: at the camera in the climax)
-            if (now == null) now = last;
+            if (now == null) { now = last; NowBy = "held"; }
             // (nothing matched yet: the list's first row - the position's own gaze, never Studio's camera)
             if (now == null) foreach (var kv in rows) { now = kv.Value; break; }
             if (now == null) return;
             last = now;
             int id = male ? now.Id : now.Ids[experience];
+            NowId = id;
             try
             {
                 // (in a match the users only watch; else by the setting - default at your body - the original's patterns at the
@@ -129,6 +130,8 @@ namespace MuseStudio
         }
 
         Row last;
+        public string NowKey = "", NowBy = "";     // (development: Probe's headjit) the row now, and how it was found - the motion's state, the play's name, held (no new strings a frame)
+        public int NowId = -1;
 
         NeckTypeStateVer2[] States { get { return chara != null && chara.neckLookCtrl != null && chara.neckLookCtrl.neckLookScript != null ? chara.neckLookCtrl.neckLookScript.neckTypeStates : null; } }
 
