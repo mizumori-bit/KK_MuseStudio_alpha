@@ -525,7 +525,7 @@ namespace MuseStudio
                 if (t.Came) d["amount"] = t.Amount;
                 d["total"] = t.Total;
             }
-            else if (runDisclose == "levels") d["progress"] = Rules.Progress(t.Total, runNeed);
+            else if (runDisclose == "levels") d["progress"] = Run.R.Progress(t.Total, runNeed);
             return d;
         }
 
@@ -553,7 +553,7 @@ namespace MuseStudio
                 { "coefficient", Coef }, { "candidates", cl }, { "last", Last != null ? (object)Last.Told : null },
                 { "rules_version", Run.R.Version } };
             if (runDisclose == "numbers") d["total"] = Run.Total;
-            else if (runDisclose == "levels") d["progress"] = Rules.Progress(Run.Total, runNeed);
+            else if (runDisclose == "levels") d["progress"] = Run.R.Progress(Run.Total, runNeed);
             if (!Active && !endDirty)
             {
                 d["result"] = Run.Result;
@@ -592,7 +592,7 @@ namespace MuseStudio
         void Ended()
         {
             Score = Run.Result == "success" ? KenseiRules.HalfUp(Run.Total * Coef) : 0;
-            Title = Run.Result == "success" ? Rules.Title(Score) : "";
+            Title = Run.Result == "success" ? Run.R.Title(Score) : "";          // (the run's own rules: a resumed older one's)
             Release();
             EndedAt = Now;
             endDirty = true;
@@ -740,9 +740,10 @@ namespace MuseStudio
             }
             var items = new List<object>();
             foreach (var it in Run.Items) items.Add(new Dictionary<string, object> { { "id", it.Id }, { "combo", it.Combo.Key } });
-            return new Dictionary<string, object> { { "kind", "musestudio_kensei_run" }, { "version", 1 }, { "run", RunId }, { "rules_version", Rules.Version },
-                { "unit", Rules.Unit }, { "items", items },
-                { "rules", Rules.Doc }, { "attributes_version", Json.Num(attrs, "version", 0) }, { "started", Started }, { "room", Room },
+            // (the run's own rules - as it began: a resumed older run is written again as it was, not with the rules shipped now)
+            return new Dictionary<string, object> { { "kind", "musestudio_kensei_run" }, { "version", 1 }, { "run", RunId }, { "rules_version", Run.R.Version },
+                { "unit", Run.R.Unit }, { "items", items },
+                { "rules", Run.R.Doc }, { "attributes_version", Json.Num(attrs, "version", 0) }, { "started", Started }, { "room", Room },
                 { "launch", recLaunch }, { "character", recCharacter }, { "resumed_in", new List<object>(resumedIn.ToArray()) }, { "settings", Settings() },
                 { "seed", (double)Run.Seed }, { "candidates", cands }, { "limit", Run.Limit }, { "coefficient", Coef }, { "points", Points },
                 { "phases", new List<object>(Run.Phases.ToArray()) }, { "turns", turns }, { "result", Run.Result }, { "score", Score }, { "title", Title },
@@ -830,8 +831,7 @@ namespace MuseStudio
             }
             // (all of the run as it was, the record's own launch and character; then written once - not written: not resumed)
             var keep = new Keep(this);
-            Rules = rules;
-            Run = run;
+            Run = run;                 // (its rules are its own - Run.R; the shared Rules stay the ones shipped now, for the next run)
             RunId = Json.Str(Pending, "run", "");
             PlaysOf.Clear();
             foreach (var kv in plays) PlaysOf[kv.Key] = kv.Value;
@@ -868,7 +868,6 @@ namespace MuseStudio
         class Keep
         {
             readonly Kensei k;
-            readonly KenseiRules rules;
             readonly KenseiRun run;
             readonly string id, launch, character, room, started;
             readonly Dictionary<string, List<string>> plays;
@@ -878,7 +877,7 @@ namespace MuseStudio
             public Keep(Kensei k)
             {
                 this.k = k;
-                rules = k.Rules; run = k.Run; id = k.RunId; launch = k.recLaunch; character = k.recCharacter; room = k.Room; started = k.Started;
+                run = k.Run; id = k.RunId; launch = k.recLaunch; character = k.recCharacter; room = k.Room; started = k.Started;
                 plays = new Dictionary<string, List<string>>(k.PlaysOf);
                 resumed = new List<string>(k.resumedIn);
                 parts = new List<string>(k.RangeParts);
@@ -887,7 +886,7 @@ namespace MuseStudio
 
             public void Back()
             {
-                k.Rules = rules; k.Run = run; k.RunId = id; k.recLaunch = launch; k.recCharacter = character; k.Room = room; k.Started = started; k.Coef = coef;
+                k.Run = run; k.RunId = id; k.recLaunch = launch; k.recCharacter = character; k.Room = room; k.Started = started; k.Coef = coef;
                 k.PlaysOf.Clear();
                 foreach (var kv in plays) k.PlaysOf[kv.Key] = kv.Value;
                 k.resumedIn.Clear();
