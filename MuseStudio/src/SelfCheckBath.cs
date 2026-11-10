@@ -103,10 +103,28 @@ namespace MuseStudio
             foreach (int k in new[] { 6, 4, 5, 7 }) if (kBath < 0 && Clothes.Worn(st.Cha).Contains(k)) kBath = k;
             if (kBath >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[kBath], "off" } }, "user");
             mood.Values["shower"] = 0.5f;
+            string pre = PlayHere(new[] { "aibu_00", "houshi_40", "houshi_00", "aibu_01" });
+            string ePre = pre != null ? pc.Begin(pre, "check") : "no play here";
+            yield return Wait(0.8f);
             int ps0 = EventCount("play_started"), up0 = Refusals("action.play", "unknown_field");
+            bath.HoldForCheck = true;
             Send(With(Line("一緒に入ろ？"), "action", D("kind", "shower_together", "play", "sonyu_18")));
+            yield return Until(() => bath.Going && !pc.Active, 20f);
+            bool heldIn = bath.Going && !pc.Active;
+            string eIn = pre != null ? pc.Begin(pre, "check") : "";
+            bp.Advance(true);
+            int rsIn = Refusals("play.start", "in_bath"), raIn = Refusals("action", "in_bath");
+            SendPkg(KTags(), With(With(Line("先にしよ？"), "play", D("start", pre ?? "aibu_00", "request", "bath-in-" + Time.frameCount, "basis", pc.Serial, "location", st.Location)),
+                "action", "masturbation"));
+            yield return Until(() => bp.Busy && bp.Text == "先にしよ？", 10f);
+            yield return Wait(0.6f);
+            bool refusedIn = heldIn && !pc.Active && eIn.Contains("bath") && Refusals("play.start", "in_bath") == rsIn + 1 && Refusals("action", "in_bath") == raIn + 1;
+            bp.Advance(true);
+            bath.HoldForCheck = false;
             yield return Until(() => bath.Active, 30f);
             yield return Wait(1.0f);
+            Check("bath (GPT's post-review of #124): on the way in no play begins - a play on before it ended, then his list's start, Muse's play.start and her masturbation refused (in_bath) while it moves",
+                  ePre.Length == 0 && refusedIn && EventCount("play_started") == ps0, pre + ": " + ePre + " held " + heldIn + " his " + eIn + " refused " + refusedIn);
             var bs = LastEvent("bath_started");
             var stB = Json.Obj(Json.Parse(Http("GET", "/api/state", null)), "bath");
             Check("bath (#70 adopted): shower together - both in the bath room nude (her accessories off but the hair's), no play begun, bath_started (the room, the room to go back to), the state's bath",
@@ -177,16 +195,42 @@ namespace MuseStudio
             // (e) 入浴を終える (no play; a real click): back to the room left, dressed in full, accessories back, bath_ended
             {
                 yield return Wait(0.6f);
+                bath.HoldForCheck = true;
                 yield return RealInput.Click(Btn(h.UiForCheck, "入浴を終える"));
                 string err = RealInput.LastError;
+                if (err.Length > 0 && bath.Active && !bath.Leaving) bath.Finish("user");
+                yield return Until(() => bath.Leaving, 10f);
+                bool heldOut = bath.Leaving;
+                string eOut = p1 != null ? pc.Begin(p1, "check") : "";
+                int rsOut = Refusals("play.start", "in_bath");
+                SendPkg(KTags(), With(Line("もう一回？"), "play", D("start", p1 ?? "aibu_00", "request", "bath-out-" + Time.frameCount, "basis", pc.Serial, "location", st.Location)));
+                yield return Until(() => bp.Busy && bp.Text == "もう一回？", 10f);
+                yield return Wait(0.6f);
+                bool refusedOut = heldOut && !pc.Active && eOut.Contains("bath") && Refusals("play.start", "in_bath") == rsOut + 1;
+                bp.Advance(true);
+                bath.HoldForCheck = false;
                 yield return Until(() => !bath.Busy, 30f);
                 yield return Wait(1.0f);
+                Check("bath (GPT's post-review of #124): on the way out no play begins either - his list's start and Muse's play.start refused (in_bath) while it moves",
+                      refusedOut, "held " + heldOut + " his " + eOut + " refused " + refusedOut);
                 var be = LastEvent("bath_ended");
                 Check("bath: 入浴を終える (a real click, no play on) - the two back in the room left, the outfit she has on worn in full (a garment off before too), her accessories back, bath_ended (returned), the state's bath null",
                       err.Length == 0 && !bath.Busy && st.Location == from && Dressed() && AccShown() == accBefore && kBath >= 0 && Json.Str(be, "reason") == "user" && True(be, "returned")
                       && Json.Str(Json.Obj(be, "return_room"), "key") == from && Json.Obj(Json.Parse(Http("GET", "/api/state", null)), "bath") == null,
                       err + " at " + st.Location + " dressed " + Dressed() + " acc " + AccShown() + "/" + accBefore + " " + Json.Write(be));
                 yield return Shot("16b_bath_ended.png");
+                // after it: her clothes change again, and a play here is not the bath's (not nude; its end dresses her as ever)
+                int kTop = Clothes.Worn(st.Cha).Contains(0) ? 0 : -1;
+                int changed = kTop >= 0 ? h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[0], "off" } }, "user").Count : 0;
+                if (kTop >= 0) h.ChangeClothes(new Dictionary<string, object> { { Clothes.Keys[0], "on" } }, "user");
+                string pre2 = PlayHere(new[] { "aibu_00", "houshi_40", "houshi_00", "aibu_01" });
+                string eAfter = pre2 != null ? pc.Begin(pre2, "check") : "no play here";
+                yield return Wait(1.0f);
+                bool notNude = pc.Active && !Bare();
+                if (pc.Active) pc.End("check");
+                yield return Wait(0.6f);
+                Check("bath: after it nothing of it is left - her clothes change again (the panel's 服), a play there is not nude, its end dresses her as ever",
+                      changed > 0 && eAfter.Length == 0 && notNude && !pc.Active && Dressed(), "changed " + changed + " " + pre2 + ": " + eAfter + " not nude " + notNude + " dressed " + Dressed());
             }
 
             // (f) chosen in the bath room itself: it stays there; プレイを終える in a play ends the bath
