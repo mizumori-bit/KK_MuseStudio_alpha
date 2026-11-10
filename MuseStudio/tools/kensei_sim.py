@@ -96,7 +96,8 @@ def summary_section() -> str:
     cands = candidates(("houshi", "sonyu"))
     who = {"her": "彼女", "him": "ユーザー"}
     lines = ["## 献精室の属性（契約 第 3.15 節）", "",
-             "献精室で弱点になる組（部位 × 主導）と、その組のプレイです。`MuseStudio/data/kensei_attributes.json` から作った表で、"
+             "献精室の候補になるプレイが持つ属性の組（部位 × 主導）と、その組のプレイです。弱点は、この中からプレイ単位で引かれます"
+             "（版 1.42。同じ組の別のプレイは「同じ組」の段）。`MuseStudio/data/kensei_attributes.json` から作った表で、"
              "カタログのプレイの `kensei` と同じです（ここに無いプレイは候補になりません）。実際の候補は、ランを始めた部屋で始められるものだけです。",
              "", "| 組 | 部位 | 主導 | プレイ |", "|---|---|---|---|"]
     for (part, w), ids in sorted(cands.items()):

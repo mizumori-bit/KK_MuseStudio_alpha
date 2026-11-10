@@ -356,7 +356,7 @@ namespace MuseStudio
             GUI.Label(new Rect(x, y, w, lh), lines[0], small);
             y += lh;
             // the gauge: its fill is his gauge now (out of the threshold)
-            float frac = Mathf.Clamp01(r.Gauge / (float)Math.Max(1, k.Rules.Threshold));
+            float frac = Mathf.Clamp01(r.Gauge / (float)Math.Max(1, r.R.Threshold));         // (the run's own rules)
             var bar = new Rect(x, y + 4f * s, w, lh - 8f * s);
             var was = GUI.color;
             GUI.color = new Color(0.25f, 0.25f, 0.3f, 0.9f);

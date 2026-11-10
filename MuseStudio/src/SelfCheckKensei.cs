@@ -461,6 +461,70 @@ namespace MuseStudio
                 }
                 else Check("献精室: another character's unfinished run (no record to copy)", false);
             }
+            // ---- a run of the rules before (version 1) resumed and ended: the next run is of the rules shipped now, the old record
+            // still the old (GPT's post-review of #122) ----
+            {
+                if (k.Active) k.Abandon();
+                yield return Wait(0.4f);
+                k.Vary = false;
+                k.WeakN = 1;
+                k.Range = "houshi";
+                k.Disclose = "numbers";
+                k.SeedForCheck = 4321u;
+                string sv = k.Start();
+                string v1Id = "k-v1-" + DateTime.Now.Ticks;
+                string v1File = k.FilePath(v1Id);
+                bool made = false;
+                if (sv.Length == 0 && k.Active)
+                {
+                    string srcId = k.RunId;
+                    k.Abandon();
+                    yield return Wait(0.6f);
+                    var src = Kensei.ReadRecord(k.FilePath(srcId));
+                    if (src != null)
+                    {
+                        // (the record as version 1 wrote it: its rules - the combo unit, three grades, its limit - its combos as the items, no turn yet)
+                        var v1 = Json.Parse(Json.Write(Json.Obj(src, "rules"))) as Dictionary<string, object>;
+                        v1["version"] = 1.0;
+                        v1.Remove("unit");
+                        Json.Obj(v1, "rise").Remove("combo");
+                        Json.Obj(v1, "base").Remove("combo");
+                        var lim = Json.Obj(v1, "limit");
+                        lim["per_axis_value"] = 0.75;
+                        lim["per_redraw"] = 0.25;
+                        lim.Remove("per_play");
+                        var its = new List<object>();
+                        foreach (var o in Json.Arr(src, "candidates") ?? new List<object>()) its.Add(D("id", Json.Str(o, "combo"), "combo", Json.Str(o, "combo")));
+                        src["rules"] = v1;
+                        src["rules_version"] = 1.0;
+                        src["unit"] = "combo";
+                        src["items"] = its;
+                        src["turns"] = new List<object>();
+                        src["run"] = v1Id;
+                        src["result"] = "";
+                        File.WriteAllText(v1File, Json.Write(src), new System.Text.UTF8Encoding(false));
+                        made = true;
+                    }
+                }
+                k.Pending = made ? Kensei.ReadRecord(v1File) : null;
+                k.PendingFile = v1File;
+                string rz = made ? k.Resume() : "no record";
+                bool oldRun = rz == "" && k.Active && k.Run.R.Unit == "combo" && k.Run.R.Version == 1 && Json.Str(k.Info(), "unit") == "combo";
+                if (k.Active) k.Abandon();
+                yield return Wait(0.6f);
+                var oldRec = Kensei.ReadRecord(v1File);
+                bool oldKept = Json.Num(oldRec, "rules_version") == 1 && Json.Str(oldRec, "unit") == "combo" && Json.Num(Json.Obj(oldRec, "rules"), "version") == 1
+                               && Json.Str(oldRec, "result") == "abandoned";
+                k.SeedForCheck = 4322u;
+                string sn = k.Start();
+                var newRec = k.Active ? Kensei.ReadRecord(k.FilePath(k.RunId)) : null;
+                bool newRun = sn.Length == 0 && k.Active && k.Run.R.Unit == "play" && k.Run.R.Version == 2 && k.Rules.Unit == "play" && Json.Str(k.Info(), "unit") == "play"
+                              && Json.Num(newRec, "rules_version") == 2 && Json.Str(newRec, "unit") == "play";
+                Check("献精室 (GPT's post-review of #122): a version 1 run resumed goes on by its own rules; ended, the next run in the same launch is of the rules shipped now (unit play, version 2) - the old record still version 1",
+                      oldRun && oldKept && newRun, "start " + sv + " resume " + rz + " old run " + oldRun + " old record " + oldKept + " new " + sn + " " + newRun);
+                if (k.Active) k.Abandon();
+                yield return Wait(0.4f);
+            }
             if (k.Active) k.Abandon();
             if (pc.Active) pc.End("check");
             yield return Until(() => !pc.Climax.Running, 15f);
