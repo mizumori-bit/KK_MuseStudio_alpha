@@ -1827,6 +1827,9 @@ namespace MuseStudio
 
         public void Tick(float dt)
         {
+            // an added (AL) play's wait at pace 0: its keys evened out on both bodies (#70: they step unevenly - KeySmooth)
+            bool even = Active && Motion && Pace == 0 && Json.Str(Current, "source", "") == "al" && Array.IndexOf(Waits, LastState) >= 0;
+            KeySmooth.Want(even ? FemaleCha : null, even && MaleBody != null ? MaleBody.charInfo : null, even);
             if (!Active) return;
             if (Motion) { KeepSpeed(FemaleBody); KeepSpeed(MaleBody); SwayTick(dt); }
             // your male body's height (HIK.SetMaleHeight), should anything have set it back without the original's setters

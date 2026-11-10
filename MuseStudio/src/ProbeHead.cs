@@ -4,13 +4,15 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using Studio;
 using UnityEngine;
 
 namespace MuseStudio
 {
     // (development: #70, session 12's note - her head jerks while a play waits at pace 0) --muse-probe=headjit:PLAY,PLAY: each play
     // started at pace 0 where it can, then a few seconds sampled every frame at its end (after the neck look's LateUpdate) in
-    // phases that leave one cause out at a time - as it is; her gaze at the camera; at your body; the eye / neck patterns not set
+    // phases that leave one cause out at a time (at 60 frames a second) - as it is; without the keys evened out (KeySmooth: an
+    // added play's wait); her gaze at the camera; at your body; the eye / neck patterns not set
     // (HEyeNeck not ticked); the motion's sway off; the neck's pattern an animation one (no look). Per frame: the frame time, the
     // motion's state and time, the row the eye / neck table gave, the neck's pattern and target, the head's and the neck's
     // rotations, the neck look's own flags. Per phase: how unevenly the head turns (its step's change frame to frame, the steps
@@ -23,6 +25,9 @@ namespace MuseStudio
             var st = h.Stage;
             var pc = h.Play;
             var cha = st.Cha;
+            // (as a play runs: 60 frames a second, not the check machine's 30 of its screen)
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = 60;
             lines.AppendLine("SETTING gaze at your body " + h.GazeAtYourBody.Value + " fps target " + Application.targetFrameRate + " vsync " + QualitySettings.vSyncCount);
             // the neck look's types (its pattern that leaves the neck to the motion: ANIMATION)
             int animPtn = -1;
@@ -70,17 +75,21 @@ namespace MuseStudio
                 if (err.Length > 0) continue;
                 var csv = new StringBuilder("phase,frame,t,dt,state,norm,statekey,row,rowid,neckptn,ctrlptn,target,motion,head_step,neck_step,headlocal_step,flags\n");
                 bool gazeWas = h.GazeAtYourBody.Value;
-                foreach (var phase in new[] { "as_is", "gaze_camera", "gaze_body", "eyeneck_off", "sway_off", "neck_anim" })
+                foreach (var phase in new[] { "as_is", "keysmooth_off", "gaze_camera", "gaze_body", "eyeneck_off", "sway_off", "neck_anim" })
                 {
                     h.GazeAtYourBody.Value = phase == "gaze_camera" ? false : phase == "gaze_body" ? true : gazeWas;
                     pc.EyeNeckOffForProbe = phase == "eyeneck_off" || phase == "neck_anim";
                     pc.SwayOffForProbe = phase == "sway_off";
+                    KeySmooth.OffForProbe = phase == "keysmooth_off";
                     if (phase == "neck_anim" && animPtn >= 0) cha.ChangeLookNeckPtn(animPtn);
                     yield return new WaitForSeconds(1.5f);
+                    lines.AppendLine(string.Format(System.Globalization.CultureInfo.InvariantCulture, "KEYSMOOTH {0} {1}: weight {2:F2} bones {3} last turn {4:F4} deg, the partner's weight {5:F2} bones {6}",
+                        id, phase, KeySmooth.Weight(cha), KeySmooth.Bones(cha), KeySmooth.LastDeg(cha),
+                        h.Stage.Partner != null ? KeySmooth.Weight(h.Stage.Partner.charInfo) : 0f, h.Stage.Partner != null ? KeySmooth.Bones(h.Stage.Partner.charInfo) : 0));
                     yield return SampleHead(id, phase, 8f, csv, calc, flagFields, floatFields);
                 }
                 h.GazeAtYourBody.Value = gazeWas;
-                pc.EyeNeckOffForProbe = pc.SwayOffForProbe = false;
+                pc.EyeNeckOffForProbe = pc.SwayOffForProbe = KeySmooth.OffForProbe = false;
                 yield return ClipKeys(id);
                 File.WriteAllText(System.IO.Path.Combine(outDir, "headjit_" + id + ".csv"), csv.ToString());
                 pc.End("probe");
@@ -225,6 +234,146 @@ namespace MuseStudio
             }
             File.WriteAllText(System.IO.Path.Combine(outDir, "headscan.csv"), csv.ToString());
             lines.AppendLine("HEADSCAN " + done + " of " + ids.Count + " measured");
+            File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
+            File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
+            MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");
+            yield return new WaitForSeconds(0.5f);
+            Application.Quit();
+        }
+
+        // (#70: the owner sees no jerk when Studio itself plays the added play) --muse-probe=studiocmp:PLAY: its states loaded on
+        // her the way Studio's own animation list does (OCIChar.LoadAnime of the entry; no play of the app - no eye / neck table,
+        // no speed kept, no sway), each size set's (S_ / M_ / L_) wait and loop: their clips (names, weights), the clip's keys
+        // (ClipStats), a few seconds on the screen (SampleHead); then the same play started by the app at pace 0
+        IEnumerator StudioCompare(string id)
+        {
+            yield return new WaitForSeconds(1.5f);
+            var pc = h.Play;
+            var st = h.Stage;
+            var oci = st.Heroine;
+            var row = pc.Row(id);
+            if (row == null) { lines.AppendLine("PLAY " + id + " unknown"); yield return Finish(); yield break; }
+            var gc = Json.Arr(row, "female");
+            var states = Json.Obj(row, "female_states");
+            int g = StudioAnim.Group(Convert.ToInt32(gc[0]), gc.Count > 2 ? gc[2] as string : null), c = Convert.ToInt32(gc[1]);
+            lines.AppendLine("PLAY " + id + " group " + g + " category " + c + " her height " + st.Cha.fileBody.shapeValueBody[0].ToString("F2")
+                + " sizes " + string.Join(" ", (Json.Arr(row, "sizes") ?? new List<object>()).ConvertAll(x => (string)x).ToArray()));
+            // the category's entries (what Studio's list shows)
+            Dictionary<int, Dictionary<int, Info.AnimeLoadInfo>> cats;
+            Dictionary<int, Info.AnimeLoadInfo> nos;
+            if (Singleton<Info>.Instance.dicAnimeLoadInfo.TryGetValue(g, out cats) && cats.TryGetValue(c, out nos))
+                foreach (var kv in nos) lines.AppendLine("  ENTRY " + kv.Key + " '" + kv.Value.name + "' clip " + kv.Value.clip + " bundle " + kv.Value.bundlePath + " / " + kv.Value.fileName);
+            var csv = new StringBuilder("phase,frame,t,dt,state,norm,statekey,row,rowid,neckptn,ctrlptn,target,motion,head_step,neck_step,headlocal_step,flags\n");
+            var sizes = Json.Arr(row, "sizes") ?? new List<object> { "" };
+            foreach (var so in sizes)
+                foreach (var stName in new[] { "Idle", "WLoop1" })
+                {
+                    object clipName;
+                    if (!states.TryGetValue(stName, out clipName)) continue;
+                    string clip = ((string)clipName).Replace("{s}", (string)so);
+                    int n = StudioAnim.No(g, c, clip);
+                    if (n < 0) { lines.AppendLine("STUDIO " + clip + ": no entry"); continue; }
+                    oci.LoadAnime(g, c, n, 0f);
+                    oci.animeSpeed = 1f;
+                    yield return new WaitForSeconds(1.5f);
+                    yield return new WaitForEndOfFrame();
+                    var an = st.Cha.animBody;
+                    var infos = new List<string>();
+                    foreach (var ci in an.GetCurrentAnimatorClipInfo(0)) infos.Add((ci.clip != null ? ci.clip.name : "-") + "@" + ci.weight.ToString("F2"));
+                    lines.AppendLine("STUDIO " + clip + " (entry " + n + "): clips " + string.Join(" + ", infos.ToArray()) + " animator speed " + an.speed.ToString("F2")
+                        + " pattern " + oci.animePattern.ToString("F2") + " neck ptn " + st.Cha.fileStatus.neckLookPtn + " | keys: " + ClipStats());
+                    yield return SampleHead(id, "studio_" + clip, 6f, csv, null, new List<System.Reflection.FieldInfo>(), new List<System.Reflection.FieldInfo>());
+                }
+            // the same by the app's play
+            var spots = pc.Spots(row);
+            pc.AnySpotForProbe = true;
+            spots = pc.Spots(row);
+            string err = spots.Count > 0 ? pc.Begin(id, "probe", spots[0].Id) : "no spot";
+            yield return new WaitForSeconds(1.5f);
+            yield return new WaitForEndOfFrame();
+            if (err.Length == 0)
+            {
+                var an = st.Cha.animBody;
+                var infos = new List<string>();
+                foreach (var ci in an.GetCurrentAnimatorClipInfo(0)) infos.Add((ci.clip != null ? ci.clip.name : "-") + "@" + ci.weight.ToString("F2"));
+                lines.AppendLine("APP " + id + " size set " + pc.SizeSet + " state " + pc.StateKey + ": clips " + string.Join(" + ", infos.ToArray()) + " animator speed " + an.speed.ToString("F2")
+                    + " pattern " + oci.animePattern.ToString("F2") + " neck ptn " + st.Cha.fileStatus.neckLookPtn + " | keys: " + ClipStats());
+                yield return SampleHead(id, "app_play", 6f, csv, null, new List<System.Reflection.FieldInfo>(), new List<System.Reflection.FieldInfo>());
+                pc.End("probe");
+            }
+            else lines.AppendLine("APP " + id + ": " + err);
+            File.WriteAllText(System.IO.Path.Combine(outDir, "studiocmp_" + id + ".csv"), csv.ToString());
+            yield return Finish();
+        }
+
+        // (#70: "frames seem skipped") --muse-probe=framepace:PLAY: at 60 frames a second (no vsync, the target 60 - the owner's
+        // play, not this PC's 30 when nobody watches), the frame times over 15 s each: her wait loaded as Studio's list does, then
+        // the app's play of it at pace 0 - the frames that took long (a frame lost at 60: over 25 ms), when, and the garbage
+        // collections in those frames
+        IEnumerator FramePace(string id)
+        {
+            yield return new WaitForSeconds(1.5f);
+            int vs = QualitySettings.vSyncCount, tf = Application.targetFrameRate;
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = 60;
+            var pc = h.Play;
+            var st = h.Stage;
+            var oci = st.Heroine;
+            var row = pc.Row(id);
+            if (row == null) { lines.AppendLine("PLAY " + id + " unknown"); yield return Finish(); yield break; }
+            var gc = Json.Arr(row, "female");
+            var states = Json.Obj(row, "female_states");
+            int g = StudioAnim.Group(Convert.ToInt32(gc[0]), gc.Count > 2 ? gc[2] as string : null), c = Convert.ToInt32(gc[1]);
+            string clip = ((string)states["Idle"]).Replace("{s}", "M_");
+            int n = StudioAnim.No(g, c, clip);
+            oci.LoadAnime(g, c, n, 0f);
+            oci.animeSpeed = 1f;
+            yield return new WaitForSeconds(2f);
+            yield return Pace("studio_" + clip, 15f);
+            pc.AnySpotForProbe = true;
+            var spots = pc.Spots(row);
+            string err = spots.Count > 0 ? pc.Begin(id, "probe", spots[0].Id) : "no spot";
+            yield return new WaitForSeconds(2f);
+            if (err.Length == 0) { yield return Pace("app_play", 15f); pc.End("probe"); }
+            else lines.AppendLine("APP " + id + ": " + err);
+            yield return new WaitForSeconds(1f);
+            yield return Pace("app_idle_stage", 10f);
+            QualitySettings.vSyncCount = vs;
+            Application.targetFrameRate = tf;
+            yield return Finish();
+        }
+
+        IEnumerator Pace(string phase, float seconds)
+        {
+            var dts = new List<float>();
+            var longs = new List<string>();
+            int gc0 = GC.CollectionCount(0), gcLong = 0;
+            float t0 = Time.realtimeSinceStartup;
+            int last = GC.CollectionCount(0);
+            yield return null;
+            while (Time.realtimeSinceStartup - t0 < seconds)
+            {
+                yield return null;
+                float dt = Time.unscaledDeltaTime;
+                dts.Add(dt);
+                int gcNow = GC.CollectionCount(0);
+                bool collected = gcNow != last;
+                last = gcNow;
+                if (dt > 0.025f)
+                {
+                    if (collected) gcLong++;
+                    longs.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F2}s {1:F0}ms{2}", Time.realtimeSinceStartup - t0, dt * 1000f, collected ? " gc" : ""));
+                }
+            }
+            dts.Sort();
+            lines.AppendLine(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "PACE {0}: frames {1} median {2:F1}ms p99 {3:F1}ms max {4:F1}ms | over 25ms {5} (with a collection {6}) | collections {7} | {8}",
+                phase, dts.Count, dts[dts.Count / 2] * 1000f, dts[(int)(dts.Count * 0.99f)] * 1000f, dts[dts.Count - 1] * 1000f, longs.Count, gcLong,
+                GC.CollectionCount(0) - gc0, string.Join(", ", longs.ToArray())));
+        }
+
+        IEnumerator Finish()
+        {
             File.WriteAllText(System.IO.Path.Combine(outDir, "probe.txt"), lines.ToString());
             File.WriteAllText(System.IO.Path.Combine(outDir, "results.txt"), "CHECK SUMMARY pass=0 fail=0\n");
             MuseStudioPlugin.Log.LogMessage("MuseStudio: probe done MUSE_PROBE_DONE");

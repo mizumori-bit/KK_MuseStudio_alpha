@@ -4118,6 +4118,8 @@ namespace MuseStudio
             // the bath (shower together; #70 adopted) and the pace after the idle stop (B): SelfCheckBath
             yield return BathChecks();
             yield return ResumeChecks();
+            // an added play's wait evened out (#70, session 12's note 3): SelfCheckSmooth
+            yield return KeySmoothChecks();
             h.Urges.ClockForCheck = DateTime.Today.AddHours(12);
             h.Outing.SecondsForCheck = -1f;
             h.MoveTo(camRoom, "check");
