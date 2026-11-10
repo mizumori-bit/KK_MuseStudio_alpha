@@ -262,6 +262,7 @@ namespace MuseStudio
             StudioAPI.StudioLoadedChanged += OnStudioLoaded;
             var harmony = new HarmonyLib.Harmony(GUID);
             Blend.Patch(harmony);
+            KeySmooth.Patch(harmony);
             StudioKeys.Patch(harmony);
             CamInput.Patch(harmony);
             harmony.Patch(HarmonyLib.AccessTools.Method(typeof(Manager.Scene), "OnApplicationQuit"), new HarmonyLib.HarmonyMethod(typeof(MuseStudioPlugin), "QuitNow"));
@@ -535,6 +536,7 @@ namespace MuseStudio
 
         void LateUpdate()
         {
+            KeySmooth.Late();                           // (a body whose neck look comes later or does not run)
             if (Stage != null && Stage.Ready) Stage.LateTick(Time.deltaTime);
         }
 
